@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tidal2ytm"
+version = "0.1.0"
+description = "Transfer liked tracks from Tidal to YouTube Music with accurate version matching."
+requires-python = ">=3.11"
+dependencies = [
+    "tidalapi>=0.8.3",
+    "ytmusicapi>=1.7.0",
+]
+
+[project.scripts]
+tidal2ytm = "tidal2ytm.cli:main"
