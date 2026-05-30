@@ -18,7 +18,7 @@ Those services pick the first result they find. They don't account for:
 | 3 | **Fuzzy album** | Among duration matches, prefers closest album name. Confidence: ~0.70 |
 | — | **Review queue** | Anything below threshold goes to `review.json` for manual confirmation. |
 
-Nothing gets silently wrong-matched. If the tool isn't confident, it asks you.
+If the tool isn't confident about a match, it won't guess — it queues the track for you to review instead.
 
 ## Setup
 
@@ -30,7 +30,7 @@ If you haven't already, install [`uv`](https://docs.astral.sh/uv/getting-started
 irm https://astral.sh/uv/install.ps1 | iex
 ```
 
-### 2. Install tidal2ytm
+### 2. Clone and install
 
 ```pwsh
 git clone https://github.com/cobrabr/tidal2ytm.git
@@ -42,7 +42,7 @@ uv sync
 
 ```pwsh
 uv run ytmusicapi oauth
-mv oauth.json ytm_auth.json
+Move-Item oauth.json ytm_auth.json
 ```
 
 ### 4. Authenticate Tidal
@@ -86,6 +86,6 @@ For each track in the queue you'll see the source metadata + best YTM candidate 
 ## Notes
 
 - **ISRC on YTM**: `get_song()` doesn't always return ISRC. When it does, the match is exact. When it doesn't, duration + fuzzy album takes over.
-- **Classical music**: ISRC is your best friend. Tracks where it doesn't resolve on YTM's side land in the review queue — correct outcome, since you want to verify the right recording manually.
-- **Tracks not on YTM**: Surface as "No candidates found" in the review queue. Handle via YTM's file upload.
-- **Rate limiting**: Small delays are built in. For large libraries, run overnight.
+- **Classical music**: ISRC is your best friend here. Tracks where it doesn't resolve on YTM's side land in the review queue, which is the right outcome — you want to verify the correct recording manually.
+- **Tracks not on YTM**: Show up as "No candidates found" in the review queue. Handle them via YTM's file upload feature.
+- **Rate limiting**: Small delays are built in. For large libraries, just let it run overnight.
