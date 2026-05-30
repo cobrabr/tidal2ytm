@@ -5,9 +5,7 @@ import os
 import sys
 import tidalapi
 from ytmusicapi import YTMusic
-
-TIDAL_TOKEN_FILE = "tidal_token.json"
-YTM_AUTH_FILE = "ytm_auth.json"
+from .paths import TIDAL_TOKEN_FILE, YTM_AUTH_FILE, STATE_FILE, REVIEW_FILE
 
 
 def _tidal_login() -> tidalapi.Session:
@@ -65,8 +63,8 @@ def cmd_review(args: argparse.Namespace) -> None:
 
 
 def cmd_status(_args: argparse.Namespace) -> None:
-    state_path = "transfer_state.json"
-    review_path = "review.json"
+    state_path = STATE_FILE
+    review_path = REVIEW_FILE
     if not os.path.exists(state_path):
         print("No state found. Run `tidal2ytm transfer` first.")
         return

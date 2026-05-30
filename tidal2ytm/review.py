@@ -3,9 +3,7 @@ import json
 import os
 from ytmusicapi import YTMusic
 from ytmusicapi.enums import LikeStatus
-
-REVIEW_FILE = "review.json"
-STATE_FILE = "transfer_state.json"
+from .paths import REVIEW_FILE, STATE_FILE
 
 
 def _load(path: str) -> dict:

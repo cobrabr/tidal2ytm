@@ -42,7 +42,7 @@ uv sync
 
 ```pwsh
 uv run ytmusicapi oauth
-Move-Item oauth.json ytm_auth.json
+Move-Item oauth.json data/ytm_auth.json
 ```
 
 ### 4. Authenticate Tidal
@@ -76,12 +76,14 @@ For each track in the queue you'll see the source metadata + best YTM candidate 
 
 ## Files created at runtime
 
+All runtime files are written to the `data/` directory (git-ignored).
+
 | File | Purpose |
 |---|---|
-| `tidal_token.json` | Cached Tidal OAuth token |
-| `ytm_auth.json` | YTM auth (you create this once) |
-| `transfer_state.json` | Progress — which tracks are done |
-| `review.json` | Tracks needing manual review |
+| `data/tidal_token.json` | Cached Tidal OAuth token |
+| `data/ytm_auth.json` | YTM auth (you create this once) |
+| `data/transfer_state.json` | Progress — which tracks are done |
+| `data/review.json` | Tracks needing manual review |
 
 ## Notes
 

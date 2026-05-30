@@ -9,9 +9,7 @@ from ytmusicapi import YTMusic
 from .tidal_source import get_liked_tracks
 from .matcher import match_track
 from .ytm_sink import save_to_library
-
-STATE_FILE = "transfer_state.json"
-REVIEW_FILE = "review.json"
+from .paths import STATE_FILE, REVIEW_FILE
 
 
 def _load(path: str) -> dict:

@@ -159,5 +159,8 @@ marimo/_lsp/
 __marimo__/
 .streamlit/secrets.toml
 
+# Runtime data (tokens, state, review queue)
+data/
+
 # Antigravity CLI
 .antigravitycli/
