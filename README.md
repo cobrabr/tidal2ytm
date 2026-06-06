@@ -42,8 +42,24 @@ uv sync
 
 As of November 2024, ytmusicapi requires your own Google Cloud OAuth credentials. Do this once:
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create (or select) a project.
-2. Enable the **YouTube Data API v3** for that project.
+**Option A — via `gcloud` CLI** (install [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) first):
+
+```pwsh
+# Create a project (skip if you have one already)
+gcloud projects create YOUR_PROJECT_ID --name="tidal2ytm"
+gcloud config set project YOUR_PROJECT_ID
+
+# Enable the YouTube Data API
+gcloud services enable youtube.googleapis.com
+```
+
+> [!NOTE]
+> Creating the OAuth client ID (type: **TVs and Limited Input devices**) cannot be done via `gcloud` — that one step requires the Cloud Console UI. Open [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials), click **Create Credentials → OAuth client ID**, choose **TVs and Limited Input devices**, and note the **Client ID** and **Client Secret**.
+
+**Option B — entirely via [Google Cloud Console](https://console.cloud.google.com/)**:
+
+1. Create or select a project.
+2. Enable the **YouTube Data API v3** under **APIs & Services → Library**.
 3. Under **APIs & Services → Credentials**, click **Create Credentials → OAuth client ID**.
 4. Choose **TVs and Limited Input devices** as the application type.
 5. Note the generated **Client ID** and **Client Secret**.
