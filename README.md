@@ -40,10 +40,22 @@ uv sync
 
 ### 3. Authenticate YouTube Music (once)
 
+As of November 2024, ytmusicapi requires your own Google Cloud OAuth credentials. Do this once:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create (or select) a project.
+2. Enable the **YouTube Data API v3** for that project.
+3. Under **APIs & Services → Credentials**, click **Create Credentials → OAuth client ID**.
+4. Choose **TVs and Limited Input devices** as the application type.
+5. Note the generated **Client ID** and **Client Secret**.
+
+Then run:
+
 ```pwsh
 uv run ytmusicapi oauth
 Move-Item oauth.json data/ytm_auth.json
 ```
+
+The command will prompt you to enter your **Client ID** and **Client Secret**, then print a URL and a short code. Open the URL in a browser, sign in with the Google account that has YouTube Music, enter the code when asked, and grant the requested permissions. The terminal will detect the approval automatically and write `oauth.json`.
 
 ### 4. Authenticate Tidal
 
