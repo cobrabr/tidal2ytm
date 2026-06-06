@@ -9,7 +9,7 @@ description = "Transfer liked tracks from Tidal to YouTube Music with accurate v
 requires-python = ">=3.11"
 dependencies = [
     "tidalapi>=0.8.3",
-    "ytmusicapi>=1.7.0",
+    "ytmusicapi>=1.12.1",
 ]
 
 [project.scripts]
