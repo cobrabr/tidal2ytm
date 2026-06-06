@@ -2,7 +2,7 @@
 
 Transfers your liked tracks from Tidal to YouTube Music **accurately** — matching the right version of every song, not just the first result with the same title.
 
-## Why not Soundiiz / TuneMyMusic?
+## Why not Soundiiz or TuneMyMusic?
 
 Those services pick the first result they find. They don't account for:
 
@@ -13,7 +13,7 @@ Those services pick the first result they find. They don't account for:
 ## Matching strategy
 
 | Priority | Method           | How it works                                                            |
-|---|---|---|
+|----------|------------------|-------------------------------------------------------------------------|
 | 1        | **ISRC**         | Exact recording identifier. Unambiguous. Confidence: 1.0                |
 | 2        | **Duration**     | Title + artist + duration within ±4 s. Confidence: ~0.85                |
 | 3        | **Fuzzy album**  | Among duration matches, prefers closest album name. Confidence: ~0.70   |
@@ -43,7 +43,14 @@ uv sync
 
 As of November 2024, `ytmusicapi` requires your own Google Cloud OAuth credentials. Do this once:
 
-**Option A: via `gcloud` CLI** (install [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) first):
+#### 3.1. Create a Google Cloud Project
+
+This can be done in one of two ways:
+
+##### Option 1: via `gcloud` CLI
+
+1. Install the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
+2. Run:
 
 ```pwsh
 # Create a project (skip if you have one already)
@@ -54,19 +61,22 @@ gcloud config set project YOUR_PROJECT_ID
 gcloud services enable youtube.googleapis.com
 ```
 
-**Option B: via [Google Cloud Console](https://console.cloud.google.com/)**:
+##### Option 2: via [Google Cloud Console](https://console.cloud.google.com/)
 
-1. Create or select a project.
+1. Create a project.
 2. Enable the **YouTube Data API v3** under **APIs & Services → Library**.
 
-[!NOTE]
-Creating the OAuth client ID cannot be done via `gcloud` — that one step requires the Cloud Console UI. Open [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials), click **Create Credentials → OAuth client ID**, choose **TVs and Limited Input devices**, and note the **Client ID** and **Client Secret**.
+#### 3.2. Create an OAuth client ID
+
+> [!NOTE]
+> This step cannot currently be done via the `gcloud` CLI tool. It requires using the Google Cloud Console UI.
 
 1. Under **[APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)**, click **Create Credentials → OAuth client ID**.
 2. Choose **TVs and Limited Input devices** as the application type.
 3. Note the generated **Client ID** and **Client Secret**.
 
-Then run:
+#### 3.3. Authenticate
+Run:
 
 ```pwsh
 uv run ytmusicapi oauth
@@ -110,7 +120,7 @@ For each track in the queue you'll see the source metadata + best YTM candidate 
 All runtime files are written to the `data/` directory (git-ignored).
 
 | File                       | Purpose                          |
-|---|---|
+|----------------------------|----------------------------------|
 | `data/tidal_token.json`    | Cached Tidal OAuth token         |
 | `data/ytm_auth.json`       | YTM auth (you create this once)  |
 | `data/transfer_state.json` | Progress — which tracks are done |
