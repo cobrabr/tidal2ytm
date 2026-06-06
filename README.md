@@ -5,18 +5,19 @@ Transfers your liked tracks from Tidal to YouTube Music **accurately** — match
 ## Why not Soundiiz / TuneMyMusic?
 
 Those services pick the first result they find. They don't account for:
+
 - Multiple album versions (original vs. remaster vs. deluxe vs. box set)
 - Wildly different versions with the same title (e.g. *Chariots of Fire* at 3:29 vs. 20:41)
 - Classical tracks where title alone is useless (every recording is labelled the same thing)
 
 ## Matching strategy
 
-| Priority | Method | How it works |
+| Priority | Method           | How it works                                                            |
 |---|---|---|
-| 1 | **ISRC** | Exact recording identifier. Unambiguous. Confidence: 1.0 |
-| 2 | **Duration** | Title + artist + duration within ±4 s. Confidence: ~0.85 |
-| 3 | **Fuzzy album** | Among duration matches, prefers closest album name. Confidence: ~0.70 |
-| — | **Review queue** | Anything below threshold goes to `review.json` for manual confirmation. |
+| 1        | **ISRC**         | Exact recording identifier. Unambiguous. Confidence: 1.0                |
+| 2        | **Duration**     | Title + artist + duration within ±4 s. Confidence: ~0.85                |
+| 3        | **Fuzzy album**  | Among duration matches, prefers closest album name. Confidence: ~0.70   |
+| —        | **Review queue** | Anything below threshold goes to `review.json` for manual confirmation. |
 
 If the tool isn't confident about a match, it won't guess — it queues the track for you to review instead.
 
@@ -40,9 +41,9 @@ uv sync
 
 ### 3. Authenticate YouTube Music (once)
 
-As of November 2024, ytmusicapi requires your own Google Cloud OAuth credentials. Do this once:
+As of November 2024, `ytmusicapi` requires your own Google Cloud OAuth credentials. Do this once:
 
-**Option A — via `gcloud` CLI** (install [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) first):
+**Option A: via `gcloud` CLI** (install [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) first):
 
 ```pwsh
 # Create a project (skip if you have one already)
@@ -53,16 +54,17 @@ gcloud config set project YOUR_PROJECT_ID
 gcloud services enable youtube.googleapis.com
 ```
 
-> [!NOTE]
-> Creating the OAuth client ID (type: **TVs and Limited Input devices**) cannot be done via `gcloud` — that one step requires the Cloud Console UI. Open [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials), click **Create Credentials → OAuth client ID**, choose **TVs and Limited Input devices**, and note the **Client ID** and **Client Secret**.
-
-**Option B — entirely via [Google Cloud Console](https://console.cloud.google.com/)**:
+**Option B: via [Google Cloud Console](https://console.cloud.google.com/)**:
 
 1. Create or select a project.
 2. Enable the **YouTube Data API v3** under **APIs & Services → Library**.
-3. Under **APIs & Services → Credentials**, click **Create Credentials → OAuth client ID**.
-4. Choose **TVs and Limited Input devices** as the application type.
-5. Note the generated **Client ID** and **Client Secret**.
+
+[!NOTE]
+Creating the OAuth client ID cannot be done via `gcloud` — that one step requires the Cloud Console UI. Open [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials), click **Create Credentials → OAuth client ID**, choose **TVs and Limited Input devices**, and note the **Client ID** and **Client Secret**.
+
+1. Under **[APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)**, click **Create Credentials → OAuth client ID**.
+2. Choose **TVs and Limited Input devices** as the application type.
+3. Note the generated **Client ID** and **Client Secret**.
 
 Then run:
 
@@ -72,7 +74,7 @@ New-Item -Path "data" -Type Directory -ErrorAction SilentlyContinue
 Move-Item oauth.json data/ytm_auth.json
 ```
 
-The command will prompt you to enter your **Client ID** and **Client Secret**, then print a URL and a short code. Open the URL in a browser, sign in with the Google account that has YouTube Music, enter the code when asked, and grant the requested permissions. The terminal will detect the approval automatically and write `oauth.json`.
+The `uv run` command will prompt you to enter your **Client ID** and **Client Secret**, then print a URL and a short code. Open the URL in a browser, sign in with the Google account that has YouTube Music, enter the code when asked, and grant the requested permissions. The terminal will detect the approval automatically and write `oauth.json`, which is then moved to `data/ytm_auth.json`.
 
 ### 4. Authenticate Tidal
 
@@ -107,12 +109,12 @@ For each track in the queue you'll see the source metadata + best YTM candidate 
 
 All runtime files are written to the `data/` directory (git-ignored).
 
-| File | Purpose |
+| File                       | Purpose                          |
 |---|---|
-| `data/tidal_token.json` | Cached Tidal OAuth token |
-| `data/ytm_auth.json` | YTM auth (you create this once) |
+| `data/tidal_token.json`    | Cached Tidal OAuth token         |
+| `data/ytm_auth.json`       | YTM auth (you create this once)  |
 | `data/transfer_state.json` | Progress — which tracks are done |
-| `data/review.json` | Tracks needing manual review |
+| `data/review.json`         | Tracks needing manual review     |
 
 ## Notes
 
