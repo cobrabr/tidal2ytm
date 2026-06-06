@@ -68,6 +68,7 @@ Then run:
 
 ```pwsh
 uv run ytmusicapi oauth
+New-Item -Path "data" -Type Directory -ErrorAction SilentlyContinue
 Move-Item oauth.json data/ytm_auth.json
 ```
 
