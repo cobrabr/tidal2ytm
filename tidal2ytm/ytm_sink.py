@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 from ytmusicapi import YTMusic
-from ytmusicapi.enums import LikeStatus
+from ytmusicapi.models.content.enums import LikeStatus
 from .models import MatchResult
 
 

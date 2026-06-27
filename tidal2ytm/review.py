@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import os
 from ytmusicapi import YTMusic
-from ytmusicapi.enums import LikeStatus
+from ytmusicapi.models.content.enums import LikeStatus
 from .paths import REVIEW_FILE, STATE_FILE
 
 
