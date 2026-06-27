@@ -73,18 +73,20 @@ gcloud services enable youtube.googleapis.com
 
 1. Under **[APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)**, click **Create Credentials → OAuth client ID**.
 2. Choose **TVs and Limited Input devices** as the application type.
-3. Note the generated **Client ID** and **Client Secret**.
+3. Download the client secrets JSON file by clicking the download icon next to the client ID.
+4. Save the downloaded JSON file to the `data/` directory. The file name will look like `client_secret_<fullClientSecret>.json`.
 
 #### 3.3. Authenticate
 Run:
 
 ```pwsh
-uv run ytmusicapi oauth
 New-Item -Path "data" -Type Directory -ErrorAction SilentlyContinue
-Move-Item oauth.json data/ytm_auth.json
+uv run ytmusicapi oauth --file data/ytm_auth.json
 ```
 
-The `uv run` command will prompt you to enter your **Client ID** and **Client Secret**, then print a URL and a short code. Open the URL in a browser, sign in with the Google account that has YouTube Music, enter the code when asked, and grant the requested permissions. The terminal will detect the approval automatically and write `oauth.json`, which is then moved to `data/ytm_auth.json`.
+1. Enter your **Client ID** and **Client Secret** (copy them from your downloaded JSON file) when prompted.
+2. Open the printed URL in a browser, sign in with the Google account that has YouTube Music, enter the code when asked, and grant the requested permissions.
+3. The terminal will detect the approval automatically, write `oauth.json`, and move it to `data/ytm_auth.json`.
 
 ### 4. Authenticate Tidal
 
