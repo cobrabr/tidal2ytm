@@ -6,7 +6,7 @@ import sys
 import webbrowser
 import tidalapi
 from ytmusicapi import YTMusic
-from .paths import DATA_DIR, TIDAL_TOKEN_FILE, YTM_AUTH_FILE, STATE_FILE, REVIEW_FILE
+from .paths import DATA_DIR, TIDAL_TOKEN_FILE, YTM_AUTH_FILE, PLAN_FILE
 
 
 def _tidal_login() -> tidalapi.Session:
@@ -25,7 +25,7 @@ def _tidal_login() -> tidalapi.Session:
                 return session
         except Exception:
             pass
-        print("Cached token expired. Re-authenticating\u2026")
+        print("Cached token expired. Re-authenticating…")
 
     link_login, login_future = session.login_oauth()
     url = f"https://{link_login.verification_uri_complete}"
@@ -69,7 +69,6 @@ def _ytm_login() -> YTMusic:
     try:
         with open(client_secret_file, encoding="utf-8") as f:
             data = json.load(f)
-            # Support "installed", "web", or fallback to finding keys anywhere
             for key in ["installed", "web"]:
                 if key in data:
                     client_id = data[key].get("client_id")
@@ -108,13 +107,13 @@ def _ytm_login() -> YTMusic:
         )
         sys.exit(1)
 
-    # Use TVHTML5 clientName by default so authenticated calls (like rate_song) succeed.
+    # Use TVHTML5 clientName by default so authenticated calls succeed.
     yt.context["context"]["client"].update({
         "clientName": "TVHTML5",
         "clientVersion": "7.20230924.01.00"
     })
 
-    # Patch _session.post to strip auth headers and use WEB_REMIX for read endpoints (search, get_song).
+    # Patch _session.post to strip auth headers and use WEB_REMIX for read endpoints.
     original_post = yt._session.post
 
     def patched_post(url, *args, **kwargs):
@@ -155,41 +154,152 @@ def _ytm_login() -> YTMusic:
     return yt
 
 
+# ---------------------------------------------------------------------------
+# Command handlers
+# ---------------------------------------------------------------------------
+
+
+def cmd_plan(args: argparse.Namespace) -> None:
+    from .plan import run_plan
+    run_plan(_tidal_login(), _ytm_login(), plan_path=PLAN_FILE, force=args.force)
+
+
 def cmd_transfer(args: argparse.Namespace) -> None:
     from .transfer import run_transfer
-    run_transfer(_tidal_login(), _ytm_login(), dry_run=args.dry_run, max_tracks=args.limit)
+
+    # Determine scope
+    track_id = getattr(args, "track", None)
+    album_id = getattr(args, "album", None)
+    artist_id = getattr(args, "artist", None)
+    all_tracks = getattr(args, "all", False)
+
+    run_transfer(
+        _ytm_login(),
+        track_id=track_id,
+        album_match_id=album_id,
+        artist_match_id=artist_id,
+        all_tracks=all_tracks,
+        dry_run=args.dry_run,
+        include_needs_review=args.include_needs_review,
+        plan_path=PLAN_FILE,
+    )
 
 
 def cmd_review(args: argparse.Namespace) -> None:
+    from .models import TrackStatus
     from .review import run_review
-    run_review(_ytm_login(), dry_run=args.dry_run)
+
+    # Status filter
+    status_filter = None
+    for flag, ts in [
+        ("needs_review", TrackStatus.NEEDS_REVIEW),
+        ("pending", TrackStatus.PENDING),
+        ("failed", TrackStatus.FAILED),
+        ("skip", TrackStatus.SKIP),
+        ("transferred", TrackStatus.TRANSFERRED),
+    ]:
+        if getattr(args, flag, False):
+            status_filter = ts
+            break
+
+    run_review(
+        status_filter=status_filter,
+        artist_match_id=getattr(args, "artist", None),
+        album_match_id=getattr(args, "album", None),
+        plan_path=PLAN_FILE,
+    )
 
 
-def cmd_status(_args: argparse.Namespace) -> None:
-    state_path = STATE_FILE
-    review_path = REVIEW_FILE
-    if not os.path.exists(state_path):
-        print("No state found. Run `tidal2ytm transfer` first.")
+def cmd_status(args: argparse.Namespace) -> None:
+    from rich.console import Console
+    from rich.text import Text
+    from .plan_io import load_plan, iter_tracks_filtered
+    from .models import TrackStatus
+
+    console = Console()
+
+    if not PLAN_FILE.exists():
+        console.print("No transfer plan found. Run [bold]tidal2ytm plan[/bold] first.")
         return
-    with open(state_path) as f:
-        state = json.load(f)
-    done = [v for v in state.values() if v.get("done")]
-    pending = [v for v in state.values() if not v.get("done")]
-    methods: dict[str, int] = {}
-    for v in done:
-        m = v.get("method", "unknown")
-        methods[m] = methods.get(m, 0) + 1
-    print(f"Tracked:  {len(state)}")
-    print(f"Done:     {len(done)}")
-    print(f"Pending:  {len(pending)}")
-    print("Methods:")
-    for m, n in sorted(methods.items()):
-        print(f"  {m}: {n}")
-    if os.path.exists(review_path):
-        with open(review_path) as f:
-            review = json.load(f)
-        unreviewed = [v for v in review.values() if not v.get("confirmed") and not v.get("skipped")]
-        print(f"\nReview queue: {len(review)} total, {len(unreviewed)} pending")
+
+    plan = load_plan(PLAN_FILE)
+    meta = plan.get("meta", {})
+
+    import os
+    mtime = os.path.getmtime(PLAN_FILE)
+    from datetime import datetime
+    last_updated = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+
+    artist_filter = getattr(args, "artist", None)
+    album_filter = getattr(args, "album", None)
+
+    console.print(f"Transfer plan: {PLAN_FILE}  (last updated: {last_updated})")
+
+    if artist_filter or album_filter:
+        # Scoped: compute counts from filtered tracks
+        tracks = list(iter_tracks_filtered(
+            plan,
+            artist_match_id=artist_filter,
+            album_match_id=album_filter,
+        ))
+        total = len(tracks)
+        from collections import Counter
+        counts = Counter(t.get("status", TrackStatus.PENDING.value) for t in tracks)
+        console.print(f"Total tracks (scoped): {total}")
+    else:
+        total = meta.get("total_tracks", 0)
+        counts = {
+            TrackStatus.TRANSFERRED.value: meta.get("transferred", 0),
+            TrackStatus.PENDING.value:     meta.get("pending", 0),
+            TrackStatus.NEEDS_REVIEW.value: meta.get("needs_review", 0),
+            TrackStatus.SKIP.value:         meta.get("skip", 0),
+            TrackStatus.FAILED.value:       meta.get("failed", 0),
+        }
+        console.print(f"Total tracks: {total}")
+
+    status_styles = {
+        TrackStatus.TRANSFERRED.value:  "on green",
+        TrackStatus.PENDING.value:      "",
+        TrackStatus.NEEDS_REVIEW.value: "on yellow",
+        TrackStatus.SKIP.value:         "dim",
+        TrackStatus.FAILED.value:       "on red",
+    }
+    console.print()
+    for status, style in status_styles.items():
+        count = counts.get(status, 0) if isinstance(counts, dict) else counts.get(status, 0)
+        line = Text(f"  {status + ':':16} {count:>4}")
+        line.stylize(style)
+        console.print(line)
+
+    # Show needs_review detail
+    nr_count = counts.get(TrackStatus.NEEDS_REVIEW.value, 0) if isinstance(counts, dict) else counts.get(TrackStatus.NEEDS_REVIEW.value, 0)
+    if nr_count:
+        console.print(f"\n[yellow]needs_review ({nr_count}):[/yellow]")
+        for t in iter_tracks_filtered(
+            plan,
+            status=TrackStatus.NEEDS_REVIEW,
+            artist_match_id=artist_filter,
+            album_match_id=album_filter,
+        ):
+            # find album match_id for this track
+            alb_id = ""
+            for artist in plan.get("artists", []):
+                for album in artist.get("albums", []):
+                    for tr in album.get("tracks", []):
+                        if tr.get("tidal_id") == t.get("tidal_id"):
+                            alb_id = album.get("match_id", "")
+            conf_overall = t.get("confidence", {}).get("overall", 0.0)
+            vid = t.get("yt_video_id", "")
+            method = t.get("match_method", "none")
+            console.print(f"  [dim]{alb_id}[/dim]")
+            console.print(
+                f"    {t.get('title', '?'):<36} {vid:<13} {method} @ {conf_overall:.2f}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# CLI parser
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -199,16 +309,46 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_t = sub.add_parser("transfer", help="Run the transfer (incremental).")
+    # --- plan ---
+    p_plan = sub.add_parser("plan", help="Build or update the transfer plan.")
+    p_plan.add_argument("--force", action="store_true",
+                        help="Overwrite better matches without prompting.")
+    p_plan.set_defaults(func=cmd_plan)
+
+    # --- transfer ---
+    p_t = sub.add_parser("transfer", help="Transfer tracks to YouTube Music library.")
+    scope = p_t.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--track",  metavar="VIDEO_ID",
+                       help="11-char YouTube video ID.")
+    scope.add_argument("--album",  metavar="MATCH_ID",
+                       help="Album match_id (e.g. jethro-tull/war-child).")
+    scope.add_argument("--artist", metavar="MATCH_ID",
+                       help="Artist match_id (e.g. jethro-tull).")
+    scope.add_argument("--all",    action="store_true",
+                       help="Transfer all pending tracks.")
     p_t.add_argument("--dry-run", action="store_true")
-    p_t.add_argument("--limit", type=int, default=None)
+    p_t.add_argument("--include-needs-review", action="store_true",
+                     dest="include_needs_review",
+                     help="Include low-confidence matches in the transfer.")
     p_t.set_defaults(func=cmd_transfer)
 
-    p_r = sub.add_parser("review", help="Review low-confidence matches interactively.")
-    p_r.add_argument("--dry-run", action="store_true")
+    # --- review ---
+    p_r = sub.add_parser("review", help="Review matches interactively.")
+    status_group = p_r.add_mutually_exclusive_group()
+    status_group.add_argument("--needs-review",  action="store_true", dest="needs_review")
+    status_group.add_argument("--pending",        action="store_true")
+    status_group.add_argument("--failed",         action="store_true")
+    status_group.add_argument("--skip",           action="store_true")
+    status_group.add_argument("--transferred",    action="store_true")
+    status_group.add_argument("--all-statuses",   action="store_true", dest="all_statuses")
+    p_r.add_argument("--artist", metavar="MATCH_ID")
+    p_r.add_argument("--album",  metavar="MATCH_ID")
     p_r.set_defaults(func=cmd_review)
 
+    # --- status ---
     p_s = sub.add_parser("status", help="Show transfer progress.")
+    p_s.add_argument("--artist", metavar="MATCH_ID")
+    p_s.add_argument("--album",  metavar="MATCH_ID")
     p_s.set_defaults(func=cmd_status)
 
     args = parser.parse_args()
