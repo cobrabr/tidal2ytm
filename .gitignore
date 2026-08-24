@@ -161,6 +161,3 @@ __marimo__/
 
 # Runtime data (tokens, state, review queue)
 data/
-
-# Antigravity CLI
-.antigravitycli/

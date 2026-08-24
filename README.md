@@ -17,9 +17,9 @@ Those services pick the first result they find. They don't account for:
 | 1        | **ISRC**         | Exact recording identifier. Unambiguous. Confidence: 1.0                |
 | 2        | **Duration**     | Title + artist + duration within ±4 s. Confidence: ~0.85                |
 | 3        | **Fuzzy album**  | Among duration matches, prefers closest album name. Confidence: ~0.70   |
-| —        | **Review queue** | Anything below threshold goes to `review.json` for manual confirmation. |
+| —        | **Review queue** | Anything below threshold marked `needs_review` in `transfer_plan.toml` for manual confirmation. |
 
-If the tool isn't confident about a match, it won't guess — it queues the track for you to review instead.
+If the tool isn't confident about a match, it won't guess — it sets the status to `needs_review` in the plan file.
 
 ## Setup
 
@@ -90,47 +90,94 @@ uv run ytmusicapi oauth --file data/ytm_auth.json
 
 ### 4. Authenticate Tidal
 
-No setup needed upfront. The first `transfer` run opens a browser for Tidal's OAuth device flow and caches the token in `tidal_token.json`.
+No setup needed upfront. The first `plan` run opens a browser for Tidal's OAuth device flow and caches the token in `tidal_token.json`.
 
 ## Usage
 
+The workflow consists of three steps: generating a plan, reviewing/resolving low-confidence matches, and executing the transfer.
+
 ```pwsh
-# Dry run — matches everything, saves nothing
-uv run tidal2ytm transfer --dry-run
+# 1. Generate or update the transfer plan
+uv run tidal2ytm plan
 
-# Real run (incremental — safe to re-run)
-uv run tidal2ytm transfer
+# 2. Interactively review low-confidence matches
+uv run tidal2ytm review --needs-review
 
-# Review low-confidence / unmatched tracks interactively
-uv run tidal2ytm review
-
-# Check progress
-uv run tidal2ytm status
+# 3. Transfer matches in scope
+uv run tidal2ytm transfer --all
 ```
 
-### Review mode
+### 1. Plan (`plan`)
+Scans Tidal liked tracks and searches YouTube Music to find matching candidates. Results are saved to `data/transfer_plan.toml`.
 
-For each track in the queue you'll see the source metadata + best YTM candidate + a URL. Options:
+```pwsh
+uv run tidal2ytm plan [--force]
+```
+- `--force`: Overwrites better matches found on subsequent runs without prompting.
 
-- **`c`** — confirm the suggestion and save it
-- **`s`** — skip this track
-- **`o`** — override: paste any YTM URL or videoId
-- **`q`** — quit and save progress (resume anytime)
+### 2. Review (`review`)
+Interactive Rich TUI to accept, skip, or override matches. Decisions are saved instantly. On first write, a backup of the plan is saved to `data/transfer_plan.YYYYMMDD_HHMMSS.toml`.
+
+```pwsh
+uv run tidal2ytm review [--needs-review | --pending | --failed | --skip | --transferred | --all-statuses]
+                        [--artist <match_id>] [--album <match_id>]
+```
+
+#### TUI Keys:
+- **Navigation**:
+  - `k` / `]` / `↓` / `Enter`: Next track
+  - `j` / `[` / `↑` / `Shift+Enter`: Previous track
+  - `n` / `→` / `Tab`: Next album
+  - `p` / `←` / `Shift+Tab`: Previous album
+  - `N` / `P`: Next/Prev artist
+  - `g <id>`: Jump to artist/album `match_id` or YouTube video ID
+- **Decisions**:
+  - `a`: Accept match (sets status to `pending`)
+  - `s`: Skip track (sets status to `skip`)
+  - `r`: Reject match (sets status to `needs_review`)
+  - `o`: Override (prompts for YouTube video ID or URL, sets status to `pending`)
+  - `t`: Mark as transferred manually
+- **Other**:
+  - `?` / `h`: Show help overlay
+  - `q`: Quit TUI
+
+### 3. Transfer (`transfer`)
+Executes the transfer of matched tracks to your library. Requires a specific scope.
+
+```pwsh
+uv run tidal2ytm transfer (--track <video-id> | --album <match-id> | --artist <match-id> | --all)
+                           [--dry-run] [--include-needs-review]
+```
+- `--track`: Bare 11-character YouTube video ID.
+- `--album`: Album `match_id` (e.g. `jethro-tull/war-child`).
+- `--artist`: Artist `match_id` (e.g. `jethro-tull`).
+- `--all`: Transfer all pending tracks.
+- `--dry-run`: Match and log actions without adding to YouTube Music library.
+- `--include-needs-review`: Forces transfer of low-confidence matches without prior review. Shows a warning panel before starting.
+
+### 4. Status (`status`)
+Displays total counts and lists tracks needing review.
+
+```pwsh
+uv run tidal2ytm status [--artist <match-id>] [--album <match-id>]
+```
 
 ## Files created at runtime
 
 All runtime files are written to the `data/` directory (git-ignored).
 
-| File                       | Purpose                          |
+| File | Purpose |
 |----------------------------|----------------------------------|
-| `data/tidal_token.json`    | Cached Tidal OAuth token         |
-| `data/ytm_auth.json`       | YTM auth (you create this once)  |
-| `data/transfer_state.json` | Progress — which tracks are done |
-| `data/review.json`         | Tracks needing manual review     |
+| `data/tidal_token.json` | Cached Tidal OAuth token |
+| `data/ytm_auth.json` | YTM auth (you create this once) |
+| `data/transfer_plan.toml` | The main transfer plan |
+| `data/transfer_plan.YYYYMMDD_HHMMSS.toml` | Automated backup created on first review write |
 
 ## Notes
 
-- **ISRC on YTM**: `get_song()` doesn't always return ISRC. When it does, the match is exact. When it doesn't, duration + fuzzy album takes over.
+- **ISRC on YTM**: `get_song()` and search candidate metadata are checked for ISRC. When it matches, confidence is 1.0. When it doesn't, duration + fuzzy album takes over.
 - **Classical music**: ISRC is your best friend here. Tracks where it doesn't resolve on YTM's side land in the review queue, which is the right outcome — you want to verify the correct recording manually.
-- **Tracks not on YTM**: Show up as "No candidates found" in the review queue. Handle them via YTM's file upload feature.
+- **Tracks not on YTM**: Show up as "No candidates found" in the review queue. Handle them by putting an empty string or using override (`o`) in review.
+- **Library Add vs Like**: The tool calls `edit_song_library_status` to add songs directly to your Library, not just thumb-up / like them.
 - **Rate limiting**: Small delays are built in. For large libraries, just let it run overnight.
+
