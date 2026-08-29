@@ -11,7 +11,10 @@ def test_album_slug_direct_under_15():
 def test_album_slug_acronym_over_15():
     # "The Dark Side Of The Moon" -> acronym path; exact value asserted against implementation
     result = slugs.album_slug("The Dark Side Of The Moon Remastered Deluxe Edition")
-    assert len(result) <= 15 and "-" in result or result.islower()
+    assert len(result) <= 15 and ("-" in result or result.islower())
+
+def test_album_slug_truncate_single_token():
+    assert slugs.album_slug("Supercalifragilisticexpialidocious") == "supercalifragil"
 
 def test_album_slug_non_latin_fallback(monkeypatch):
     monkeypatch.setattr("tidal2ytm.slugs.secrets.choice", lambda _: "x")
