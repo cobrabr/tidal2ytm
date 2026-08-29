@@ -1,0 +1,38 @@
+[meta]
+total_tracks = 2
+transferred = 0
+pending = 1
+needs_review = 1
+skip = 0
+failed = 0
+generated_at = "2026-08-29T00:00:00"
+
+[[artists]]
+name = "Jethro Tull"
+match_id = "jethro-tull"
+
+[[artists.albums]]
+name = "War Child"
+match_id = "jethro-tull/war-child"
+[[artists.albums.tracks]]
+tidal_id = 123
+title = "Bungle in the Jungle"
+artists = ["Jethro Tull"]
+album = "War Child"
+duration = 221
+isrc = "USABC1234567"
+yt_video_id = "dQw4w9WgXcQ"
+status = "pending"
+match_method = "isrc"
+confidence = { overall = 1.0, title = 1.0, artist = 1.0, album = 1.0 }
+
+[[artists.albums.tracks]]
+tidal_id = 124
+title = "Skating Away"
+artists = ["Jethro Tull"]
+album = "War Child"
+duration = 267
+yt_video_id = ""
+status = "needs_review"
+match_method = "none"
+confidence = { overall = 0.0, title = 0.0, artist = 0.0, album = 0.0 }
