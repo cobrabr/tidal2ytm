@@ -251,12 +251,14 @@ def run_plan(
                         kept_count += 1
                         new_track_dicts.append(existing)
 
-            new_albums.append({
+            album_entry: dict = {
                 "name": first_track.album,
-                "year": first_track.album_year,
                 "match_id": album_match_id,
                 "tracks": new_track_dicts,
-            })
+            }
+            if first_track.album_year is not None:
+                album_entry["year"] = first_track.album_year
+            new_albums.append(album_entry)
 
         new_artists.append({
             "name": artist_name,
