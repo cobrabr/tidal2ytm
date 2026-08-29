@@ -4,10 +4,12 @@ transfer.py — Plan executor for tidal2ytm.
 Reads from the TOML transfer plan and adds tracks to the YTM library,
 scoped by --track, --album, --artist, or --all.
 """
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from ytmusicapi import YTMusic
 
@@ -18,7 +20,6 @@ from .plan_io import (
     find_artist_by_match_id,
     find_track_by_video_id,
     iter_tracks,
-    iter_tracks_filtered,
     load_plan,
     save_plan,
     update_plan_meta,
@@ -27,7 +28,7 @@ from .plan_io import (
 from .ytm_sink import add_track_to_library
 
 
-def _warn_needs_review(console) -> None:
+def _warn_needs_review(console: Any) -> None:
     from rich.panel import Panel
 
     warning = (
@@ -59,6 +60,7 @@ def run_transfer(
     plan_path: Path = PLAN_FILE,
 ) -> None:
     from rich.console import Console
+
     console = Console()
 
     if not plan_path.exists():
@@ -67,9 +69,10 @@ def run_transfer(
         )
         sys.exit(1)
 
-    plan = load_plan(plan_path)
+    plan: dict[str, Any] = load_plan(plan_path)
 
     # Resolve scope
+    in_scope: list[dict[str, Any]]
     if track_id is not None:
         track = find_track_by_video_id(plan, track_id)
         if track is None:
@@ -79,13 +82,17 @@ def run_transfer(
     elif album_match_id is not None:
         album = find_album_by_match_id(plan, album_match_id)
         if album is None:
-            console.print(f"[red]Error:[/red] No album with match_id '{album_match_id}' found in plan.")
+            console.print(
+                f"[red]Error:[/red] No album with match_id '{album_match_id}' found in plan."
+            )
             sys.exit(1)
         in_scope = list(album.get("tracks", []))
     elif artist_match_id is not None:
         artist = find_artist_by_match_id(plan, artist_match_id)
         if artist is None:
-            console.print(f"[red]Error:[/red] No artist with match_id '{artist_match_id}' found in plan.")
+            console.print(
+                f"[red]Error:[/red] No artist with match_id '{artist_match_id}' found in plan."
+            )
             sys.exit(1)
         in_scope = []
         for album in artist.get("albums", []):
@@ -117,7 +124,7 @@ def run_transfer(
     # Transfer loop
     transferred = failed = skipped_review = skipped_done = 0
 
-    for track in in_scope:
+    for track in in_scope:  # type: ignore[assignment]
         status = track.get("status", TrackStatus.PENDING.value)
         title = track.get("title", "")
         tidal_id = track.get("tidal_id", 0)

@@ -1,13 +1,14 @@
 """
 plan.py — Matching orchestration and idempotent plan build/merge.
 """
+
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
-import tidalapi
 from ytmusicapi import YTMusic
 
 from .matcher import match_track
@@ -19,14 +20,12 @@ from .models import (
 )
 from .plan_io import (
     find_existing_match,
-    iter_tracks,
     load_plan,
     save_plan,
     update_plan_meta,
 )
-from .slugs import artist_slug, dedup_slugs, make_album_match_id
+from .slugs import artist_slug, dedup_slugs
 from .tidal_source import get_liked_tracks
-
 
 # ---------------------------------------------------------------------------
 # Grouping
@@ -55,36 +54,41 @@ def group_by_artist_album(results: list[MatchResult]) -> list[ArtistGroup]:
 
         # Build AlbumGroup list per artist, sorted by (year, album name)
         album_groups: list[AlbumGroup] = []
-        for album_id, tracks in albums_map.items():
+        for _album_id, tracks in albums_map.items():
             # Sort tracks by disc_num, track_num
             tracks_sorted = sorted(tracks, key=lambda r: (r.source.disc_num, r.source.track_num))
             first = tracks_sorted[0].source
-            album_groups.append(AlbumGroup(
-                name=first.album,
-                year=first.album_year,
-                match_id="",  # filled in after dedup
-                tracks=tracks_sorted,
-            ))
+            album_groups.append(
+                AlbumGroup(
+                    name=first.album,
+                    year=first.album_year,
+                    match_id="",  # filled in after dedup
+                    tracks=tracks_sorted,
+                )
+            )
 
         album_groups.sort(key=lambda a: (a.year or 9999, a.name.casefold()))
 
-        artist_groups.append(ArtistGroup(
-            name=artist_name,
-            match_id="",  # filled in after dedup
-            albums=album_groups,
-        ))
+        artist_groups.append(
+            ArtistGroup(
+                name=artist_name,
+                match_id="",  # filled in after dedup
+                albums=album_groups,
+            )
+        )
 
     # Compute deduplicated artist slugs
     raw_artist_slugs = [artist_slug(ag.name) for ag in artist_groups]
     deduped_artist_slugs = dedup_slugs(raw_artist_slugs)
-    for ag, slug in zip(artist_groups, deduped_artist_slugs):
+    for ag, slug in zip(artist_groups, deduped_artist_slugs, strict=False):
         ag.match_id = slug
 
         # Compute deduplicated album slugs within this artist
         from .slugs import album_slug
+
         raw_album_slugs = [album_slug(alb.name) for alb in ag.albums]
         deduped_album_slugs = dedup_slugs(raw_album_slugs)
-        for alb, aslug in zip(ag.albums, deduped_album_slugs):
+        for alb, aslug in zip(ag.albums, deduped_album_slugs, strict=False):
             alb.match_id = f"{slug}/{aslug}"
 
     return artist_groups
@@ -95,11 +99,11 @@ def group_by_artist_album(results: list[MatchResult]) -> list[ArtistGroup]:
 # ---------------------------------------------------------------------------
 
 
-def _match_result_to_track_dict(result: MatchResult) -> dict:
+def _match_result_to_track_dict(result: MatchResult) -> dict[str, Any]:
     """Convert a MatchResult to the flat dict structure stored in the TOML plan."""
     src = result.source
     conf = result.confidence
-    track: dict = {
+    track: dict[str, Any] = {
         "tidal_id": src.tidal_id,
         "title": src.title,
         "artist": src.artist,
@@ -120,7 +124,7 @@ def _match_result_to_track_dict(result: MatchResult) -> dict:
     if result.review_reason:
         track["review_reason"] = result.review_reason
 
-    conf_dict: dict = {"overall": conf.overall}
+    conf_dict: dict[str, Any] = {"overall": conf.overall}
     if conf.summary:
         conf_dict["summary"] = conf.summary
     if conf.title_similarity is not None:
@@ -136,7 +140,7 @@ def _match_result_to_track_dict(result: MatchResult) -> dict:
 
 
 def run_plan(
-    tidal_session: tidalapi.Session,
+    tidal_session: Any,
     yt: YTMusic,
     plan_path: Path,
     force: bool = False,
@@ -155,7 +159,10 @@ def run_plan(
 
     # --- Build slug maps from source tracks (no matching yet) ---
     from collections import defaultdict
-    by_artist_album: dict[str, dict[int, list]] = defaultdict(lambda: defaultdict(list))
+
+    by_artist_album: dict[str, dict[int, list[Any]]] = defaultdict(  # type: ignore[no-untyped-def]
+        lambda: defaultdict(list)
+    )
     for t in tracks:
         by_artist_album[t.artist][t.album_id].append(t)
 
@@ -163,53 +170,59 @@ def run_plan(
     sorted_artists = sorted(by_artist_album.keys(), key=str.casefold)
     raw_artist_slugs = [artist_slug(a) for a in sorted_artists]
     deduped_artist_slugs = dedup_slugs(raw_artist_slugs)
-    artist_slug_map: dict[str, str] = dict(zip(sorted_artists, deduped_artist_slugs))
+    artist_slug_map: dict[str, str] = dict(zip(sorted_artists, deduped_artist_slugs, strict=False))
 
     # For each artist, sorted albums
     from .slugs import album_slug as _album_slug
+
     album_match_id_map: dict[int, str] = {}  # album_id → match_id
     for artist_name, ar_slug in artist_slug_map.items():
         albums_for_artist = list(by_artist_album[artist_name].items())
+
         # Sort by (year, album name)
-        def _album_sort_key(item: tuple) -> tuple:
-            album_id, src_tracks = item
+        def _album_sort_key(item: tuple[Any, list[Any]]) -> tuple[int, str]:
+            _album_id, src_tracks = item
             s = src_tracks[0]
-            return (s.album_year or 9999, s.album.casefold())
+            return (s.album_year or 9999, s.album.casefold())  # type: ignore[union-attr]
+
         albums_for_artist.sort(key=_album_sort_key)
-        raw_album_slugs = [_album_slug(tracks_list[0].album) for _, tracks_list in albums_for_artist]
+        raw_album_slugs = [
+            _album_slug(tracks_list[0].album) for _, tracks_list in albums_for_artist
+        ]
         deduped_album_slugs = dedup_slugs(raw_album_slugs)
-        for (album_id, _), alb_slug in zip(albums_for_artist, deduped_album_slugs):
+        for (album_id, _), alb_slug in zip(albums_for_artist, deduped_album_slugs, strict=False):
             album_match_id_map[album_id] = f"{ar_slug}/{alb_slug}"
 
     # --- Load existing plan ---
-    plan: dict = {}
+    plan: dict[str, Any] = {}
     if plan_path.exists():
         print(f"Loading existing plan from {plan_path}…")
         plan = load_plan(plan_path)
 
     # Build a dict of artist/album structure keyed by artist slug
     # We'll build the full TOML structure fresh and merge in existing statuses.
-    new_artists: list[dict] = []
+    new_artists: list[dict[str, Any]] = []
     new_count = upgraded_count = kept_count = skipped_count = 0
 
     for artist_name in sorted_artists:
         ar_slug = artist_slug_map[artist_name]
         albums_for_artist = list(by_artist_album[artist_name].items())
 
-        def _album_sort_key2(item: tuple) -> tuple:
-            album_id, src_tracks = item
+        def _album_sort_key2(item: tuple[Any, list[Any]]) -> tuple[int, str]:
+            _album_id, src_tracks = item
             s = src_tracks[0]
-            return (s.album_year or 9999, s.album.casefold())
+            return (s.album_year or 9999, s.album.casefold())  # type: ignore[union-attr]
+
         albums_for_artist.sort(key=_album_sort_key2)
 
-        new_albums: list[dict] = []
+        new_albums: list[dict[str, Any]] = []
 
         for album_id, album_tracks in albums_for_artist:
             album_match_id = album_match_id_map[album_id]
             first_track = album_tracks[0]
             sorted_tracks = sorted(album_tracks, key=lambda t: (t.disc_num, t.track_num))
 
-            new_track_dicts: list[dict] = []
+            new_track_dicts: list[dict[str, Any]] = []
 
             for src_track in sorted_tracks:
                 existing = find_existing_match(plan, src_track.tidal_id)
@@ -220,7 +233,7 @@ def run_plan(
                     new_track_dicts.append(existing)
                     continue
 
-                print(f"  Matching: {src_track.artist} – {src_track.title}")
+                print(f"  Matching: {src_track.artist} - {src_track.title}")
                 result = match_track(src_track, yt)
                 track_dict = _match_result_to_track_dict(result)
 
@@ -235,12 +248,16 @@ def run_plan(
                             upgraded_count += 1
                             new_track_dicts.append(track_dict)
                         else:
-                            answer = input(
-                                f"Better match found for '{src_track.title}' "
-                                f"(was: {existing.get('match_method')} @ {existing_conf:.2f}, "
-                                f"now: {result.match_method.value} @ {new_conf:.2f}). "
-                                f"Overwrite? [y/N] "
-                            ).strip().lower()
+                            answer = (
+                                input(
+                                    f"Better match found for '{src_track.title}' "
+                                    f"(was: {existing.get('match_method')} @ {existing_conf:.2f}, "
+                                    f"now: {result.match_method.value} @ {new_conf:.2f}). "
+                                    f"Overwrite? [y/N] "
+                                )
+                                .strip()
+                                .lower()
+                            )
                             if answer == "y":
                                 upgraded_count += 1
                                 new_track_dicts.append(track_dict)
@@ -251,7 +268,7 @@ def run_plan(
                         kept_count += 1
                         new_track_dicts.append(existing)
 
-            album_entry: dict = {
+            album_entry: dict[str, Any] = {
                 "name": first_track.album,
                 "match_id": album_match_id,
                 "tracks": new_track_dicts,
@@ -260,18 +277,18 @@ def run_plan(
                 album_entry["year"] = first_track.album_year
             new_albums.append(album_entry)
 
-        new_artists.append({
-            "name": artist_name,
-            "match_id": ar_slug,
-            "albums": new_albums,
-        })
+        new_artists.append(
+            {
+                "name": artist_name,
+                "match_id": ar_slug,
+                "albums": new_albums,
+            }
+        )
 
     now_str = datetime.now().isoformat(timespec="seconds")
     tidal_user_id = 0
-    try:
+    with contextlib.suppress(Exception):
         tidal_user_id = tidal_session.user.id
-    except Exception:
-        pass
 
     plan["meta"] = plan.get("meta", {})
     plan["meta"]["generated_at"] = now_str

@@ -3,7 +3,9 @@ slugs.py — All slug and match_id generation for tidal2ytm.
 
 No other module should contain slug logic.
 """
+
 from __future__ import annotations
+
 import re
 import secrets
 import unicodedata
@@ -60,10 +62,7 @@ def album_slug(name: str) -> str:
     # Step 4
     words = s.split()
     if len(words) > 1:
-        acronym = "".join(
-            w if w.isdigit() else w[0]
-            for w in words
-        )
+        acronym = "".join(w if w.isdigit() else w[0] for w in words)
         return acronym[:15]
     else:
         return words[0][:15]

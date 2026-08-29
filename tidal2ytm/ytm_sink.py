@@ -1,5 +1,8 @@
 from __future__ import annotations
+
 import time
+from typing import Any
+
 from ytmusicapi import YTMusic
 
 
@@ -18,13 +21,13 @@ def add_track_to_library(yt: YTMusic, video_id: str, title: str, dry_run: bool =
         print(f"[DRY RUN] Would add to library: {title} → {video_id}")
         return True
     try:
-        watch = yt.get_watch_playlist(videoId=video_id, limit=1)
-        tracks = watch.get("tracks") or []
+        watch: Any = yt.get_watch_playlist(videoId=video_id, limit=1)
+        tracks: Any = watch.get("tracks") or []
         if not tracks:
             print(f"[ERROR] get_watch_playlist returned no tracks for: {title} ({video_id})")
             return False
-        feedback_tokens = tracks[0].get("feedbackTokens") or {}
-        add_token = feedback_tokens.get("add")
+        feedback_tokens: Any = tracks[0].get("feedbackTokens") or {}
+        add_token: Any = feedback_tokens.get("add")
         if not add_token:
             print(f"[ERROR] No library-add token available for: {title} ({video_id})")
             return False

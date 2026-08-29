@@ -1,32 +1,32 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 
-class MatchMethod(str, Enum):
-    ISRC     = "isrc"
+class MatchMethod(StrEnum):
+    ISRC = "isrc"
     DURATION = "duration"
-    FUZZY    = "fuzzy"
-    NONE     = "none"
+    FUZZY = "fuzzy"
+    NONE = "none"
 
 
-class TrackStatus(str, Enum):
-    PENDING      = "pending"
-    TRANSFERRED  = "transferred"
-    SKIP         = "skip"
-    FAILED       = "failed"
+class TrackStatus(StrEnum):
+    PENDING = "pending"
+    TRANSFERRED = "transferred"
+    SKIP = "skip"
+    FAILED = "failed"
     NEEDS_REVIEW = "needs_review"
 
 
 @dataclass
 class ConfidenceBreakdown:
     overall: float
-    title_similarity: Optional[float] = None
-    artist_similarity: Optional[float] = None
-    album_similarity: Optional[float] = None
-    duration_delta_sec: Optional[int] = None
-    summary: Optional[str] = None
+    title_similarity: float | None = None
+    artist_similarity: float | None = None
+    album_similarity: float | None = None
+    duration_delta_sec: int | None = None
+    summary: str | None = None
 
 
 @dataclass
@@ -37,44 +37,44 @@ class SourceTrack:
     artists: list[str]
     album: str
     album_id: int
-    album_year: Optional[int]
+    album_year: int | None
     duration_sec: int
-    isrc: Optional[str]
+    isrc: str | None
     track_num: int
     disc_num: int
-    version: Optional[str]
+    version: str | None
 
     @property
-    def year(self) -> Optional[int]:
+    def year(self) -> int | None:
         return self.album_year
 
 
 @dataclass
 class MatchResult:
     source: SourceTrack
-    yt_video_id: Optional[str]        # bare 11-char ID; never a URL
-    yt_title: Optional[str]
-    yt_artist: Optional[str]
-    yt_album: Optional[str]
-    yt_album_track_num: Optional[int]
-    yt_isrc: Optional[str]
-    yt_duration_sec: Optional[int]
+    yt_video_id: str | None  # bare 11-char ID; never a URL
+    yt_title: str | None
+    yt_artist: str | None
+    yt_album: str | None
+    yt_album_track_num: int | None
+    yt_isrc: str | None
+    yt_duration_sec: int | None
     match_method: MatchMethod
     confidence: ConfidenceBreakdown
     status: TrackStatus
-    review_reason: Optional[str] = None
+    review_reason: str | None = None
 
 
 @dataclass
 class AlbumGroup:
     name: str
-    year: Optional[int]
-    match_id: str        # e.g. "jethro-tull/war-child"
+    year: int | None
+    match_id: str  # e.g. "jethro-tull/war-child"
     tracks: list[MatchResult] = field(default_factory=list)
 
 
 @dataclass
 class ArtistGroup:
     name: str
-    match_id: str        # e.g. "jethro-tull"
+    match_id: str  # e.g. "jethro-tull"
     albums: list[AlbumGroup] = field(default_factory=list)

@@ -1,15 +1,17 @@
 """
 plan_io.py — TOML plan serialization, URL normalization, and backup utilities.
 """
+
 from __future__ import annotations
 
+import contextlib
 import re
 import shutil
-import sys
 import tomllib
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import tomli_w
@@ -81,25 +83,25 @@ def _extract_video_id(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def load_plan(path: Path) -> dict:
+def load_plan(path: Path) -> dict[str, Any]:
     """Load plan from TOML. Normalizes all yt_video_id values via _extract_video_id."""
     with open(path, "rb") as f:
-        plan = tomllib.load(f)
+        plan: dict[str, Any] = tomllib.load(f)
 
     for track in iter_tracks(plan):
         raw_id = track.get("yt_video_id")
         if raw_id:
-            try:
+            with contextlib.suppress(ValueError):
                 track["yt_video_id"] = _extract_video_id(str(raw_id))
-            except ValueError:
-                pass  # leave as-is; bad IDs surface during transfer
 
     return plan
 
 
-def save_plan(plan: dict, path: Path) -> None:
+def save_plan(plan: dict[str, Any], path: Path) -> None:
     """Write plan dict to TOML with the standard file header comment."""
-    generated_at = plan.get("meta", {}).get("generated_at", datetime.now().isoformat(timespec="seconds"))
+    generated_at = plan.get("meta", {}).get(
+        "generated_at", datetime.now().isoformat(timespec="seconds")
+    )
     header = _PLAN_HEADER.format(generated_at=generated_at)
     body = tomli_w.dumps(plan)
     path.write_text(header + "\n" + body, encoding="utf-8")
@@ -116,7 +118,7 @@ def backup_plan(path: Path) -> Path:
     return backup_path
 
 
-def find_existing_match(plan: dict, tidal_id: int) -> Optional[dict]:
+def find_existing_match(plan: dict[str, Any], tidal_id: int) -> dict[str, Any] | None:
     """Return the raw track dict for the given tidal_id, or None."""
     for track in iter_tracks(plan):
         if track.get("tidal_id") == tidal_id:
@@ -124,7 +126,7 @@ def find_existing_match(plan: dict, tidal_id: int) -> Optional[dict]:
     return None
 
 
-def find_track_by_video_id(plan: dict, video_id: str) -> Optional[dict]:
+def find_track_by_video_id(plan: dict[str, Any], video_id: str) -> dict[str, Any] | None:
     """Return the raw track dict for the given yt_video_id, or None."""
     for track in iter_tracks(plan):
         if track.get("yt_video_id") == video_id:
@@ -132,7 +134,7 @@ def find_track_by_video_id(plan: dict, video_id: str) -> Optional[dict]:
     return None
 
 
-def find_album_by_match_id(plan: dict, match_id: str) -> Optional[dict]:
+def find_album_by_match_id(plan: dict[str, Any], match_id: str) -> dict[str, Any] | None:
     """Return the raw album dict for the given match_id, or None."""
     for artist in plan.get("artists", []):
         for album in artist.get("albums", []):
@@ -141,7 +143,7 @@ def find_album_by_match_id(plan: dict, match_id: str) -> Optional[dict]:
     return None
 
 
-def find_artist_by_match_id(plan: dict, match_id: str) -> Optional[dict]:
+def find_artist_by_match_id(plan: dict[str, Any], match_id: str) -> dict[str, Any] | None:
     """Return the raw artist dict for the given match_id, or None."""
     for artist in plan.get("artists", []):
         if artist.get("match_id") == match_id:
@@ -149,14 +151,14 @@ def find_artist_by_match_id(plan: dict, match_id: str) -> Optional[dict]:
     return None
 
 
-def update_track_in_plan(plan: dict, tidal_id: int, updates: dict) -> None:
+def update_track_in_plan(plan: dict[str, Any], tidal_id: int, updates: dict[str, Any]) -> None:
     """Mutate the track entry in-place with the given field updates."""
     track = find_existing_match(plan, tidal_id)
     if track is not None:
         track.update(updates)
 
 
-def update_plan_meta(plan: dict) -> None:
+def update_plan_meta(plan: dict[str, Any]) -> None:
     """Recompute and overwrite [meta] counts from current track statuses."""
     meta = plan.setdefault("meta", {})
     counts: dict[str, int] = {s.value: 0 for s in TrackStatus}
@@ -174,21 +176,20 @@ def update_plan_meta(plan: dict) -> None:
     meta["failed"] = counts[TrackStatus.FAILED.value]
 
 
-def iter_tracks(plan: dict) -> Iterator[dict]:
+def iter_tracks(plan: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Flat iterator over all track dicts in artist→album→track order."""
     for artist in plan.get("artists", []):
         for album in artist.get("albums", []):
-            for track in album.get("tracks", []):
-                yield track
+            yield from album.get("tracks", [])
 
 
 def iter_tracks_filtered(
-    plan: dict,
+    plan: dict[str, Any],
     *,
-    status: Optional[TrackStatus] = None,
-    artist_match_id: Optional[str] = None,
-    album_match_id: Optional[str] = None,
-) -> Iterator[dict]:
+    status: TrackStatus | None = None,
+    artist_match_id: str | None = None,
+    album_match_id: str | None = None,
+) -> Iterator[dict[str, Any]]:
     """Filtered flat iterator. All filters are ANDed."""
     for artist in plan.get("artists", []):
         if artist_match_id and artist.get("match_id") != artist_match_id:

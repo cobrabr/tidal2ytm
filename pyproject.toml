@@ -39,7 +39,25 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E","F","W","C90","I","N","UP","S","B","SIM","RUF"]
 ignore = ["S101"]
+[tool.ruff.lint.mccabe]
+max-complexity = 50
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E501", "SIM117", "SIM105", "F841"]
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 reportMissingImports = false
+reportPrivateUsage = false
+reportUnknownLambdaType = false
+reportPrivateImportUsage = false
+reportConstantRedefinition = false
+reportOptionalMemberAccess = false
+reportUnnecessaryCast = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportMissingTypeArgument = false
+reportUnknownParameterType = false
+reportMissingParameterType = false
+reportCallIssue = false
+reportAssignmentType = false

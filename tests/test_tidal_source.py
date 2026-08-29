@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from tidal2ytm.tidal_source import get_liked_tracks
 
 
-def test_tidal_source_year_missing_and_artist_none():
+def test_tidal_source_year_missing_and_artist_none() -> None:
     session = MagicMock()
     track = MagicMock()
     track.name = "Song"
@@ -27,7 +27,7 @@ def test_tidal_source_year_missing_and_artist_none():
     assert result[0].artist == ""
 
 
-def test_tidal_source_artist_none_object():
+def test_tidal_source_artist_none_object() -> None:
     session = MagicMock()
     track = MagicMock()
     track.name = "Song2"
@@ -48,7 +48,7 @@ def test_tidal_source_artist_none_object():
     assert result[0].album_year == 2020
 
 
-def test_tidal_source_handles_multiple_tracks():
+def test_tidal_source_handles_multiple_tracks() -> None:
     session = MagicMock()
     t1 = MagicMock()
     t1.name = "A"

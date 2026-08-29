@@ -1,16 +1,16 @@
 """
 review.py — Interactive rich TUI navigator for the tidal2ytm transfer plan.
 """
+
 from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 try:
@@ -52,7 +52,7 @@ def _confidence_color(value: float) -> str:
         return "red"
 
 
-def _confidence_text(value: Optional[float]) -> Text:
+def _confidence_text(value: float | None) -> Text:
     if value is None:
         return Text("—")
     t = Text(f"{value:.2f}", style=_confidence_color(value))
@@ -64,10 +64,10 @@ def _confidence_text(value: Optional[float]) -> Text:
 def _status_style(status: str) -> str:
     return {
         TrackStatus.NEEDS_REVIEW.value: "on yellow",
-        TrackStatus.TRANSFERRED.value:  "on green",
-        TrackStatus.SKIP.value:         "dim",
-        TrackStatus.FAILED.value:       "on red",
-        TrackStatus.PENDING.value:      "",
+        TrackStatus.TRANSFERRED.value: "on green",
+        TrackStatus.SKIP.value: "dim",
+        TrackStatus.FAILED.value: "on red",
+        TrackStatus.PENDING.value: "",
     }.get(status, "")
 
 
@@ -78,22 +78,25 @@ def _status_style(status: str) -> str:
 
 @dataclass
 class ReviewSession:
-    plan: dict
+    plan: dict[str, Any]
     plan_path: Path
     backup_done: bool
     cursor: int
-    filtered_tracks: list[dict]
+    filtered_tracks: list[dict[str, Any]]
 
-    # map tidal_id → (artist_match_id, album_match_id, album_name, track_index_in_album, album_total)
-    track_context: dict = field(default_factory=dict)
+    # map tidal_id -> (artist_match_id, album_match_id, album_name,
+    # track_index_in_album, album_total)
+    track_context: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
-def _build_track_context(plan: dict, filtered: list[dict]) -> dict:
+def _build_track_context(
+    plan: dict[str, Any], filtered: list[dict[str, Any]]
+) -> dict[int, dict[str, Any]]:
     """
     For each filtered track, record which album it belongs to and its
     position within the *filtered* album subset.
     """
-    ctx: dict = {}
+    ctx: dict[int, dict[str, Any]] = {}
     # Index: tidal_id → (artist_match_id, album_match_id, album_name)
     tidal_id_to_album: dict[int, tuple[str, str, str]] = {}
     for artist in plan.get("artists", []):
@@ -107,12 +110,13 @@ def _build_track_context(plan: dict, filtered: list[dict]) -> dict:
 
     # Group filtered tracks by album_match_id
     from collections import defaultdict
-    album_buckets: dict[str, list[dict]] = defaultdict(list)
+
+    album_buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for t in filtered:
         _, alb_id, _ = tidal_id_to_album.get(t["tidal_id"], ("", "", ""))
         album_buckets[alb_id].append(t)
 
-    for i, t in enumerate(filtered):
+    for _i, t in enumerate(filtered):
         ar_id, alb_id, alb_name = tidal_id_to_album.get(t["tidal_id"], ("", "", ""))
         bucket = album_buckets[alb_id]
         pos = bucket.index(t) + 1
@@ -156,7 +160,12 @@ All decisions are written immediately — there is no unsaved state.
 """
 
 
-def _render_track(console: Console, track: dict, ctx: dict, session: ReviewSession) -> None:
+def _render_track(
+    console: Console,
+    track: dict[str, Any],
+    ctx: dict[int, dict[str, Any]],
+    session: ReviewSession,
+) -> None:
     tidal_id = track.get("tidal_id", 0)
     info = ctx.get(tidal_id, {})
     alb_match_id = info.get("album_match_id", "")
@@ -167,12 +176,12 @@ def _render_track(console: Console, track: dict, ctx: dict, session: ReviewSessi
 
     # Left column: Source
     src_lines = [
-        ("Artist",   track.get("artist", "—")),
-        ("Title",    track.get("title", "—")),
-        ("Album",    track.get("tidal_album", "—")),
+        ("Artist", track.get("artist", "—")),
+        ("Title", track.get("title", "—")),
+        ("Album", track.get("tidal_album", "—")),
         ("Duration", _fmt_duration(track.get("tidal_duration_sec"))),
-        ("ISRC",     track.get("tidal_isrc") or "—"),
-        ("Track #",  str(track.get("tidal_track_num", "—"))),
+        ("ISRC", track.get("tidal_isrc") or "—"),
+        ("Track #", str(track.get("tidal_track_num", "—"))),
     ]
 
     # Right column: YTM
@@ -191,14 +200,14 @@ def _render_track(console: Console, track: dict, ctx: dict, session: ReviewSessi
     yt_album_display = yt_album or "—"
     yt_dur_display = _fmt_duration(yt_dur)
     yt_lines: list[tuple[str, str, bool]] = [
-        ("Artist",   track.get("yt_artist", "—") or "—", False),
-        ("Title",    track.get("yt_title", "—") or "—", False),
-        ("Album",    yt_album_display, album_mismatch),
+        ("Artist", track.get("yt_artist", "—") or "—", False),
+        ("Title", track.get("yt_title", "—") or "—", False),
+        ("Album", yt_album_display, album_mismatch),
         ("Duration", yt_dur_display, dur_mismatch),
-        ("ISRC",     track.get("yt_isrc") or "—", False),
-        ("Track #",  str(track.get("yt_album_track_num") or "—"), False),
+        ("ISRC", track.get("yt_isrc") or "—", False),
+        ("Track #", str(track.get("yt_album_track_num") or "—"), False),
         ("Video ID", video_id or "—", False),
-        ("URL",      yt_url, False),
+        ("URL", yt_url, False),
     ]
 
     # Confidence
@@ -252,13 +261,13 @@ def _render_track(console: Console, track: dict, ctx: dict, session: ReviewSessi
         "  [a] Accept  [s] Skip  [r] Reject  [o] Override  [t] Mark transferred\n"
         "  [k/j] Next/Prev track  [n/p] Next/Prev album  [N/P] Next/Prev artist\n"
         "  [?/h] Help  [q] Quit",
-        style="dim"
+        style="dim",
     )
 
     console.print(Panel(body, title=title_text, expand=True))
 
 
-def _fmt_duration(sec: Optional[int]) -> str:
+def _fmt_duration(sec: int | None) -> str:
     if not sec:
         return "—"
     m, s = divmod(sec, 60)
@@ -279,8 +288,13 @@ def _save(session: ReviewSession) -> None:
     save_plan(session.plan, session.plan_path)
 
 
-def _apply_decision(session: ReviewSession, track: dict, new_status: str, extra: dict | None = None) -> None:
-    updates: dict = {"status": new_status}
+def _apply_decision(
+    session: ReviewSession,
+    track: dict[str, Any],
+    new_status: str,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    updates: dict[str, Any] = {"status": new_status}
     if extra:
         updates.update(extra)
     update_track_in_plan(session.plan, track["tidal_id"], updates)
@@ -310,7 +324,12 @@ def _current_artist_id(session: ReviewSession) -> str:
 def _next_album_cursor(session: ReviewSession) -> int:
     cur_album = _current_album_id(session)
     for i in range(session.cursor + 1, len(session.filtered_tracks)):
-        if session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get("album_match_id") != cur_album:
+        if (
+            session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get(
+                "album_match_id"
+            )
+            != cur_album
+        ):
             return i
     return session.cursor  # already at last album
 
@@ -320,16 +339,28 @@ def _prev_album_cursor(session: ReviewSession) -> int:
     # Find first track of current album
     first_of_cur = session.cursor
     for i in range(session.cursor - 1, -1, -1):
-        if session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get("album_match_id") == cur_album:
+        if (
+            session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get(
+                "album_match_id"
+            )
+            == cur_album
+        ):
             first_of_cur = i
         else:
             break
     if first_of_cur == 0:
         return 0
     # Go to first track of previous album
-    prev_album = session.track_context.get(session.filtered_tracks[first_of_cur - 1]["tidal_id"], {}).get("album_match_id")
+    prev_album = session.track_context.get(
+        session.filtered_tracks[first_of_cur - 1]["tidal_id"], {}
+    ).get("album_match_id")
     for i in range(first_of_cur - 1, -1, -1):
-        if session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get("album_match_id") != prev_album:
+        if (
+            session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get(
+                "album_match_id"
+            )
+            != prev_album
+        ):
             return i + 1
     return 0
 
@@ -337,7 +368,12 @@ def _prev_album_cursor(session: ReviewSession) -> int:
 def _next_artist_cursor(session: ReviewSession) -> int:
     cur_artist = _current_artist_id(session)
     for i in range(session.cursor + 1, len(session.filtered_tracks)):
-        if session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get("artist_match_id") != cur_artist:
+        if (
+            session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get(
+                "artist_match_id"
+            )
+            != cur_artist
+        ):
             return i
     return session.cursor
 
@@ -346,15 +382,27 @@ def _prev_artist_cursor(session: ReviewSession) -> int:
     cur_artist = _current_artist_id(session)
     first_of_cur = session.cursor
     for i in range(session.cursor - 1, -1, -1):
-        if session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get("artist_match_id") == cur_artist:
+        if (
+            session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get(
+                "artist_match_id"
+            )
+            == cur_artist
+        ):
             first_of_cur = i
         else:
             break
     if first_of_cur == 0:
         return 0
-    prev_artist = session.track_context.get(session.filtered_tracks[first_of_cur - 1]["tidal_id"], {}).get("artist_match_id")
+    prev_artist = session.track_context.get(
+        session.filtered_tracks[first_of_cur - 1]["tidal_id"], {}
+    ).get("artist_match_id")
     for i in range(first_of_cur - 1, -1, -1):
-        if session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get("artist_match_id") != prev_artist:
+        if (
+            session.track_context.get(session.filtered_tracks[i]["tidal_id"], {}).get(
+                "artist_match_id"
+            )
+            != prev_artist
+        ):
             return i + 1
     return 0
 
@@ -364,12 +412,12 @@ def _prev_artist_cursor(session: ReviewSession) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _do_override(console: Console, session: ReviewSession, track: dict) -> None:
-    from .plan_io import _extract_video_id  # type: ignore[attr-defined]
+def _do_override(console: Console, session: ReviewSession, track: dict[str, Any]) -> None:
     while True:
         raw = input("Enter YouTube video ID or URL: ").strip()
         try:
             from .plan_io import _extract_video_id as _ev
+
             vid = _ev(raw)
         except ValueError:
             console.print("[red]✗ Could not parse a YouTube video ID from that input.[/red]")
@@ -386,9 +434,9 @@ def _do_override(console: Console, session: ReviewSession, track: dict) -> None:
 
 def run_review(
     *,
-    status_filter: Optional[TrackStatus] = None,
-    artist_match_id: Optional[str] = None,
-    album_match_id: Optional[str] = None,
+    status_filter: TrackStatus | None = None,
+    artist_match_id: str | None = None,
+    album_match_id: str | None = None,
     plan_path: Path = PLAN_FILE,
 ) -> None:
     console = Console()
@@ -399,20 +447,22 @@ def run_review(
         )
         sys.exit(1)
 
-    plan = load_plan(plan_path)
+    plan: dict[str, Any] = load_plan(plan_path)
 
-    filtered = list(iter_tracks_filtered(
-        plan,
-        status=status_filter,
-        artist_match_id=artist_match_id,
-        album_match_id=album_match_id,
-    ))
+    filtered: list[dict[str, Any]] = list(
+        iter_tracks_filtered(
+            plan,
+            status=status_filter,
+            artist_match_id=artist_match_id,
+            album_match_id=album_match_id,
+        )
+    )
 
     if not filtered:
         console.print("No tracks match the current filters.")
         return
 
-    track_context = _build_track_context(plan, filtered)
+    track_context: dict[int, dict[str, Any]] = _build_track_context(plan, filtered)
 
     session = ReviewSession(
         plan=plan,
@@ -423,7 +473,9 @@ def run_review(
         track_context=track_context,
     )
 
-    console.print(f"[bold]Reviewing {len(filtered)} tracks.[/bold]  Press [bold]?[/bold] for help.\n")
+    console.print(
+        f"[bold]Reviewing {len(filtered)} tracks.[/bold]  Press [bold]?[/bold] for help.\n"
+    )
 
     # Helpers for jump target search
     def _jump_to(target: str) -> None:
@@ -465,7 +517,16 @@ def run_review(
         # and handle Shift+Tab explicitly
         if use_readchar:
             # Navigation — first-class single-press controls
-            if key in ("k", "]", readchar_key.DOWN, readchar_key.ENTER, readchar_key.CR, readchar_key.LF, "\r", "\n"):  # type: ignore[attr-defined]
+            if key in (
+                "k",
+                "]",
+                readchar_key.DOWN,
+                readchar_key.ENTER,
+                readchar_key.CR,
+                readchar_key.LF,
+                "\r",
+                "\n",
+            ):  # type: ignore[attr-defined]
                 if session.cursor < len(session.filtered_tracks) - 1:
                     session.cursor += 1
                 else:
@@ -497,9 +558,14 @@ def run_review(
                 session.cursor = _prev_artist_cursor(session)
                 continue
             elif key == "g":
-                # Prompt for jump target — allows `g <id>` without needing to type the space in raw mode
+                # Prompt for jump target: allows `g <id>` without needing
+                # to type the space in raw mode
                 try:
-                    console.print("[dim]Jump to (album match_id / artist match_id / video ID, empty to cancel):[/dim] ", end="")
+                    console.print(
+                        "[dim]Jump to (album match_id / artist match_id / "
+                        "video ID, empty to cancel):[/dim] ",
+                        end="",
+                    )
                     target = input().strip()
                 except (KeyboardInterrupt, EOFError):
                     continue
@@ -507,8 +573,9 @@ def run_review(
                     continue
                 _jump_to(target)
                 continue
-            # Decisions and Help/Quit fall through to shared handlers below using `key`
-            # (readchar mode already handled navigation; non-navigation keys continue)
+            # Decisions and Help/Quit fall through to shared handlers below
+            # using `key` (readchar mode already handled navigation;
+            # non-navigation keys continue)
         else:
             # Fallback line-buffered mode — supports `g <id>` typed on one line
             if key in ("k", "]", ""):
@@ -542,7 +609,9 @@ def run_review(
             elif key == "g":
                 # Bare `g` in fallback mode — prompt as in readchar mode
                 try:
-                    console.print("[dim]Jump to (album match_id / artist match_id / video ID):[/dim] ", end="")
+                    console.print(
+                        "[dim]Jump to (album match_id / artist match_id / video ID):[/dim] ", end=""
+                    )
                     target = input().strip()
                 except (KeyboardInterrupt, EOFError):
                     continue
@@ -563,8 +632,10 @@ def run_review(
             if session.cursor < len(session.filtered_tracks) - 1:
                 session.cursor += 1
         elif key == "r":
-            was_isrc = track.get("match_method") == "isrc" and \
-                track.get("confidence", {}).get("overall", 0.0) == 1.0
+            was_isrc = (
+                track.get("match_method") == "isrc"
+                and track.get("confidence", {}).get("overall", 0.0) == 1.0
+            )
             _apply_decision(session, track, TrackStatus.NEEDS_REVIEW.value)
             console.print("[yellow]✗ Rejected (needs_review)[/yellow]")
             if was_isrc:

@@ -13,7 +13,7 @@ def _yt_with_candidates(candidates, song_detail=None):
     return yt
 
 
-def test_matcher_isrc_via_candidate():
+def test_matcher_isrc_via_candidate() -> None:
     track = {
         "title": "Bungle",
         "artists": ["Jethro Tull"],
@@ -34,7 +34,7 @@ def test_matcher_isrc_via_candidate():
     assert res.match_method == MatchMethod.ISRC and res.confidence.overall == 1.0
 
 
-def test_matcher_isrc_via_get_song_fallback():
+def test_matcher_isrc_via_get_song_fallback() -> None:
     track = {
         "title": "Bungle",
         "artists": ["Jethro Tull"],
@@ -56,7 +56,7 @@ def test_matcher_isrc_via_get_song_fallback():
     assert res.match_method == MatchMethod.ISRC
 
 
-def test_matcher_duration_boundary_4s_pass_5s_fail():
+def test_matcher_duration_boundary_4s_pass_5s_fail() -> None:
     track = {
         "title": "Chariots",
         "artists": ["Vangelis"],
@@ -94,7 +94,7 @@ def test_matcher_duration_boundary_4s_pass_5s_fail():
     assert res2.status == TrackStatus.NEEDS_REVIEW
 
 
-def test_matcher_no_candidates_needs_review():
+def test_matcher_no_candidates_needs_review() -> None:
     track = {
         "title": "Unknown",
         "artists": ["Nobody"],
@@ -107,7 +107,7 @@ def test_matcher_no_candidates_needs_review():
     assert res.status == TrackStatus.NEEDS_REVIEW
 
 
-def test_matcher_fuzzy_prefers_closest_album():
+def test_matcher_fuzzy_prefers_closest_album() -> None:
     track = {"title": "Song", "artists": ["A"], "album": "War Child", "duration": 200, "isrc": None}
     c1 = {
         "videoId": "AAAAAAAAAAA",
@@ -130,7 +130,7 @@ def test_matcher_fuzzy_prefers_closest_album():
     assert res.yt_video_id == "AAAAAAAAAAA"
 
 
-def test_matcher_similarity_threshold():
+def test_matcher_similarity_threshold() -> None:
     # verify threshold 0.70 edge: identical strings 1.0, unrelated <0.70
     assert _similarity("War Child", "War Child") == 1.0
     assert _similarity("War Child", "Different Album") < 0.70

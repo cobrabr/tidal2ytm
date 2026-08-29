@@ -1,10 +1,14 @@
 from __future__ import annotations
+
+import contextlib
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Optional
+from typing import Any
+
 from ytmusicapi import YTMusic
-from .models import SourceTrack, MatchResult, MatchMethod, ConfidenceBreakdown, TrackStatus
+
+from .models import ConfidenceBreakdown, MatchMethod, MatchResult, SourceTrack, TrackStatus
 
 DURATION_TOLERANCE_SEC = 4
 CONFIDENCE_THRESHOLD = 0.70
@@ -28,7 +32,7 @@ def _build_query(track: SourceTrack) -> str:
     return " ".join(parts)
 
 
-def _isrc_from_song_detail(detail: dict) -> Optional[str]:
+def _isrc_from_song_detail(detail: dict[str, Any]) -> str | None:
     if "isrc" in detail:
         return detail["isrc"]
     vd = detail.get("videoDetails", {})
@@ -42,7 +46,7 @@ def _isrc_from_song_detail(detail: dict) -> Optional[str]:
     return None
 
 
-def _coerce_source(track: SourceTrack | dict) -> SourceTrack:
+def _coerce_source(track: SourceTrack | dict[str, Any]) -> SourceTrack:
     if isinstance(track, dict):
         title = track.get("title", "")
         raw_artists = track.get("artists")
@@ -102,12 +106,12 @@ def _coerce_source(track: SourceTrack | dict) -> SourceTrack:
     return track  # type: ignore[return-value]
 
 
-def _isrc_from_candidate(candidate: dict) -> Optional[str]:
+def _isrc_from_candidate(candidate: dict[str, Any]) -> str | None:
     """Try to extract ISRC from search candidate metadata without a get_song call."""
     return candidate.get("isrc")
 
 
-def _album_track_num_from_candidate(candidate: dict) -> Optional[int]:
+def _album_track_num_from_candidate(candidate: dict[str, Any]) -> int | None:
     return candidate.get("trackNumber") or candidate.get("album_track_num")
 
 
@@ -127,16 +131,16 @@ def _build_fuzzy_summary(
     return s
 
 
-def match_track(track: SourceTrack | dict, yt: YTMusic) -> MatchResult:
+def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult:
     track = _coerce_source(track)
     query = _build_query(track)
-    candidates = yt.search(query, filter="songs", limit=10)
+    candidates: list[dict[str, Any]] = yt.search(query, filter="songs", limit=10)  # type: ignore[no-untyped-call]
 
-    best_video_id: Optional[str] = None
-    best_meta: dict = {}
+    best_video_id: str | None = None
+    best_meta: dict[str, Any] = {}
     best_method = MatchMethod.NONE
     best_confidence = 0.0
-    best_breakdown: Optional[ConfidenceBreakdown] = None
+    best_breakdown: ConfidenceBreakdown | None = None
 
     for candidate in candidates:
         vid = candidate.get("videoId")
@@ -148,8 +152,8 @@ def match_track(track: SourceTrack | dict, yt: YTMusic) -> MatchResult:
         c_album_info = candidate.get("album") or {}
         c_album = c_album_info.get("name", "")
         c_dur = candidate.get("duration_seconds")
-        c_isrc: Optional[str] = _isrc_from_candidate(candidate)
-        c_track_num: Optional[int] = _album_track_num_from_candidate(candidate)
+        c_isrc: str | None = _isrc_from_candidate(candidate)
+        c_track_num: int | None = _album_track_num_from_candidate(candidate)
 
         # Strategy 1: ISRC
         if track.isrc:
@@ -170,8 +174,8 @@ def match_track(track: SourceTrack | dict, yt: YTMusic) -> MatchResult:
                     status=TrackStatus.PENDING,
                 )
             # Fallback: fetch detail
-            try:
-                detail = yt.get_song(vid)
+            with contextlib.suppress(Exception):
+                detail: dict[str, Any] = yt.get_song(vid)  # type: ignore[no-untyped-call]
                 fetched_isrc = _isrc_from_song_detail(detail)
                 if fetched_isrc and fetched_isrc.upper() == track.isrc.upper():
                     breakdown = ConfidenceBreakdown(overall=1.0, summary="Exact ISRC match")
@@ -188,8 +192,6 @@ def match_track(track: SourceTrack | dict, yt: YTMusic) -> MatchResult:
                         confidence=breakdown,
                         status=TrackStatus.PENDING,
                     )
-            except Exception:
-                pass
 
         # Strategy 2+3: Duration + fuzzy
         if c_dur is None:
@@ -223,11 +225,13 @@ def match_track(track: SourceTrack | dict, yt: YTMusic) -> MatchResult:
                 artist_similarity=artist_sim,
                 album_similarity=album_sim,
                 duration_delta_sec=dur_delta,
-                summary=_build_fuzzy_summary(title_sim, artist_sim, album_sim, dur_delta, wrong_album),
+                summary=_build_fuzzy_summary(
+                    title_sim, artist_sim, album_sim, dur_delta, wrong_album
+                ),
             )
 
     needs_review = best_confidence < CONFIDENCE_THRESHOLD or best_video_id is None
-    reason: Optional[str] = None
+    reason: str | None = None
     if best_video_id is None:
         reason = "No candidates found"
     elif best_confidence < CONFIDENCE_THRESHOLD:

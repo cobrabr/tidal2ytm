@@ -1,10 +1,12 @@
 from __future__ import annotations
-import tidalapi
+
+from typing import Any, cast
+
 from .models import SourceTrack
 
 
-def get_liked_tracks(session: tidalapi.Session) -> list[SourceTrack]:
-    raw: list[tidalapi.media.Track] = session.user.favorites.tracks(limit=9999)
+def get_liked_tracks(session: Any) -> list[SourceTrack]:
+    raw: Any = cast(Any, session).user.favorites.tracks(limit=9999)
     results: list[SourceTrack] = []
     for t in raw:
         album = getattr(t, "album", None)
@@ -30,7 +32,11 @@ def get_liked_tracks(session: tidalapi.Session) -> list[SourceTrack]:
                     artists = [getattr(a, "name", "") or "" for a in raw_artists]
                 else:
                     # fallback for MagicMock etc — attempt iteration but guard
-                    artists = [getattr(a, "name", "") or "" for a in list(raw_artists) if hasattr(a, "name")]
+                    artists = [
+                        getattr(a, "name", "") or ""
+                        for a in list(raw_artists)
+                        if hasattr(a, "name")
+                    ]
             except Exception:
                 artists = []
         album_name = ""
@@ -53,18 +59,20 @@ def get_liked_tracks(session: tidalapi.Session) -> list[SourceTrack]:
         track_num = track_num_raw if isinstance(track_num_raw, int) else 0
         disc_raw = getattr(t, "volume_num", 0)
         disc_num = disc_raw if isinstance(disc_raw, int) else 0
-        results.append(SourceTrack(
-            tidal_id=tidal_id,
-            title=getattr(t, "name", "") or "",
-            artist=artist_name,
-            artists=artists,
-            album=album_name,
-            album_id=album_id,
-            album_year=year,
-            duration_sec=duration_sec,
-            isrc=getattr(t, "isrc", None),
-            track_num=track_num,
-            disc_num=disc_num,
-            version=getattr(t, "version", None),
-        ))
+        results.append(
+            SourceTrack(
+                tidal_id=tidal_id,
+                title=getattr(t, "name", "") or "",
+                artist=artist_name,
+                artists=artists,
+                album=album_name,
+                album_id=album_id,
+                album_year=year,
+                duration_sec=duration_sec,
+                isrc=getattr(t, "isrc", None),
+                track_num=track_num,
+                disc_num=disc_num,
+                version=getattr(t, "version", None),
+            )
+        )
     return results
