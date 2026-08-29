@@ -44,6 +44,10 @@ class SourceTrack:
     disc_num: int
     version: Optional[str]
 
+    @property
+    def year(self) -> Optional[int]:
+        return self.album_year
+
 
 @dataclass
 class MatchResult:

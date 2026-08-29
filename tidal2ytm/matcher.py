@@ -34,7 +34,72 @@ def _isrc_from_song_detail(detail: dict) -> Optional[str]:
     vd = detail.get("videoDetails", {})
     if "isrc" in vd:
         return vd["isrc"]
+    mf = detail.get("microformat", {})
+    if isinstance(mf, dict):
+        renderer = mf.get("microformatDataRenderer", {})
+        if isinstance(renderer, dict) and "isrc" in renderer:
+            return renderer["isrc"]
     return None
+
+
+def _coerce_source(track: SourceTrack | dict) -> SourceTrack:
+    if isinstance(track, dict):
+        title = track.get("title", "")
+        raw_artists = track.get("artists")
+        if raw_artists is None:
+            raw_artist = track.get("artist")
+            artists: list[str] = [raw_artist] if raw_artist else []
+        elif isinstance(raw_artists, str):
+            artists = [raw_artists]
+        else:
+            artists = list(raw_artists) if raw_artists else []
+        artist = artists[0] if artists else track.get("artist", "") or ""
+        album = track.get("album", "")
+        duration_sec = track.get("duration_sec")
+        if duration_sec is None:
+            duration_sec = track.get("duration", 0)
+        try:
+            duration_sec = int(duration_sec) if duration_sec is not None else 0
+        except Exception:
+            duration_sec = 0
+        isrc = track.get("isrc")
+        version = track.get("version")
+        tidal_id = track.get("tidal_id", 0)
+        try:
+            tidal_id = int(tidal_id)
+        except Exception:
+            tidal_id = 0
+        album_id = track.get("album_id", -1)
+        try:
+            album_id = int(album_id)
+        except Exception:
+            album_id = -1
+        album_year = track.get("album_year", track.get("year"))
+        track_num = track.get("track_num", 0)
+        try:
+            track_num = int(track_num) if track_num is not None else 0
+        except Exception:
+            track_num = 0
+        disc_num = track.get("disc_num", track.get("volume_num", 0))
+        try:
+            disc_num = int(disc_num) if disc_num is not None else 0
+        except Exception:
+            disc_num = 0
+        return SourceTrack(
+            tidal_id=tidal_id,
+            title=title,
+            artist=artist,
+            artists=artists,
+            album=album,
+            album_id=album_id,
+            album_year=album_year,
+            duration_sec=duration_sec,
+            isrc=isrc,
+            track_num=track_num,
+            disc_num=disc_num,
+            version=version,
+        )
+    return track  # type: ignore[return-value]
 
 
 def _isrc_from_candidate(candidate: dict) -> Optional[str]:
@@ -62,7 +127,8 @@ def _build_fuzzy_summary(
     return s
 
 
-def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:
+def match_track(track: SourceTrack | dict, yt: YTMusic) -> MatchResult:
+    track = _coerce_source(track)
     query = _build_query(track)
     candidates = yt.search(query, filter="songs", limit=10)
 
