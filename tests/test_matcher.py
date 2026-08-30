@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
-from tidal2ytm.matcher import _similarity, match_track
+from tidal2ytm.matcher import _similarity, match_track  # pyright: ignore[reportPrivateUsage]
 from tidal2ytm.models import MatchMethod, TrackStatus
 
 
-def _yt_with_candidates(candidates, song_detail=None):
+def _yt_with_candidates(
+    candidates: list[dict[str, Any]],
+    song_detail: dict[str, Any] | None = None,
+) -> Any:
     yt = MagicMock()
     yt.search.return_value = candidates
     yt.get_song.return_value = song_detail or {}

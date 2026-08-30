@@ -7,16 +7,19 @@ import os
 import sys
 import webbrowser
 from collections.abc import Callable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import tidalapi
 from ytmusicapi import YTMusic
 
 from .paths import DATA_DIR, PLAN_FILE, TIDAL_TOKEN_FILE, YTM_AUTH_FILE
 
+if TYPE_CHECKING:
+    from tidalapi.session import Session
 
-def _tidal_login() -> tidalapi.Session:
-    session = tidalapi.Session()
+
+def _tidal_login() -> Session:
+    session = tidalapi.Session()  # pyright: ignore[reportPrivateImportUsage]
     if os.path.exists(TIDAL_TOKEN_FILE):
         with open(TIDAL_TOKEN_FILE) as f:
             token_data = json.load(f)
@@ -51,7 +54,7 @@ def _tidal_login() -> tidalapi.Session:
     return session
 
 
-def _ytm_login() -> YTMusic:
+def _ytm_login() -> YTMusic:  # noqa: C901
     if not os.path.exists(YTM_AUTH_FILE):
         print(
             f"'{YTM_AUTH_FILE}' not found.\n"
@@ -79,17 +82,17 @@ def _ytm_login() -> YTMusic:
     client_secret = None
     try:
         with open(client_secret_file, encoding="utf-8") as f:
-            data = json.load(f)
+            data: dict[str, Any] = json.load(f)
             for key in ["installed", "web"]:
                 if key in data:
-                    client_id = data[key].get("client_id")
-                    client_secret = data[key].get("client_secret")
+                    client_id = data[key].get("client_id")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+                    client_secret = data[key].get("client_secret")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
                     break
             if not client_id or not client_secret:
-                for val in data.values():
+                for val in data.values():  # pyright: ignore[reportUnknownVariableType]
                     if isinstance(val, dict) and "client_id" in val and "client_secret" in val:
-                        client_id = val["client_id"]
-                        client_secret = val["client_secret"]
+                        client_id = val["client_id"]  # pyright: ignore[reportUnknownVariableType]
+                        client_secret = val["client_secret"]  # pyright: ignore[reportUnknownVariableType]
                         break
     except Exception as e:
         print(f"Error reading client secrets file '{client_secret_file.name}': {e}")
@@ -104,13 +107,16 @@ def _ytm_login() -> YTMusic:
 
     from ytmusicapi import OAuthCredentials
 
-    creds = OAuthCredentials(client_id, client_secret)
+    creds = OAuthCredentials(
+        cast(str, client_id),  # pyright: ignore[reportUnknownArgumentType]
+        cast(str, client_secret),  # pyright: ignore[reportUnknownArgumentType]
+    )
     yt = YTMusic(str(YTM_AUTH_FILE), oauth_credentials=creds)
 
     # Probe the token immediately so an expired/revoked refresh token surfaces
     # here with a clear message rather than as a cryptic KeyError mid-run.
     try:
-        _ = yt._token.access_token
+        _ = yt._token.access_token  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType]
     except (KeyError, Exception):
         print(
             "Error: YouTube Music authentication token is expired or revoked.\n"
@@ -130,7 +136,7 @@ def _ytm_login() -> YTMusic:
     )
 
     # Patch _session.post to strip auth headers and use WEB_REMIX for read endpoints.
-    original_post = cast(Callable[..., Any], yt._session.post)  # type: ignore[attr-defined]
+    original_post = cast(Callable[..., Any], yt._session.post)  # pyright: ignore[reportUnknownMemberType, reportPrivateUsage]
 
     def patched_post(url: str, *args: Any, **kwargs: Any) -> Any:
         is_unauth = "/search?" in url or "/player?" in url
@@ -153,10 +159,10 @@ def _ytm_login() -> YTMusic:
             )
 
             if "json" in kwargs and isinstance(kwargs["json"], dict):
-                kwargs["json"] = copy.deepcopy(kwargs["json"])
-                body = kwargs["json"]
+                kwargs["json"] = copy.deepcopy(kwargs["json"])  # pyright: ignore[reportUnknownArgumentType]
+                body = kwargs["json"]  # pyright: ignore[reportUnknownVariableType]
                 if "context" in body and "client" in body["context"]:
-                    body["context"]["client"].update(
+                    body["context"]["client"].update(  # pyright: ignore[reportUnknownMemberType]
                         {
                             "clientName": "WEB_REMIX",
                             "clientVersion": "1."
@@ -171,7 +177,7 @@ def _ytm_login() -> YTMusic:
         else:
             return original_post(url, *args, **kwargs)
 
-    yt._session.post = patched_post  # type: ignore[attr-defined, method-assign]
+    yt._session.post = patched_post  # pyright: ignore[reportUnknownMemberType, reportPrivateUsage, reportAttributeAccessIssue]
 
     return yt
 

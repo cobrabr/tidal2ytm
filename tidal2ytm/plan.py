@@ -139,7 +139,7 @@ def _match_result_to_track_dict(result: MatchResult) -> dict[str, Any]:
     return track
 
 
-def run_plan(
+def run_plan(  # noqa: C901
     tidal_session: Any,
     yt: YTMusic,
     plan_path: Path,

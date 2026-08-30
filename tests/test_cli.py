@@ -218,21 +218,25 @@ def test_cli_main_review_filters(monkeypatch: Any) -> None:
 
 def test_cli_plan_force_flag(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "argv", ["tidal2ytm", "plan", "--force"])
-    with patch("tidal2ytm.cli._tidal_login", return_value=MagicMock()):
-        with patch("tidal2ytm.cli._ytm_login", return_value=MagicMock()):
-            with patch("tidal2ytm.plan.run_plan") as mock_plan:
-                cli_mod.main()
-                mock_plan.assert_called_once()
-                assert mock_plan.call_args.kwargs["force"] is True
+    with (
+        patch("tidal2ytm.cli._tidal_login", return_value=MagicMock()),
+        patch("tidal2ytm.cli._ytm_login", return_value=MagicMock()),
+        patch("tidal2ytm.plan.run_plan") as mock_plan,
+    ):
+        cli_mod.main()
+        mock_plan.assert_called_once()
+        assert mock_plan.call_args.kwargs["force"] is True
 
 
 def test_cli_transfer_dry_run_flag(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "argv", ["tidal2ytm", "transfer", "--all", "--dry-run"])
-    with patch("tidal2ytm.cli._ytm_login", return_value=MagicMock()):
-        with patch("tidal2ytm.transfer.run_transfer") as mock_t:
-            cli_mod.main()
-            mock_t.assert_called_once()
-            assert mock_t.call_args.kwargs["dry_run"] is True
+    with (
+        patch("tidal2ytm.cli._ytm_login", return_value=MagicMock()),
+        patch("tidal2ytm.transfer.run_transfer") as mock_t,
+    ):
+        cli_mod.main()
+        mock_t.assert_called_once()
+        assert mock_t.call_args.kwargs["dry_run"] is True
 
 
 def test_cli_main_unknown_command_exits(monkeypatch: Any) -> None:

@@ -17,15 +17,17 @@ try:
     import readchar
     from readchar import key as readchar_key
 
-    HAS_READCHAR = True
+    _has_readchar = True
 except ImportError:  # pragma: no cover
     readchar = None  # type: ignore
     readchar_key = None  # type: ignore
-    HAS_READCHAR = False
+    _has_readchar = False
 
-from .models import TrackStatus
-from .paths import PLAN_FILE
-from .plan_io import (
+HAS_READCHAR = _has_readchar
+
+from .models import TrackStatus  # noqa: E402
+from .paths import PLAN_FILE  # noqa: E402
+from .plan_io import (  # noqa: E402
     backup_plan,
     iter_tracks_filtered,
     load_plan,
@@ -86,7 +88,7 @@ class ReviewSession:
 
     # map tidal_id -> (artist_match_id, album_match_id, album_name,
     # track_index_in_album, album_total)
-    track_context: dict[int, dict[str, Any]] = field(default_factory=dict)
+    track_context: dict[int, dict[str, Any]] = field(default_factory=dict)  # pyright: ignore[reportUnknownVariableType]
 
 
 def _build_track_context(
@@ -202,8 +204,8 @@ def _render_track(
     yt_lines: list[tuple[str, str, bool]] = [
         ("Artist", track.get("yt_artist", "—") or "—", False),
         ("Title", track.get("yt_title", "—") or "—", False),
-        ("Album", yt_album_display, album_mismatch),
-        ("Duration", yt_dur_display, dur_mismatch),
+        ("Album", yt_album_display, album_mismatch),  # pyright: ignore[reportAssignmentType]
+        ("Duration", yt_dur_display, dur_mismatch),  # pyright: ignore[reportAssignmentType]
         ("ISRC", track.get("yt_isrc") or "—", False),
         ("Track #", str(track.get("yt_album_track_num") or "—"), False),
         ("Video ID", video_id or "—", False),
@@ -416,7 +418,7 @@ def _do_override(console: Console, session: ReviewSession, track: dict[str, Any]
     while True:
         raw = input("Enter YouTube video ID or URL: ").strip()
         try:
-            from .plan_io import _extract_video_id as _ev
+            from .plan_io import _extract_video_id as _ev  # pyright: ignore[reportPrivateUsage]
 
             vid = _ev(raw)
         except ValueError:
@@ -432,7 +434,7 @@ def _do_override(console: Console, session: ReviewSession, track: dict[str, Any]
 # ---------------------------------------------------------------------------
 
 
-def run_review(
+def run_review(  # noqa: C901
     *,
     status_filter: TrackStatus | None = None,
     artist_match_id: str | None = None,
@@ -520,10 +522,10 @@ def run_review(
             if key in (
                 "k",
                 "]",
-                readchar_key.DOWN,
-                readchar_key.ENTER,
-                readchar_key.CR,
-                readchar_key.LF,
+                readchar_key.DOWN,  # pyright: ignore[reportOptionalMemberAccess]
+                readchar_key.ENTER,  # pyright: ignore[reportOptionalMemberAccess]
+                readchar_key.CR,  # pyright: ignore[reportOptionalMemberAccess]
+                readchar_key.LF,  # pyright: ignore[reportOptionalMemberAccess]
                 "\r",
                 "\n",
             ):  # type: ignore[attr-defined]

@@ -24,7 +24,7 @@ def test_album_slug_truncate_single_token() -> None:
 
 
 def test_album_slug_non_latin_fallback(monkeypatch: Any) -> None:
-    monkeypatch.setattr("tidal2ytm.slugs.secrets.choice", lambda _: "x")
+    monkeypatch.setattr("tidal2ytm.slugs.secrets.choice", lambda _: "x")  # pyright: ignore[reportUnknownLambdaType]
     # non-latin name forces fallback "album-xxxxx"
     assert slugs.album_slug("未命名專輯名稱測試長字串") == "album-xxxxx"
 

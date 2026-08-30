@@ -4,7 +4,7 @@ import contextlib
 import re
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, cast
 
 from ytmusicapi import YTMusic
 
@@ -40,9 +40,9 @@ def _isrc_from_song_detail(detail: dict[str, Any]) -> str | None:
         return vd["isrc"]
     mf = detail.get("microformat", {})
     if isinstance(mf, dict):
-        renderer = mf.get("microformatDataRenderer", {})
+        renderer: Any = cast(Any, mf).get("microformatDataRenderer", {})
         if isinstance(renderer, dict) and "isrc" in renderer:
-            return renderer["isrc"]
+            return cast(str, renderer["isrc"])
     return None
 
 
@@ -131,7 +131,7 @@ def _build_fuzzy_summary(
     return s
 
 
-def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult:
+def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult:  # noqa: C901
     track = _coerce_source(track)
     query = _build_query(track)
     candidates: list[dict[str, Any]] = yt.search(query, filter="songs", limit=10)  # type: ignore[no-untyped-call]
@@ -147,10 +147,12 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
         if not vid:
             continue
 
-        c_title = candidate.get("title", "")
-        c_artist = (candidate.get("artists") or [{}])[0].get("name", "")
-        c_album_info = candidate.get("album") or {}
-        c_album = c_album_info.get("name", "")
+        c_title = candidate.get("title", "")  # pyright: ignore[reportAssignmentType]
+        c_artist: str = (  # pyright: ignore[reportUnknownVariableType]
+            (candidate.get("artists") or [{}])[0].get("name", "")  # pyright: ignore[reportUnknownMemberType]
+        )
+        c_album_info: Any = candidate.get("album") or {}
+        c_album = c_album_info.get("name", "")  # pyright: ignore[reportAssignmentType, reportUnknownMemberType]
         c_dur = candidate.get("duration_seconds")
         c_isrc: str | None = _isrc_from_candidate(candidate)
         c_track_num: int | None = _album_track_num_from_candidate(candidate)
@@ -164,8 +166,8 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
                     source=track,
                     yt_video_id=vid,
                     yt_title=c_title,
-                    yt_artist=c_artist,
-                    yt_album=c_album,
+                    yt_artist=c_artist,  # pyright: ignore[reportUnknownArgumentType]
+                    yt_album=c_album,  # pyright: ignore[reportUnknownArgumentType]
                     yt_album_track_num=c_track_num,
                     yt_isrc=c_isrc,
                     yt_duration_sec=c_dur,
@@ -183,8 +185,8 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
                         source=track,
                         yt_video_id=vid,
                         yt_title=c_title,
-                        yt_artist=c_artist,
-                        yt_album=c_album,
+                        yt_artist=c_artist,  # pyright: ignore[reportUnknownArgumentType]
+                        yt_album=c_album,  # pyright: ignore[reportUnknownArgumentType]
                         yt_album_track_num=c_track_num,
                         yt_isrc=fetched_isrc,
                         yt_duration_sec=c_dur,
@@ -200,8 +202,8 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
         if dur_delta > DURATION_TOLERANCE_SEC:
             continue
 
-        title_sim = _similarity(c_title, track.title)
-        artist_sim = _similarity(c_artist, track.artist)
+        title_sim = _similarity(c_title, track.title)  # pyright: ignore[reportUnknownArgumentType]
+        artist_sim = _similarity(c_artist, track.artist)  # pyright: ignore[reportUnknownArgumentType]
         base_conf = title_sim * 0.6 + artist_sim * 0.4
         album_sim = _similarity(c_album, track.album) if c_album else 0.0
         conf = base_conf * 0.75 + album_sim * 0.25

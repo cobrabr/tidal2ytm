@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .models import SourceTrack
 
+if TYPE_CHECKING:
+    from tidalapi.session import Session
 
-def get_liked_tracks(session: Any) -> list[SourceTrack]:
-    raw: Any = cast(Any, session).user.favorites.tracks(limit=9999)
+
+def get_liked_tracks(session: Session) -> list[SourceTrack]:  # noqa: C901
+    raw: Any = cast(Any, session).user.favorites.tracks(limit=9999)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     results: list[SourceTrack] = []
     for t in raw:
         album = getattr(t, "album", None)
@@ -29,7 +32,11 @@ def get_liked_tracks(session: Any) -> list[SourceTrack]:
             try:
                 # only treat as iterable if it's actually list/tuple
                 if isinstance(raw_artists, (list, tuple)):
-                    artists = [getattr(a, "name", "") or "" for a in raw_artists]
+                    artists = [
+                        getattr(a, "name", "")  # pyright: ignore[reportUnknownArgumentType]
+                        or ""
+                        for a in raw_artists  # pyright: ignore[reportUnknownVariableType]
+                    ]
                 else:
                     # fallback for MagicMock etc — attempt iteration but guard
                     artists = [

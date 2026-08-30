@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import tidal2ytm.plan_io as plan_io
+import tidal2ytm.plan_io as plan_io  # pyright: ignore[reportPrivateUsage]
 
 
 def test_extract_video_id_forms() -> None:
@@ -16,14 +16,14 @@ def test_extract_video_id_forms() -> None:
         "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=PL": "dQw4w9WgXcQ",
     }
     for raw, expected in cases.items():
-        assert plan_io._extract_video_id(raw) == expected
+        assert plan_io._extract_video_id(raw) == expected  # pyright: ignore[reportPrivateUsage]
 
 
 def test_extract_video_id_invalid_raises() -> None:
     import pytest
 
     with pytest.raises(ValueError):
-        plan_io._extract_video_id("not-a-url")
+        plan_io._extract_video_id("not-a-url")  # pyright: ignore[reportPrivateUsage]
 
 
 def test_load_plan_normalizes(isolated_data_dir: Path, tmp_path: Path) -> None:
@@ -39,7 +39,7 @@ def test_load_plan_normalizes(isolated_data_dir: Path, tmp_path: Path) -> None:
 
 
 def test_save_plan_writes_header_and_backup(tmp_path: Path) -> None:
-    plan = {"meta": {"generated_at": "2026-08-29T00:00:00"}, "artists": []}
+    plan: dict[str, Any] = {"meta": {"generated_at": "2026-08-29T00:00:00"}, "artists": []}
     p = tmp_path / "plan.toml"
     plan_io.save_plan(plan, p)
     assert p.read_text(encoding="utf-8").startswith("# tidal2ytm transfer plan")

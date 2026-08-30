@@ -48,7 +48,7 @@ def _warn_needs_review(console: Any) -> None:
         sys.exit(0)
 
 
-def run_transfer(
+def run_transfer(  # noqa: C901
     yt: YTMusic,
     *,
     track_id: str | None = None,

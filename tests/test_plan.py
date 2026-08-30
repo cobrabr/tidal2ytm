@@ -110,7 +110,7 @@ def test_group_by_artist_album_album_slug_dedup_within_artist() -> None:
 
 
 def test_run_plan_merge_new_and_kept(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 999
     # seed existing plan with one transferred track
@@ -142,16 +142,18 @@ def test_run_plan_merge_new_and_kept(isolated_data_dir: Path, monkeypatch: Any) 
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
     src1 = _src(1, "Song", "A", "B", 1, 2020)
     src2 = _src(2, "New", "A", "B", 1, 2020)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src1, src2]):
-        with patch("tidal2ytm.plan.match_track") as m:
-            m.return_value = _match_result(src2, "BBBBBBBBBBB", overall=0.85)
-            monkeypatch.setattr("builtins.input", lambda _: "n")
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src1, src2]),
+        patch("tidal2ytm.plan.match_track") as m,
+    ):
+        m.return_value = _match_result(src2, "BBBBBBBBBBB", overall=0.85)
+        monkeypatch.setattr("builtins.input", lambda _: "n")  # pyright: ignore[reportUnknownLambdaType]
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     tids = {t["tidal_id"] for t in plan_io.iter_tracks(loaded)}
     assert tids == {1, 2}
@@ -163,7 +165,7 @@ def test_run_plan_merge_new_and_kept(isolated_data_dir: Path, monkeypatch: Any) 
 def test_run_plan_skips_transferred_without_matching(
     isolated_data_dir: Path, monkeypatch: Any
 ) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 1
     plan = {
@@ -193,33 +195,35 @@ def test_run_plan_skips_transferred_without_matching(
     }
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
     src = _src(10, "Done", "A", "B", 1, 2020)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch("tidal2ytm.plan.match_track") as m:
-            m.side_effect = AssertionError("should not match transferred")
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch("tidal2ytm.plan.match_track") as m,
+    ):
+        m.side_effect = AssertionError("should not match transferred")
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
     # should not have called match_track at all (or at least not for transferred)
 
 
 def test_run_plan_new_track_added(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 42
     src = _src(99, "New Song", "New Artist", "New Album", 5, 2022)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch(
-            "tidal2ytm.plan.match_track", return_value=_match_result(src, "CCCCCCCCCCC", 0.9)
-        ):
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch("tidal2ytm.plan.match_track", return_value=_match_result(src, "CCCCCCCCCCC", 0.9)),
+    ):
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     assert any(t["tidal_id"] == 99 for t in plan_io.iter_tracks(loaded))
     assert loaded["meta"]["total_tracks"] == 1
@@ -227,7 +231,7 @@ def test_run_plan_new_track_added(isolated_data_dir: Path, monkeypatch: Any) -> 
 
 
 def test_run_plan_force_overwrites_better_match(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 1
     # existing pending track with low confidence
@@ -259,15 +263,17 @@ def test_run_plan_force_overwrites_better_match(isolated_data_dir: Path, monkeyp
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
     src = _src(5, "Song", "A", "B", 1, 2020)
     new_res = _match_result(src, "BBBBBBBBBBB", overall=0.9)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch("tidal2ytm.plan.match_track", return_value=new_res):
-            # force should not prompt
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=True,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch("tidal2ytm.plan.match_track", return_value=new_res),
+    ):
+        # force should not prompt
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=True,
+        )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     t = next(t for t in plan_io.iter_tracks(loaded) if t["tidal_id"] == 5)
     assert t["yt_video_id"] == "BBBBBBBBBBB"
@@ -275,7 +281,7 @@ def test_run_plan_force_overwrites_better_match(isolated_data_dir: Path, monkeyp
 
 
 def test_run_plan_prompt_decline_keeps_existing(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 1
     plan = {
@@ -305,17 +311,17 @@ def test_run_plan_prompt_decline_keeps_existing(isolated_data_dir: Path, monkeyp
     }
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
     src = _src(6, "Song", "A", "B", 1, 2020)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch(
-            "tidal2ytm.plan.match_track", return_value=_match_result(src, "BBBBBBBBBBB", 0.9)
-        ):
-            monkeypatch.setattr("builtins.input", lambda _: "n")
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch("tidal2ytm.plan.match_track", return_value=_match_result(src, "BBBBBBBBBBB", 0.9)),
+    ):
+        monkeypatch.setattr("builtins.input", lambda _: "n")  # pyright: ignore[reportUnknownLambdaType]
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     t = next(t for t in plan_io.iter_tracks(loaded) if t["tidal_id"] == 6)
     assert t["yt_video_id"] == "AAAAAAAAAAA"
@@ -323,7 +329,7 @@ def test_run_plan_prompt_decline_keeps_existing(isolated_data_dir: Path, monkeyp
 
 
 def test_run_plan_prompt_accept_upgrades(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 1
     plan = {
@@ -353,24 +359,24 @@ def test_run_plan_prompt_accept_upgrades(isolated_data_dir: Path, monkeypatch: A
     }
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
     src = _src(7, "Song", "A", "B", 1, 2020)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch(
-            "tidal2ytm.plan.match_track", return_value=_match_result(src, "BBBBBBBBBBB", 0.9)
-        ):
-            monkeypatch.setattr("builtins.input", lambda _: "y")
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch("tidal2ytm.plan.match_track", return_value=_match_result(src, "BBBBBBBBBBB", 0.9)),
+    ):
+        monkeypatch.setattr("builtins.input", lambda _: "y")  # pyright: ignore[reportUnknownLambdaType]
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     t = next(t for t in plan_io.iter_tracks(loaded) if t["tidal_id"] == 7)
     assert t["yt_video_id"] == "BBBBBBBBBBB"
 
 
 def test_run_plan_kept_when_new_confidence_lower(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 1
     plan = {
@@ -400,17 +406,19 @@ def test_run_plan_kept_when_new_confidence_lower(isolated_data_dir: Path, monkey
     }
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
     src = _src(8, "Song", "A", "B", 1, 2020)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch(
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch(
             "tidal2ytm.plan.match_track", return_value=_match_result(src, "BBBBBBBBBBB", 0.6)
-        ) as m:
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
-            m.assert_called_once()
+        ) as m,
+    ):
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
+        m.assert_called_once()
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     t = next(t for t in plan_io.iter_tracks(loaded) if t["tidal_id"] == 8)
     # kept existing because new confidence lower
@@ -419,20 +427,20 @@ def test_run_plan_kept_when_new_confidence_lower(isolated_data_dir: Path, monkey
 
 
 def test_run_plan_updates_meta(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 123
     src = _src(11, "X", "Artist", "Album", 1, 2020)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch(
-            "tidal2ytm.plan.match_track", return_value=_match_result(src, "AAAAAAAAAAA", 0.8)
-        ):
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch("tidal2ytm.plan.match_track", return_value=_match_result(src, "AAAAAAAAAAA", 0.8)),
+    ):
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     assert "meta" in loaded
     assert loaded["meta"]["total_tracks"] == 1
@@ -440,20 +448,20 @@ def test_run_plan_updates_meta(isolated_data_dir: Path, monkeypatch: Any) -> Non
 
 
 def test_run_plan_handles_missing_year(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)
+    monkeypatch.setattr("time.sleep", lambda _: None, raising=False)  # pyright: ignore[reportUnknownLambdaType]
     tidal_session = MagicMock()
     tidal_session.user.id = 7
     src = _src(20, "NoYear", "Artist", "AlbumNoYear", 2, None)
-    with patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]):
-        with patch(
-            "tidal2ytm.plan.match_track", return_value=_match_result(src, "AAAAAAAAAAA", 0.8)
-        ):
-            plan_mod.run_plan(
-                tidal_session,
-                MagicMock(),
-                plan_path=isolated_data_dir / "transfer_plan.toml",
-                force=False,
-            )
+    with (
+        patch("tidal2ytm.plan.get_liked_tracks", return_value=[src]),
+        patch("tidal2ytm.plan.match_track", return_value=_match_result(src, "AAAAAAAAAAA", 0.8)),
+    ):
+        plan_mod.run_plan(
+            tidal_session,
+            MagicMock(),
+            plan_path=isolated_data_dir / "transfer_plan.toml",
+            force=False,
+        )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     assert loaded["meta"]["total_tracks"] == 1
     # year should be omitted rather than serializing None

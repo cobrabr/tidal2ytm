@@ -128,17 +128,21 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 
+
 @pytest.fixture
 def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     import tidal2ytm.paths as paths
+
     monkeypatch.setattr(paths, "DATA_DIR", data_dir)
     monkeypatch.setattr(paths, "YTM_AUTH_FILE", data_dir / "ytm_auth.json")
     monkeypatch.setattr(paths, "TIDAL_TOKEN_FILE", data_dir / "tidal_token.json")
     monkeypatch.setattr(paths, "PLAN_FILE", data_dir / "transfer_plan.toml")
     # seed minimal client_secret for tests that need _ytm_login parsing
-    (data_dir / "client_secret_test.json").write_text('{"installed":{"client_id":"id123","client_secret":"sec123"}}', encoding="utf-8")
+    (data_dir / "client_secret_test.json").write_text(
+        '{"installed":{"client_id":"id123","client_secret":"sec123"}}', encoding="utf-8"
+    )
     return data_dir
 ```
 
@@ -182,24 +186,34 @@ from __future__ import annotations
 
 import tidal2ytm.slugs as slugs
 
+
 def test_artist_slug_unicode_accent():
     assert slugs.artist_slug("Björk") == "bjork"
 
+
 def test_album_slug_direct_under_15():
     assert slugs.album_slug("War Child") == "war-child"
+
 
 def test_album_slug_acronym_over_15():
     # "The Dark Side Of The Moon" -> acronym path; exact value asserted against implementation
     result = slugs.album_slug("The Dark Side Of The Moon Remastered Deluxe Edition")
     assert len(result) <= 15 and "-" in result or result.islower()
 
+
 def test_album_slug_non_latin_fallback(monkeypatch):
     monkeypatch.setattr("tidal2ytm.slugs.secrets.choice", lambda _: "x")
     # non-latin name forces fallback "album-xxxxx"
     assert slugs.album_slug("未命名專輯名稱測試長字串") == "album-xxxxx"
 
+
 def test_dedup_slugs_appends_counter():
-    assert slugs.dedup_slugs(["war-child", "war-child", "war-child"]) == ["war-child", "war-child-2", "war-child-3"]
+    assert slugs.dedup_slugs(["war-child", "war-child", "war-child"]) == [
+        "war-child",
+        "war-child-2",
+        "war-child-3",
+    ]
+
 
 def test_make_album_match_id_combines():
     assert slugs.make_album_match_id("Jethro Tull", "War Child") == "jethro-tull/war-child"
@@ -216,6 +230,7 @@ import re
 from pathlib import Path
 import tidal2ytm.plan_io as plan_io
 
+
 def test_extract_video_id_forms():
     cases = {
         "dQw4w9WgXcQ": "dQw4w9WgXcQ",
@@ -227,19 +242,25 @@ def test_extract_video_id_forms():
     for raw, expected in cases.items():
         assert plan_io._extract_video_id(raw) == expected
 
+
 def test_extract_video_id_invalid_raises():
     import pytest
+
     with pytest.raises(ValueError):
         plan_io._extract_video_id("not-a-url")
+
 
 def test_load_plan_normalizes(isolated_data_dir: Path, tmp_path: Path):
     # write a plan with a full URL as yt_video_id, load_plan should normalize to bare ID
     src = Path("tests/fixtures/sample_plan.toml").read_text(encoding="utf-8")
     plan_path = isolated_data_dir / "transfer_plan.toml"
-    plan_path.write_text(src.replace("dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"), encoding="utf-8")
+    plan_path.write_text(
+        src.replace("dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"), encoding="utf-8"
+    )
     plan = plan_io.load_plan(plan_path)
     vids = [t["yt_video_id"] for t in plan_io.iter_tracks(plan) if t["yt_video_id"]]
     assert vids[0] == "dQw4w9WgXcQ"
+
 
 def test_save_plan_writes_header_and_backup(tmp_path: Path):
     plan = {"meta": {"generated_at": "2026-08-29T00:00:00"}, "artists": []}
@@ -250,18 +271,60 @@ def test_save_plan_writes_header_and_backup(tmp_path: Path):
     backup = plan_io.backup_plan(p)
     assert re.match(r"transfer_plan\.\d{8}_\d{6}\.toml", backup.name)
 
+
 def test_update_plan_meta_recomputes():
-    plan = {"artists": [{"match_id": "a", "albums": [{"match_id": "a/b", "tracks": [{"status": "pending"}, {"status": "transferred"}, {"status": "needs_review"}]}]}]}
+    plan = {
+        "artists": [
+            {
+                "match_id": "a",
+                "albums": [
+                    {
+                        "match_id": "a/b",
+                        "tracks": [
+                            {"status": "pending"},
+                            {"status": "transferred"},
+                            {"status": "needs_review"},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
     plan_io.update_plan_meta(plan)
     assert plan["meta"]["total_tracks"] == 3
     assert plan["meta"]["pending"] == 1
     assert plan["meta"]["transferred"] == 1
     assert plan["meta"]["needs_review"] == 1
 
+
 def test_iter_tracks_filtered_combos():
-    plan = {"artists": [{"match_id": "a", "albums": [{"match_id": "a/b", "tracks": [{"tidal_id": 1, "status": "pending"}, {"tidal_id": 2, "status": "skip"}]}, {"match_id": "a/c", "tracks": [{"tidal_id": 3, "status": "pending"}]}]}]}
+    plan = {
+        "artists": [
+            {
+                "match_id": "a",
+                "albums": [
+                    {
+                        "match_id": "a/b",
+                        "tracks": [
+                            {"tidal_id": 1, "status": "pending"},
+                            {"tidal_id": 2, "status": "skip"},
+                        ],
+                    },
+                    {"match_id": "a/c", "tracks": [{"tidal_id": 3, "status": "pending"}]},
+                ],
+            }
+        ]
+    }
     from tidal2ytm.models import TrackStatus
-    assert len(list(plan_io.iter_tracks_filtered(plan, status=TrackStatus.PENDING, album_match_id="a/b"))) == 1
+
+    assert (
+        len(
+            list(
+                plan_io.iter_tracks_filtered(plan, status=TrackStatus.PENDING, album_match_id="a/b")
+            )
+        )
+        == 1
+    )
     assert len(list(plan_io.iter_tracks_filtered(plan, artist_match_id="a"))) == 3
 ```
 
@@ -311,46 +374,118 @@ from unittest.mock import MagicMock
 from tidal2ytm.matcher import match_track
 from tidal2ytm.models import MatchMethod, TrackStatus
 
+
 def _yt_with_candidates(candidates, song_detail=None):
     yt = MagicMock()
     yt.search.return_value = candidates
     yt.get_song.return_value = song_detail or {}
     return yt
 
+
 def test_matcher_isrc_via_candidate():
-    track = {"title": "Bungle", "artists": ["Jethro Tull"], "album": "War Child", "duration": 221, "isrc": "USABC1234567"}
-    cand = {"videoId": "dQw4w9WgXcQ", "title": "Bungle in the Jungle", "artists": [{"name": "Jethro Tull"}], "album": {"name": "War Child"}, "duration_seconds": 221, "isrc": "USABC1234567"}
+    track = {
+        "title": "Bungle",
+        "artists": ["Jethro Tull"],
+        "album": "War Child",
+        "duration": 221,
+        "isrc": "USABC1234567",
+    }
+    cand = {
+        "videoId": "dQw4w9WgXcQ",
+        "title": "Bungle in the Jungle",
+        "artists": [{"name": "Jethro Tull"}],
+        "album": {"name": "War Child"},
+        "duration_seconds": 221,
+        "isrc": "USABC1234567",
+    }
     yt = _yt_with_candidates([cand])
     res = match_track(track, yt)
     assert res.match_method == MatchMethod.ISRC and res.confidence.overall == 1.0
 
+
 def test_matcher_isrc_via_get_song_fallback():
-    track = {"title": "Bungle", "artists": ["Jethro Tull"], "album": "War Child", "duration": 221, "isrc": "USABC1234567"}
-    cand = {"videoId": "dQw4w9WgXcQ", "title": "Bungle", "artists": [{"name": "Jethro Tull"}], "album": {"name": "War Child"}, "duration_seconds": 221}
-    yt = _yt_with_candidates([cand], song_detail={"microformat": {"microformatDataRenderer": {"isrc": "USABC1234567"}}})
+    track = {
+        "title": "Bungle",
+        "artists": ["Jethro Tull"],
+        "album": "War Child",
+        "duration": 221,
+        "isrc": "USABC1234567",
+    }
+    cand = {
+        "videoId": "dQw4w9WgXcQ",
+        "title": "Bungle",
+        "artists": [{"name": "Jethro Tull"}],
+        "album": {"name": "War Child"},
+        "duration_seconds": 221,
+    }
+    yt = _yt_with_candidates(
+        [cand], song_detail={"microformat": {"microformatDataRenderer": {"isrc": "USABC1234567"}}}
+    )
     res = match_track(track, yt)
     assert res.match_method == MatchMethod.ISRC
 
+
 def test_matcher_duration_boundary_4s_pass_5s_fail():
-    track = {"title": "Chariots", "artists": ["Vangelis"], "album": "Chariots", "duration": 209, "isrc": None}
-    cand_4s = {"videoId": "AAAAAAAAAAA", "title": "Chariots of Fire", "artists": [{"name": "Vangelis"}], "album": {"name": "Chariots"}, "duration_seconds": 213}
-    cand_5s = {"videoId": "BBBBBBBBBBB", "title": "Chariots of Fire", "artists": [{"name": "Vangelis"}], "album": {"name": "Chariots"}, "duration_seconds": 214}
+    track = {
+        "title": "Chariots",
+        "artists": ["Vangelis"],
+        "album": "Chariots",
+        "duration": 209,
+        "isrc": None,
+    }
+    cand_4s = {
+        "videoId": "AAAAAAAAAAA",
+        "title": "Chariots of Fire",
+        "artists": [{"name": "Vangelis"}],
+        "album": {"name": "Chariots"},
+        "duration_seconds": 213,
+    }
+    cand_5s = {
+        "videoId": "BBBBBBBBBBB",
+        "title": "Chariots of Fire",
+        "artists": [{"name": "Vangelis"}],
+        "album": {"name": "Chariots"},
+        "duration_seconds": 214,
+    }
     yt = _yt_with_candidates([cand_4s])
     assert match_track(track, yt).match_method == MatchMethod.DURATION
     yt2 = _yt_with_candidates([cand_5s])
     res2 = match_track(track, yt2)
-    assert res2.match_method in (MatchMethod.FUZZY, MatchMethod.NONE) or res2.status == TrackStatus.NEEDS_REVIEW
+    assert (
+        res2.match_method in (MatchMethod.FUZZY, MatchMethod.NONE)
+        or res2.status == TrackStatus.NEEDS_REVIEW
+    )
+
 
 def test_matcher_no_candidates_needs_review():
-    track = {"title": "Unknown", "artists": ["Nobody"], "album": "None", "duration": 200, "isrc": None}
+    track = {
+        "title": "Unknown",
+        "artists": ["Nobody"],
+        "album": "None",
+        "duration": 200,
+        "isrc": None,
+    }
     yt = _yt_with_candidates([])
     res = match_track(track, yt)
     assert res.status == TrackStatus.NEEDS_REVIEW
 
+
 def test_matcher_fuzzy_prefers_closest_album():
     track = {"title": "Song", "artists": ["A"], "album": "War Child", "duration": 200, "isrc": None}
-    c1 = {"videoId": "AAAAAAAAAAA", "title": "Song", "artists": [{"name": "A"}], "album": {"name": "War Child"}, "duration_seconds": 200}
-    c2 = {"videoId": "BBBBBBBBBBB", "title": "Song", "artists": [{"name": "A"}], "album": {"name": "Different Album"}, "duration_seconds": 200}
+    c1 = {
+        "videoId": "AAAAAAAAAAA",
+        "title": "Song",
+        "artists": [{"name": "A"}],
+        "album": {"name": "War Child"},
+        "duration_seconds": 200,
+    }
+    c2 = {
+        "videoId": "BBBBBBBBBBB",
+        "title": "Song",
+        "artists": [{"name": "A"}],
+        "album": {"name": "Different Album"},
+        "duration_seconds": 200,
+    }
     yt = _yt_with_candidates([c2, c1])
     res = match_track(track, yt)
     assert res.yt_video_id in ("AAAAAAAAAAA", "BBBBBBBBBBB")
@@ -369,19 +504,23 @@ from unittest.mock import MagicMock
 from tidal2ytm.ytm_sink import add_track_to_library
 from tidal2ytm.tidal_source import get_liked_tracks
 
+
 def test_ytm_sink_dry_run_does_not_call_api():
     yt = MagicMock()
     assert add_track_to_library(yt, "dQw4w9WgXcQ", "Bungle", dry_run=True) is True
     yt.get_watch_playlist.assert_not_called()
 
+
 def test_ytm_sink_no_video_id_returns_false():
     yt = MagicMock()
     assert add_track_to_library(yt, "", "Bungle", dry_run=False) is False
+
 
 def test_ytm_sink_no_add_token_returns_false():
     yt = MagicMock()
     yt.get_watch_playlist.return_value = {"tracks": [{"feedbackTokens": {}}]}
     assert add_track_to_library(yt, "dQw4w9WgXcQ", "Bungle", dry_run=False) is False
+
 
 def test_ytm_sink_success_calls_edit():
     yt = MagicMock()
@@ -389,10 +528,12 @@ def test_ytm_sink_success_calls_edit():
     yt.edit_song_library_status.return_value = {"status": "STATUS_SUCCEEDED"}
     assert add_track_to_library(yt, "dQw4w9WgXcQ", "Bungle", dry_run=False) is True
 
+
 def test_ytm_sink_exception_returns_false():
     yt = MagicMock()
     yt.get_watch_playlist.side_effect = Exception("boom")
     assert add_track_to_library(yt, "dQw4w9WgXcQ", "Bungle", dry_run=False) is False
+
 
 def test_tidal_source_year_missing_and_artist_none():
     session = MagicMock()
@@ -455,39 +596,140 @@ from pathlib import Path
 import tidal2ytm.plan as plan_mod
 import tidal2ytm.transfer as transfer_mod
 
+
 def test_run_plan_merge_new_and_kept(isolated_data_dir: Path, monkeypatch):
     monkeypatch.setattr("time.sleep", lambda _: None)
     tidal_session = MagicMock()
     # two liked tracks: one new, one already transferred in existing plan
     from tidal2ytm.models import SourceTrack
+
     tidal_session.user.favorites.tracks.return_value = []
     # seed existing plan with one transferred track
     import tidal2ytm.plan_io as plan_io
-    plan = {"meta": {"generated_at": "2026-08-29T00:00:00"}, "artists": [{"name": "A", "match_id": "a", "albums": [{"name": "B", "match_id": "a/b", "tracks": [{"tidal_id": 1, "title": "Song", "status": "transferred", "yt_video_id": "AAAAAAAAAAA"}]}]}]}
+
+    plan = {
+        "meta": {"generated_at": "2026-08-29T00:00:00"},
+        "artists": [
+            {
+                "name": "A",
+                "match_id": "a",
+                "albums": [
+                    {
+                        "name": "B",
+                        "match_id": "a/b",
+                        "tracks": [
+                            {
+                                "tidal_id": 1,
+                                "title": "Song",
+                                "status": "transferred",
+                                "yt_video_id": "AAAAAAAAAAA",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
-    with patch("tidal2ytm.tidal_source.get_liked_tracks", return_value=[SourceTrack(tidal_id=1, title="Song", artists=["A"], album="B", duration=200, isrc=None, year=None), SourceTrack(tidal_id=2, title="New", artists=["A"], album="B", duration=200, isrc=None, year=None)]):
+    with patch(
+        "tidal2ytm.tidal_source.get_liked_tracks",
+        return_value=[
+            SourceTrack(
+                tidal_id=1,
+                title="Song",
+                artists=["A"],
+                album="B",
+                duration=200,
+                isrc=None,
+                year=None,
+            ),
+            SourceTrack(
+                tidal_id=2,
+                title="New",
+                artists=["A"],
+                album="B",
+                duration=200,
+                isrc=None,
+                year=None,
+            ),
+        ],
+    ):
         with patch("tidal2ytm.matcher.match_track") as m:
-            m.return_value = MagicMock(yt_video_id="BBBBBBBBBBB", status=MagicMock(value="pending"), match_method=MagicMock(value="duration"), confidence=MagicMock(overall=0.85, title=0.9, artist=0.9, album=0.8))
+            m.return_value = MagicMock(
+                yt_video_id="BBBBBBBBBBB",
+                status=MagicMock(value="pending"),
+                match_method=MagicMock(value="duration"),
+                confidence=MagicMock(overall=0.85, title=0.9, artist=0.9, album=0.8),
+            )
             # force=False should prompt on upgrade; mock input to decline
             monkeypatch.setattr("builtins.input", lambda _: "n")
-            plan_mod.run_plan(tidal_session, MagicMock(), plan_path=isolated_data_dir / "transfer_plan.toml", force=False)
+            plan_mod.run_plan(
+                tidal_session,
+                MagicMock(),
+                plan_path=isolated_data_dir / "transfer_plan.toml",
+                force=False,
+            )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
     tids = {t["tidal_id"] for t in plan_io.iter_tracks(loaded)}
     assert tids == {1, 2}
     # transferred track should still be transferred (skipped)
-    assert any(t["tidal_id"] == 1 and t["status"] == "transferred" for t in plan_io.iter_tracks(loaded))
+    assert any(
+        t["tidal_id"] == 1 and t["status"] == "transferred" for t in plan_io.iter_tracks(loaded)
+    )
+
 
 def test_run_transfer_scope_and_per_track_save(isolated_data_dir: Path):
     import tidal2ytm.plan_io as plan_io
-    plan = {"meta": {"generated_at": "2026-08-29T00:00:00"}, "artists": [{"name": "A", "match_id": "a", "albums": [{"name": "B", "match_id": "a/b", "tracks": [{"tidal_id": 1, "title": "Song", "status": "pending", "yt_video_id": "dQw4w9WgXcQ"}, {"tidal_id": 2, "title": "Other", "status": "needs_review", "yt_video_id": "AAAAAAAAAAA"}]}]}]}
+
+    plan = {
+        "meta": {"generated_at": "2026-08-29T00:00:00"},
+        "artists": [
+            {
+                "name": "A",
+                "match_id": "a",
+                "albums": [
+                    {
+                        "name": "B",
+                        "match_id": "a/b",
+                        "tracks": [
+                            {
+                                "tidal_id": 1,
+                                "title": "Song",
+                                "status": "pending",
+                                "yt_video_id": "dQw4w9WgXcQ",
+                            },
+                            {
+                                "tidal_id": 2,
+                                "title": "Other",
+                                "status": "needs_review",
+                                "yt_video_id": "AAAAAAAAAAA",
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
     plan_io.save_plan(plan, isolated_data_dir / "transfer_plan.toml")
     yt = MagicMock()
     yt.get_watch_playlist.return_value = {"tracks": [{"feedbackTokens": {"add": "tok"}}]}
     yt.edit_song_library_status.return_value = {"status": "STATUS_SUCCEEDED"}
     # --track scope
-    transfer_mod.run_transfer(yt, track_id="dQw4w9WgXcQ", album_match_id=None, artist_match_id=None, all_tracks=False, dry_run=False, include_needs_review=False, plan_path=isolated_data_dir / "transfer_plan.toml")
+    transfer_mod.run_transfer(
+        yt,
+        track_id="dQw4w9WgXcQ",
+        album_match_id=None,
+        artist_match_id=None,
+        all_tracks=False,
+        dry_run=False,
+        include_needs_review=False,
+        plan_path=isolated_data_dir / "transfer_plan.toml",
+    )
     loaded = plan_io.load_plan(isolated_data_dir / "transfer_plan.toml")
-    assert any(t["yt_video_id"] == "dQw4w9WgXcQ" and t["status"] == "transferred" for t in plan_io.iter_tracks(loaded))
+    assert any(
+        t["yt_video_id"] == "dQw4w9WgXcQ" and t["status"] == "transferred"
+        for t in plan_io.iter_tracks(loaded)
+    )
     # needs_review should be skipped without --include-needs-review
     assert any(t["status"] == "needs_review" for t in plan_io.iter_tracks(loaded))
 ```
@@ -504,24 +746,31 @@ from pathlib import Path
 import tidal2ytm.review as review_mod
 import tidal2ytm.cli as cli_mod
 
+
 def test_review_confidence_color_and_navigation(tmp_path: Path):
     assert review_mod._confidence_color(0.9) == "green"
     assert review_mod._confidence_color(0.3) == "red"
     # cursors on empty plan should not raise
     session = {"current_index": 0, "artists": []}
-    assert review_mod._next_album_cursor(session) is None or isinstance(review_mod._next_album_cursor(session), int)
+    assert review_mod._next_album_cursor(session) is None or isinstance(
+        review_mod._next_album_cursor(session), int
+    )
+
 
 def test_cli_help_and_status_offline(tmp_path: Path, monkeypatch, capsys):
     # status without plan file should not require network
     import tidal2ytm.paths as paths
+
     monkeypatch.setattr(paths, "PLAN_FILE", tmp_path / "nonexistent.toml")
     cli_mod.cmd_status(MagicMock(artist=None, album=None))
     out = capsys.readouterr().out
     assert "No transfer plan" in out or "Transfer plan" in out
 
+
 def test_cli_main_parses_auth_flags(monkeypatch):
     # --help should exit 0; just ensure parser registers auth subcommand after Task 6
     import pytest
+
     monkeypatch.setattr("sys.argv", ["tidal2ytm", "--help"])
     with pytest.raises(SystemExit) as e:
         cli_mod.main()
@@ -582,14 +831,15 @@ from __future__ import annotations
 from typing import Any, cast
 from ytmusicapi import YTMusic
 
-def add_track_to_library(yt: YTMusic, video_id: str, title: str, dry_run: bool = False) -> bool:
-    ...
 
-def match_track(track: dict[str, Any], yt: YTMusic) -> MatchResult:
-    ...
+def add_track_to_library(yt: YTMusic, video_id: str, title: str, dry_run: bool = False) -> bool: ...
 
-def run_plan(tidal_session: Any, yt: YTMusic, plan_path: Path, force: bool = False) -> None:
-    ...
+
+def match_track(track: dict[str, Any], yt: YTMusic) -> MatchResult: ...
+
+
+def run_plan(tidal_session: Any, yt: YTMusic, plan_path: Path, force: bool = False) -> None: ...
+
 
 # cli _ytm_login patch: type the monkey-patch via cast
 original_post = cast(Any, yt._session.post)
@@ -740,6 +990,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 import tidal2ytm.auth as auth
 
+
 def test_run_ytm_auth_skips_if_valid(isolated_data_dir: Path):
     # seed valid ytm_auth.json and client_secret
     (isolated_data_dir / "ytm_auth.json").write_text('{"access_token":"tok"}', encoding="utf-8")
@@ -749,7 +1000,10 @@ def test_run_ytm_auth_skips_if_valid(isolated_data_dir: Path):
         assert result == isolated_data_dir / "ytm_auth.json"
         MockYTM.assert_not_called  # or called only for probing, not setup_oauth
 
-def test_run_ytm_auth_writes_synthetic_client_secret_when_pasted(isolated_data_dir: Path, monkeypatch):
+
+def test_run_ytm_auth_writes_synthetic_client_secret_when_pasted(
+    isolated_data_dir: Path, monkeypatch
+):
     # no client_secret file but --client-id/--client-secret provided
     for f in isolated_data_dir.glob("client_secret_*.json"):
         f.unlink()
@@ -758,7 +1012,11 @@ def test_run_ytm_auth_writes_synthetic_client_secret_when_pasted(isolated_data_d
         with patch("tidal2ytm.auth.YTMusic") as MockYTM:
             MockYTM.return_value._token.access_token = "tok"
             auth.run_ytm_auth(client_id="id123", client_secret="sec123", force=True)
-    assert any((isolated_data_dir / f).exists() for f in ["client_secret_id123.json"]) or len(list(isolated_data_dir.glob("client_secret_*.json"))) >= 1
+    assert (
+        any((isolated_data_dir / f).exists() for f in ["client_secret_id123.json"])
+        or len(list(isolated_data_dir.glob("client_secret_*.json"))) >= 1
+    )
+
 
 def test_run_tidal_auth_opens_browser_and_writes_token(isolated_data_dir: Path, monkeypatch):
     monkeypatch.setattr("webbrowser.open", lambda _: True)
@@ -769,20 +1027,26 @@ def test_run_tidal_auth_opens_browser_and_writes_token(isolated_data_dir: Path, 
     mock_session.expiry_time.isoformat.return_value = "2026-08-29T00:00:00"
     mock_future = MagicMock()
     mock_future.result.return_value = None
-    mock_session.login_oauth.return_value = (MagicMock(verification_uri_complete="example.com/verify"), mock_future)
+    mock_session.login_oauth.return_value = (
+        MagicMock(verification_uri_complete="example.com/verify"),
+        mock_future,
+    )
     with patch("tidal2ytm.auth.tidalapi.Session", return_value=mock_session):
         result = auth.run_tidal_auth(force=True)
         assert result == isolated_data_dir / "tidal_token.json"
         assert (isolated_data_dir / "tidal_token.json").exists()
 
+
 def test_auth_cli_flags_registered():
     import tidal2ytm.cli as cli
     import argparse
+
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     # simulate cli.main registration by checking the real parser has auth
     import sys
     from unittest.mock import patch
+
     with patch.object(sys, "argv", ["tidal2ytm", "auth", "--help"]):
         try:
             cli.main()
@@ -814,7 +1078,10 @@ from ytmusicapi import OAuthCredentials
 
 from .paths import DATA_DIR, TIDAL_TOKEN_FILE, YTM_AUTH_FILE
 
-def run_ytm_auth(*, client_id: Optional[str] = None, client_secret: Optional[str] = None, force: bool = False) -> Path:
+
+def run_ytm_auth(
+    *, client_id: Optional[str] = None, client_secret: Optional[str] = None, force: bool = False
+) -> Path:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     # skip if valid and not force
     if not force and YTM_AUTH_FILE.exists():
@@ -826,7 +1093,9 @@ def run_ytm_auth(*, client_id: Optional[str] = None, client_secret: Optional[str
                 cid = cid_val = None
                 for key in ["installed", "web"]:
                     if key in data:
-                        cid = data[key].get("client_id"); cid_val = data[key].get("client_secret"); break
+                        cid = data[key].get("client_id")
+                        cid_val = data[key].get("client_secret")
+                        break
                 if cid and cid_val:
                     creds = OAuthCredentials(cid, cid_val)
                     yt = YTMusic(str(YTM_AUTH_FILE), oauth_credentials=creds)
@@ -839,31 +1108,54 @@ def run_ytm_auth(*, client_id: Optional[str] = None, client_secret: Optional[str
     if client_id and client_secret:
         # write synthetic file for _ytm_login compatibility
         synthetic = DATA_DIR / "client_secret_pasted.json"
-        synthetic.write_text(json.dumps({"installed": {"client_id": client_id, "client_secret": client_secret}}, indent=2), encoding="utf-8")
+        synthetic.write_text(
+            json.dumps(
+                {"installed": {"client_id": client_id, "client_secret": client_secret}}, indent=2
+            ),
+            encoding="utf-8",
+        )
     else:
         secret_files = list(DATA_DIR.glob("client_secret_*.json"))
         if not secret_files:
-            print("Missing client_secret_*.json in data/. Get it at https://console.cloud.google.com/apis/credentials -> Create Credentials -> OAuth client ID -> TVs and Limited Input devices, then save to data/ or pass --client-id/--client-secret.", file=sys.stderr)
+            print(
+                "Missing client_secret_*.json in data/. Get it at https://console.cloud.google.com/apis/credentials -> Create Credentials -> OAuth client ID -> TVs and Limited Input devices, then save to data/ or pass --client-id/--client-secret.",
+                file=sys.stderr,
+            )
             # optionally prompt and write synthetic file
             if client_id is None:
                 client_id = input("Client ID: ").strip()
             if client_secret is None:
                 client_secret = input("Client secret: ").strip()
             if client_id and client_secret:
-                (DATA_DIR / "client_secret_pasted.json").write_text(json.dumps({"installed": {"client_id": client_id, "client_secret": client_secret}}, indent=2), encoding="utf-8")
+                (DATA_DIR / "client_secret_pasted.json").write_text(
+                    json.dumps(
+                        {"installed": {"client_id": client_id, "client_secret": client_secret}},
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
             else:
                 sys.exit(1)
         # read final values
-        data = json.loads(list(DATA_DIR.glob("client_secret_*.json"))[0].read_text(encoding="utf-8"))
+        data = json.loads(
+            list(DATA_DIR.glob("client_secret_*.json"))[0].read_text(encoding="utf-8")
+        )
         for key in ["installed", "web"]:
             if key in data:
-                client_id = data[key].get("client_id"); client_secret = data[key].get("client_secret"); break
+                client_id = data[key].get("client_id")
+                client_secret = data[key].get("client_secret")
+                break
         if not client_id or not client_secret:
             for v in data.values():
                 if isinstance(v, dict) and "client_id" in v and "client_secret" in v:
-                    client_id = v["client_id"]; client_secret = v["client_secret"]; break
+                    client_id = v["client_id"]
+                    client_secret = v["client_secret"]
+                    break
     from ytmusicapi.setup import setup_oauth
-    setup_oauth(open_browser=True, file=str(YTM_AUTH_FILE), client_id=client_id, client_secret=client_secret)  # type: ignore[arg-type]
+
+    setup_oauth(
+        open_browser=True, file=str(YTM_AUTH_FILE), client_id=client_id, client_secret=client_secret
+    )  # type: ignore[arg-type]
     # probe token
     creds = OAuthCredentials(client_id, client_secret)  # type: ignore[arg-type]
     yt = YTMusic(str(YTM_AUTH_FILE), oauth_credentials=creds)
@@ -874,13 +1166,19 @@ def run_ytm_auth(*, client_id: Optional[str] = None, client_secret: Optional[str
         sys.exit(1)
     return YTM_AUTH_FILE
 
+
 def run_tidal_auth(*, force: bool = False) -> Path:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     session = tidalapi.Session()
     if not force and TIDAL_TOKEN_FILE.exists():
         try:
             token_data = json.loads(TIDAL_TOKEN_FILE.read_text(encoding="utf-8"))
-            session.load_oauth_session(token_data["token_type"], token_data["access_token"], token_data["refresh_token"], token_data.get("expiry_time"))
+            session.load_oauth_session(
+                token_data["token_type"],
+                token_data["access_token"],
+                token_data["refresh_token"],
+                token_data.get("expiry_time"),
+            )
             if session.check_login():
                 return TIDAL_TOKEN_FILE
         except Exception:
@@ -891,7 +1189,18 @@ def run_tidal_auth(*, force: bool = False) -> Path:
     print(f"Opening Tidal authorisation URL in your browser: {url}")
     webbrowser.open(url)
     login_future.result()
-    TIDAL_TOKEN_FILE.write_text(json.dumps({"token_type": session.token_type, "access_token": session.access_token, "refresh_token": session.refresh_token, "expiry_time": session.expiry_time.isoformat() if session.expiry_time else None}, indent=2), encoding="utf-8")
+    TIDAL_TOKEN_FILE.write_text(
+        json.dumps(
+            {
+                "token_type": session.token_type,
+                "access_token": session.access_token,
+                "refresh_token": session.refresh_token,
+                "expiry_time": session.expiry_time.isoformat() if session.expiry_time else None,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     return TIDAL_TOKEN_FILE
 ```
 
@@ -903,19 +1212,29 @@ Keep `DATA_DIR.mkdir` and `webbrowser.open` + `future.result()` semantics identi
 # in cli.py, add import
 from . import auth as auth_mod
 
+
 def cmd_auth(args: argparse.Namespace) -> None:
     do_ytm = not getattr(args, "tidal_only", False)
     do_tidal = not getattr(args, "ytm_only", False)
     if getattr(args, "re_auth", False):
         if do_ytm:
-            auth_mod.run_ytm_auth(client_id=getattr(args, "client_id", None), client_secret=getattr(args, "client_secret", None), force=True)
+            auth_mod.run_ytm_auth(
+                client_id=getattr(args, "client_id", None),
+                client_secret=getattr(args, "client_secret", None),
+                force=True,
+            )
         if do_tidal:
             auth_mod.run_tidal_auth(force=True)
     else:
         if do_ytm:
-            auth_mod.run_ytm_auth(client_id=getattr(args, "client_id", None), client_secret=getattr(args, "client_secret", None), force=False)
+            auth_mod.run_ytm_auth(
+                client_id=getattr(args, "client_id", None),
+                client_secret=getattr(args, "client_secret", None),
+                force=False,
+            )
         if do_tidal:
             auth_mod.run_tidal_auth(force=False)
+
 
 # in main(), after status parser:
 p_auth = sub.add_parser("auth", help="Authenticate with Tidal and YouTube Music.")

@@ -10,8 +10,8 @@ import tidal2ytm.plan_io as plan_io
 import tidal2ytm.transfer as transfer_mod
 
 
-def _seed_plan(path: Path, tracks: list[dict]) -> None:
-    plan = {
+def _seed_plan(path: Path, tracks: list[dict[str, Any]]) -> None:
+    plan: dict[str, Any] = {
         "meta": {"generated_at": "2026-08-29T00:00:00"},
         "artists": [
             {
@@ -25,7 +25,7 @@ def _seed_plan(path: Path, tracks: list[dict]) -> None:
 
 
 def test_run_transfer_scope_and_per_track_save(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)
+    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)  # pyright: ignore[reportUnknownLambdaType]
     plan_path = isolated_data_dir / "transfer_plan.toml"
     _seed_plan(
         plan_path,
@@ -70,7 +70,7 @@ def test_run_transfer_scope_and_per_track_save(isolated_data_dir: Path, monkeypa
 
 
 def test_transfer_per_track_save_and_meta(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)
+    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)  # pyright: ignore[reportUnknownLambdaType]
     plan_path = isolated_data_dir / "transfer_plan.toml"
     _seed_plan(
         plan_path,
@@ -86,25 +86,25 @@ def test_transfer_per_track_save_and_meta(isolated_data_dir: Path, monkeypatch: 
     original_save = plan_io.save_plan
     calls: list[int] = []
 
-    def counting_save(plan, path):
+    def counting_save(plan: dict[str, Any], path: Path) -> None:
         calls.append(1)
         return original_save(plan, path)
 
-    with patch("tidal2ytm.transfer.save_plan", side_effect=counting_save):
-        with patch(
-            "tidal2ytm.transfer.update_plan_meta", wraps=plan_io.update_plan_meta
-        ) as mock_meta:
-            transfer_mod.run_transfer(
-                yt,
-                track_id=None,
-                album_match_id="a/b",
-                artist_match_id=None,
-                all_tracks=False,
-                dry_run=False,
-                include_needs_review=False,
-                plan_path=plan_path,
-            )
-            assert mock_meta.call_count == 2
+    with (
+        patch("tidal2ytm.transfer.save_plan", side_effect=counting_save),
+        patch("tidal2ytm.transfer.update_plan_meta", wraps=plan_io.update_plan_meta) as mock_meta,
+    ):
+        transfer_mod.run_transfer(
+            yt,
+            track_id=None,
+            album_match_id="a/b",
+            artist_match_id=None,
+            all_tracks=False,
+            dry_run=False,
+            include_needs_review=False,
+            plan_path=plan_path,
+        )
+        assert mock_meta.call_count == 2
 
     assert len(calls) == 2
     loaded = plan_io.load_plan(plan_path)
@@ -114,7 +114,7 @@ def test_transfer_per_track_save_and_meta(isolated_data_dir: Path, monkeypatch: 
 def test_transfer_needs_review_skipped_without_flag(
     isolated_data_dir: Path, monkeypatch: Any
 ) -> None:
-    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)
+    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)  # pyright: ignore[reportUnknownLambdaType]
     plan_path = isolated_data_dir / "transfer_plan.toml"
     _seed_plan(
         plan_path,
@@ -139,7 +139,7 @@ def test_transfer_needs_review_skipped_without_flag(
 def test_transfer_needs_review_included_with_flag(
     isolated_data_dir: Path, monkeypatch: Any
 ) -> None:
-    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)
+    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)  # pyright: ignore[reportUnknownLambdaType]
     plan_path = isolated_data_dir / "transfer_plan.toml"
     _seed_plan(
         plan_path,
@@ -149,7 +149,7 @@ def test_transfer_needs_review_included_with_flag(
     yt.get_watch_playlist.return_value = {"tracks": [{"feedbackTokens": {"add": "tok"}}]}
     yt.edit_song_library_status.return_value = {"status": "STATUS_SUCCEEDED"}
     # mock the warning prompt input
-    monkeypatch.setattr("builtins.input", lambda *a, **kw: "")
+    monkeypatch.setattr("builtins.input", lambda *a, **kw: "")  # pyright: ignore[reportUnknownLambdaType]
     transfer_mod.run_transfer(
         yt,
         track_id=None,
@@ -166,7 +166,7 @@ def test_transfer_needs_review_included_with_flag(
 
 
 def test_transfer_dry_run_no_status_change(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)
+    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)  # pyright: ignore[reportUnknownLambdaType]
     plan_path = isolated_data_dir / "transfer_plan.toml"
     _seed_plan(
         plan_path,
@@ -215,7 +215,7 @@ def test_transfer_terminal_noop_when_all_done(isolated_data_dir: Path) -> None:
 
 
 def test_transfer_scope_album_and_artist(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)
+    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)  # pyright: ignore[reportUnknownLambdaType]
     plan_path = isolated_data_dir / "transfer_plan.toml"
     plan = {
         "meta": {"generated_at": "2026-08-29T00:00:00"},
@@ -354,7 +354,7 @@ def test_transfer_no_plan_exits(isolated_data_dir: Path, tmp_path: Path) -> None
 
 
 def test_transfer_failed_status_saved(isolated_data_dir: Path, monkeypatch: Any) -> None:
-    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)
+    monkeypatch.setattr("tidal2ytm.ytm_sink.time.sleep", lambda _: None)  # pyright: ignore[reportUnknownLambdaType]
     plan_path = isolated_data_dir / "transfer_plan.toml"
     _seed_plan(
         plan_path,
@@ -362,7 +362,8 @@ def test_transfer_failed_status_saved(isolated_data_dir: Path, monkeypatch: Any)
     )
     yt = MagicMock()
     yt.get_watch_playlist.return_value = {"tracks": [{"feedbackTokens": {"add": "tok"}}]}
-    # make edit_song_library_status raise or fail -> ytm_sink returns False -> transfer should mark failed
+    # make edit_song_library_status fail -> ytm_sink returns False
+    # -> transfer should mark failed
     with patch("tidal2ytm.transfer.add_track_to_library", return_value=False):
         transfer_mod.run_transfer(
             yt,
