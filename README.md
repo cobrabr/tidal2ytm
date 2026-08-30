@@ -39,9 +39,9 @@ cd tidal2ytm
 uv sync
 ```
 
-### 3. Authenticate YouTube Music (once)
+### 3. Authenticate (once)
 
-As of November 2024, `ytmusicapi` requires your own Google Cloud OAuth credentials. Do this once:
+Authenticate both Tidal and YouTube Music. Do this once:
 
 #### 3.1. Create a Google Cloud Project
 
@@ -77,20 +77,29 @@ gcloud services enable youtube.googleapis.com
 4. Save the downloaded JSON file to the `data/` directory. The file name will look like `client_secret_<fullClientSecret>.json`.
 
 #### 3.3. Authenticate
+
 Run:
 
 ```pwsh
-New-Item -Path "data" -Type Directory -ErrorAction SilentlyContinue
-uv run ytmusicapi oauth --file data/ytm_auth.json
+tidal2ytm auth
+# or: uv run tidal2ytm auth --ytm-only --re-auth --client-id X --client-secret Y
 ```
 
-1. Enter your **Client ID** and **Client Secret** (copy them from your downloaded JSON file) when prompted.
-2. Open the printed URL in a browser, sign in with the Google account that has YouTube Music, enter the code when asked, and grant the requested permissions.
-3. The terminal will detect the approval automatically, write `oauth.json`, and move it to `data/ytm_auth.json`.
+- Default authenticates both services; skip if valid. Use `--ytm-only`/`--tidal-only` to scope.
+- If no `data/client_secret_*.json` exists and no `--client-id` is given, the command prints `gcloud` vs Console instructions (Console → TVs and Limited Input devices → download to `data/`) and prompts for ID/secret, writing a synthetic file if pasted.
+- Tidal flow opens `https://{verification_uri_complete}` via `webbrowser.open` and waits on `future.result()`, writing `data/tidal_token.json` (same shape as before).
 
-### 4. Authenticate Tidal
+#### Bare install (recommended for daily use)
 
-No setup needed upfront. The first `plan` run opens a browser for Tidal's OAuth device flow and caches the token in `tidal_token.json`.
+```pwsh
+uv tool install --from . tidal2ytm
+tidal2ytm --help
+tidal2ytm status
+# update later:
+uv tool update tidal2ytm
+```
+
+The bare binary is the only supported executable — no PyInstaller, no `dist/`.
 
 ## Usage
 
