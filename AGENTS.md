@@ -1,24 +1,71 @@
 # AGENTS.md
 
-Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — ISRC > duration (±4 s) > fuzzy, managed with `uv` from repo root. No tests, lint, typecheck, or CI — verify manually.
+Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — ISRC > duration (±4 s) > fuzzy, managed with `uv` from the repo root.
 
-## Workflow — ordered steps
+## Workflow
 
-1. `uv run tidal2ytm plan [--force]` — fetch `tidal_source.py:get_liked_tracks` → `matcher.py:match_track` → merge into `data/transfer_plan.toml`. Done when plan exists, `transferred` tracks skipped, and `[meta]` recomputed via `plan_io.py:update_plan_meta`. `--force` overwrites a better match without prompting; otherwise prompt `[y/N]` per improved match.
-2. `uv run tidal2ytm review` — rich TUI for low-confidence matches. Done when first write triggers `backup_plan()` to `transfer_plan.YYYYMMDD_HHMMSS.toml` and decisions persist immediately.
-3. `uv run tidal2ytm transfer --track <11-char-id> | --album <match_id> | --artist <match_id> | --all [--dry-run]` — exactly one scope required. Done when `transfer.py` saves plan after each track and `pending` → `transferred`/`failed` reflected in meta.
-4. `uv run tidal2ytm status [--artist <match_id>] [--album <match_id>]` — offline-safe. Smoke test: `uv run tidal2ytm --help` succeeds.
+0. `tidal2ytm auth [--ytm-only|--tidal-only] [--re-auth] [--client-id X --client-secret Y]` — create or refresh OAuth tokens. Default authenticates both YTM and Tidal; a provider whose cached token still validates is skipped. YTM flow wraps `ytmusicapi.setup.setup_oauth`; Tidal flow wraps `tidalapi.Session.login_oauth`.
+1. `tidal2ytm plan [--force]` — fetch `tidal_source.py:get_liked_tracks` → `matcher.py:match_track` → merge into `data/transfer_plan.toml`. Done when the plan exists, `transferred` tracks are skipped, and `[meta]` is recomputed via `plan_io.py:update_plan_meta`. `--force` overwrites a better match without prompting; otherwise prompt `[y/N]` per improved match.
+2. `tidal2ytm review` — rich TUI for low-confidence matches. Done when the first write triggers `backup_plan()` to `transfer_plan.YYYYMMDD_HHMMSS.toml` and decisions persist immediately.
+3. `tidal2ytm transfer --track <11-char-id> | --album <match_id> | --artist <match_id> | --all [--dry-run]` — exactly one scope required. Done when `transfer.py` saves the plan after each track and `pending` → `transferred`/`failed` is reflected in `[meta]`.
+4. `tidal2ytm status [--artist <match_id>] [--album <match_id>]` — offline-safe. Smoke test: `tidal2ytm --help` succeeds.
 
-## Reference — invariants and ownership
+`uv run tidal2ytm <subcmd> ...` works equivalently from the repo root and is preferred when iterating on the source.
 
-- Identity: `tidal_id` is track identity; tracks have no `match_id`, addressed by bare `yt_video_id` (11-char, never a URL). `plan_io.py:_extract_video_id` normalizes every URL form (`youtube.com`, `music.youtube.com`, `youtu.be`); `review.py` deliberately imports this private helper.
-- `match_id` = `artist_slug`/`album_slug` (album ≤15 chars, `-2`/`-3` dedup). All slug logic lives in `slugs.py` — keep there.
-- Statuses `pending | transferred | skip | failed | needs_review`; `TrackStatus`/`MatchMethod` string-enum `.value` matches TOML (`models.py`).
-- `cli.py` owns all OAuth. `_ytm_login()` monkey-patch of `yt._session.post` (swaps TVHTML5/WEB_REMIX client context, strips auth headers for `/search?` and `/player?`) is load-bearing — do not refactor casually.
-- `paths.py:5` runs `DATA_DIR.mkdir()` on import. `data/transfer_plan.toml` is the source of truth via `plan_io.py`; `data/ytm_auth.json` + `data/client_secret_*.json` (TVs and Limited Input devices) and `data/tidal_token.json` are cached OAuth. Leave `STATE_FILE`/`REVIEW_FILE` (`paths.py:11`) stale; never write them.
-- `ytm_sink.py` must use `get_watch_playlist` + `edit_song_library_status` (`feedbackTokens.add`); `rate_song`/`LikeStatus.LIKE` only thumbs-up and is wrong.
-- Conventions: `from __future__ import annotations` at top of every module, dataclasses, string-enum values match TOML.
+## Project layout
 
-## Pointer — disclosed reference
+```
+.
+├── pyproject.toml        # uv-managed project; tidal2ytm = "tidal2ytm.cli:main"
+├── .pre-commit-config.yaml
+├── .github/workflows/ci.yml
+├── README.md
+├── data/                 # runtime state (git-ignored)
+│   ├── transfer_plan.toml            # source of truth
+│   ├── transfer_plan.YYYYMMDD_HHMMSS.toml   # review backup
+│   ├── ytm_auth.json                 # cached YTM token
+│   ├── client_secret_*.json         # Google Cloud OAuth client (TVs and Limited Input devices)
+│   └── tidal_token.json              # cached Tidal token
+├── tidal2ytm/
+│   ├── __init__.py
+│   ├── auth.py           # `auth` subcommand: run_ytm_auth, run_tidal_auth
+│   ├── cli.py            # argparse entry, OAuth wiring, subcommand dispatch
+│   ├── matcher.py        # ISRC / duration / fuzzy ranking
+│   ├── models.py         # TrackStatus, MatchMethod, dataclasses
+│   ├── paths.py          # DATA_DIR + token/plan paths; DATA_DIR.mkdir() on import
+│   ├── plan.py           # `plan` subcommand: build/update transfer_plan.toml
+│   ├── plan_io.py        # TOML load/save, _extract_video_id, iter/find helpers
+│   ├── review.py         # `review` subcommand: rich TUI
+│   ├── slugs.py          # artist_slug, album_slug, dedup_slugs (owns all slug logic)
+│   ├── tidal_source.py   # get_liked_tracks
+│   ├── transfer.py       # `transfer` subcommand
+│   └── ytm_sink.py       # add_track_to_library (get_watch_playlist + edit_song_library_status)
+└── tests/                # pytest; isolated via tests/conftest.py:isolated_data_dir
+```
 
-- OAuth setup and TUI keys → `README.md:42` (Google Cloud “TVs and Limited Input devices”, `ytmusicapi oauth` flow, key map).
+## Quality gates
+
+`pyproject.toml` defines `tool.ruff`, `tool.pyright` (`typeCheckingMode = "strict"`, `reportMissingImports = false`), `tool.pytest`, and `tool.coverage` (report-only until sustained ≥80% coverage, at which point uncomment `fail_under` and add `--cov-fail-under` to the pre-push hook and CI).
+
+The pre-commit, pre-push, and GitHub Actions workflows exercise these tools. Reproduce them locally with:
+
+- `uv run ruff check .`
+- `uv run ruff format --check .`
+- `uv run pyright`
+- `uv run pytest -q`
+- `uv run pytest --cov --cov-report=term-missing -q`
+
+## Invariants
+
+- `tidal_id` is track identity; tracks have no `match_id`. Tracks are addressed by a bare 11-char `yt_video_id` — never a URL. `plan_io.py:_extract_video_id` normalises every accepted URL form; `review.py` deliberately imports this private helper.
+- `match_id` is `artist_slug`/`album_slug` with album slugs capped at 15 chars and `-2`/`-3` dedup. All slug logic lives in `slugs.py`.
+- `TrackStatus` and `MatchMethod` are string enums whose `.value` matches the TOML representation; the persisted plan file is the source of truth for `pending | transferred | skip | failed | needs_review`.
+- `[meta]` is recomputed via `plan_io.py:update_plan_meta()` after any status change. `transfer.py` and `review.py` are responsible for calling it through `save_plan`.
+- `cli.py` owns all OAuth wiring. The `yt._session.post` monkey-patch in `_ytm_login` (TVHTML5 client context, swap to WEB_REMIX for `/search?` and `/player?`, strip `authorization`/`X-Goog-Request-Time` for those endpoints) is load-bearing. `auth.py` is the interactive entry point but shares `cli.py`'s session/header logic.
+- `paths.py` runs `DATA_DIR.mkdir()` on import. Tests redirect `DATA_DIR`, `YTM_AUTH_FILE`, `TIDAL_TOKEN_FILE`, and `PLAN_FILE` via `tests/conftest.py:isolated_data_dir`; the `DATA_DIR.mkdir` side effect itself is the contract and is never mocked. `STATE_FILE` and `REVIEW_FILE` are intentionally stale; never write them.
+- `ytm_sink.add_track_to_library` uses `get_watch_playlist` + `edit_song_library_status` with `feedbackTokens.add`. `rate_song` / `LikeStatus.LIKE` only thumb-up a track and are wrong here.
+- Every module begins with `from __future__ import annotations`; data containers are dataclasses; public functions are type-annotated.
+
+## Disclosed reference
+
+- OAuth setup, Google Cloud client creation, and the review TUI key map → `README.md` (Authenticate section).
