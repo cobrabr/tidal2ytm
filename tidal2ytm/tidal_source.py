@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from tidalapi.session import Session
 
 
-def get_liked_tracks(session: Session) -> list[SourceTrack]:  # noqa: C901
+def get_liked_tracks(session: Session) -> list[SourceTrack]:
     raw: Any = cast(Any, session).user.favorites.tracks(limit=9999)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     results: list[SourceTrack] = []
     for t in raw:
@@ -30,20 +30,13 @@ def get_liked_tracks(session: Session) -> list[SourceTrack]:  # noqa: C901
         raw_artists = getattr(t, "artists", None)
         if raw_artists is not None:
             try:
-                # only treat as iterable if it's actually list/tuple
-                if isinstance(raw_artists, (list, tuple)):
-                    artists = [
-                        getattr(a, "name", "")  # pyright: ignore[reportUnknownArgumentType]
-                        or ""
-                        for a in raw_artists  # pyright: ignore[reportUnknownVariableType]
-                    ]
-                else:
-                    # fallback for MagicMock etc — attempt iteration but guard
-                    artists = [
-                        getattr(a, "name", "") or ""
-                        for a in list(raw_artists)
-                        if hasattr(a, "name")
-                    ]
+                # treat as iterable; the hasattr filter guards against MagicMock / scalars
+                artists = [
+                    getattr(a, "name", "")  # pyright: ignore[reportUnknownArgumentType]
+                    or ""
+                    for a in raw_artists  # pyright: ignore[reportUnknownVariableType]
+                    if hasattr(a, "name")
+                ]
             except Exception:
                 artists = []
         album_name = ""

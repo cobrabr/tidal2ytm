@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.411
+    hooks:
+      - id: pyright
+        additional_dependencies:
+          - tidalapi>=0.8.3
+          - ytmusicapi>=1.7.0
+          - tomli-w>=1.0.0
+          - rich>=13.0.0
+          - readchar>=4.2.0
+          - pytest>=8
+  - repo: local
+    hooks:
+      - id: pytest-pre-commit
+        name: pytest (fast)
+        entry: uv run pytest -q
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+      - id: pytest-pre-push
+        name: pytest --cov (report)
+        entry: uv run pytest --cov --cov-report=term-missing -q
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
