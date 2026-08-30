@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 import tidalapi
 from ytmusicapi import YTMusic
 
+from . import auth as auth_mod
 from .paths import DATA_DIR, PLAN_FILE, TIDAL_TOKEN_FILE, YTM_AUTH_FILE
 
 if TYPE_CHECKING:
@@ -59,8 +60,10 @@ def _ytm_login() -> YTMusic:  # noqa: C901
         print(
             f"'{YTM_AUTH_FILE}' not found.\n"
             "Run once to create it:\n"
-            "  uv run ytmusicapi oauth\n"
-            f"Then rename the output to '{YTM_AUTH_FILE}'."
+            "  uv run tidal2ytm auth\n"
+            "Or follow the OAuth setup at:\n"
+            "  https://console.cloud.google.com/apis/credentials "
+            "(TVs and Limited Input devices)"
         )
         sys.exit(1)
 
@@ -70,10 +73,9 @@ def _ytm_login() -> YTMusic:  # noqa: C901
         print(
             "Error: Google Cloud client secrets JSON file not found in 'data/' "
             "directory.\n"
-            "Please download the client secrets JSON file from Google Cloud "
-            "Console,\n"
-            "save it in the 'data/' directory (e.g. "
-            "'data/client_secret_<details>.json'), and try again."
+            "Run `uv run tidal2ytm auth` for setup, or download the client "
+            "secrets JSON from Google Cloud Console and save it in 'data/' "
+            "(e.g. 'data/client_secret_<details>.json')."
         )
         sys.exit(1)
 
@@ -122,11 +124,7 @@ def _ytm_login() -> YTMusic:  # noqa: C901
             "Error: YouTube Music authentication token is expired or revoked.\n"
             "Re-authenticate by running:\n"
             "\n"
-            "  Remove-Item data\\ytm_auth.json && "
-            "uv run ytmusicapi oauth --file data/ytm_auth.json\n"
-            "\n"
-            "Enter your Client ID and Secret from your client_secret_*.json "
-            "file when prompted."
+            "  uv run tidal2ytm auth --re-auth"
         )
         sys.exit(1)
 
@@ -237,6 +235,20 @@ def cmd_review(args: argparse.Namespace) -> None:
         album_match_id=getattr(args, "album", None),
         plan_path=PLAN_FILE,
     )
+
+
+def cmd_auth(args: argparse.Namespace) -> None:
+    do_ytm = not getattr(args, "tidal_only", False)
+    do_tidal = not getattr(args, "ytm_only", False)
+    force = bool(getattr(args, "re_auth", False))
+    if do_ytm:
+        auth_mod.run_ytm_auth(
+            client_id=getattr(args, "client_id", None),
+            client_secret=getattr(args, "client_secret", None),
+            force=force,
+        )
+    if do_tidal:
+        auth_mod.run_tidal_auth(force=force)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -385,6 +397,18 @@ def main() -> None:
     p_s.add_argument("--artist", metavar="MATCH_ID")
     p_s.add_argument("--album", metavar="MATCH_ID")
     p_s.set_defaults(func=cmd_status)
+
+    # --- auth ---
+    p_auth = sub.add_parser("auth", help="Authenticate with Tidal and YouTube Music.")
+    auth_group = p_auth.add_mutually_exclusive_group()
+    auth_group.add_argument("--ytm-only", action="store_true", help="Only authenticate YTM.")
+    auth_group.add_argument("--tidal-only", action="store_true", help="Only authenticate Tidal.")
+    p_auth.add_argument(
+        "--re-auth", action="store_true", help="Force re-authentication even if cached."
+    )
+    p_auth.add_argument("--client-id", help="YTM OAuth client ID (bypasses client_secret file).")
+    p_auth.add_argument("--client-secret", help="YTM OAuth client secret.")
+    p_auth.set_defaults(func=cmd_auth)
 
     args = parser.parse_args()
     args.func(args)
