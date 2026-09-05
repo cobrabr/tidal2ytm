@@ -37,7 +37,7 @@ def _tidal_login() -> Session:
 
     link_login, login_future = session.login_oauth()
     url = f"https://{link_login.verification_uri_complete}"
-    print(f"Opening Tidal authorisation URL in your browser: {url}")
+    print(f"Opening Tidal authorization URL in your browser: {url}")
     webbrowser.open(url)
     login_future.result()
 

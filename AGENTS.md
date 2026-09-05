@@ -57,7 +57,7 @@ The pre-commit, pre-push, and GitHub Actions workflows exercise these tools. Rep
 
 ## Invariants
 
-- `tidal_id` is track identity; tracks have no `match_id`. Tracks are addressed by a bare 11-char `yt_video_id` — never a URL. `plan_io.py:_extract_video_id` normalises every accepted URL form; `review.py` deliberately imports this private helper.
+- `tidal_id` is track identity; tracks have no `match_id`. Tracks are addressed by a bare 11-char `yt_video_id` — never a URL. `plan_io.py:_extract_video_id` normalizes every accepted URL form; `review.py` deliberately imports this private helper.
 - `match_id` is `artist_slug`/`album_slug` with album slugs capped at 15 chars and `-2`/`-3` dedup. All slug logic lives in `slugs.py`.
 - `TrackStatus` and `MatchMethod` are string enums whose `.value` matches the TOML representation; the persisted plan file is the source of truth for `pending | transferred | skip | failed | needs_review`.
 - `[meta]` is recomputed via `plan_io.py:update_plan_meta()` after any status change. `transfer.py` and `review.py` are responsible for calling it through `save_plan`.
