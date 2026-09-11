@@ -1257,3 +1257,33 @@ def test_picker_repaints_in_place(monkeypatch: Any, tmp_path: Path) -> None:
     session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
     planning_mod.run_picker(console, session, _picker_hits(), title="Search", height=10)
     assert re.search(r"\x1b\[\d+A", buf.getvalue())
+
+
+def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -> None:
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[_src()], selection={1: _src()}
+    )
+    result = MatchResult(
+        source=_src(),
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Apple",
+        yt_artist="Wren",
+        yt_album="Apple",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.9, summary="title=0.95, artist=1.00"),
+        status=TrackStatus.PENDING,
+    )
+    with patch.object(planning_mod, "match_track", return_value=result):
+        run_match_action(session, MagicMock(), input_fn=lambda _p: "Y")
+    out = capsys.readouterr().out
+    assert "[1/1]" in out
+    assert "Apple" in out and "Wren" in out
+    assert "AAAAAAAAAAA" in out
+    assert "fuzzy" in out.lower()
+    assert "0.90" in out

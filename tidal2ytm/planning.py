@@ -263,12 +263,15 @@ def run_match_action(  # noqa: C901
         return counts
     if yt is None:
         assert yt_factory is not None
+        console.print("Authenticating with YouTube Music…")
         yt = yt_factory()
     if session.plan_path.exists():
         plan: dict[str, Any] = load_plan(session.plan_path)
     else:
         plan = {"meta": {}, "artists": []}
-    for src in iter_selection_ordered(session.selection):
+    ordered = iter_selection_ordered(session.selection)
+    for i, src in enumerate(ordered, 1):
+        console.print(f"[{i}/{n}] Matching '{src.title}' by {src.artist} {_src_detail(src)} …")
         existing = find_existing_match(plan, src.tidal_id)
         try:
             result = match_track(src, yt)
@@ -278,21 +281,31 @@ def run_match_action(  # noqa: C901
             if existing is None:
                 insert_track(plan, unmatched_track_dict(src, f"Match error: {exc}"), src.album_year)
                 counts["new"] += 1
+                console.print(f"  -> match failed: {exc} [recorded as needs_review]")
             else:
                 counts["kept"] += 1
+                console.print(f"  -> match failed: {exc} [kept stored match]")
             continue
+        conf = result.confidence.overall
+        summary = result.confidence.summary or ""
+        method = result.match_method.value
+        yt_desc = _yt_desc(result)
         action = classify_track(existing, new_vid)
         if action == "skip-transferred":
             counts["skipped"] += 1
+            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [skipped, already transferred]")
         elif action == "add-new":
             insert_track(plan, new_dict, src.album_year)
             counts["new"] += 1
+            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [new]{_summary_suffix(summary)}")
         elif action == "keep-same":
             counts["kept"] += 1
+            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [kept, same as stored]")
         elif session.override:
             assert existing is not None
             update_track_in_plan(plan, src.tidal_id, new_dict)
             counts["upgraded"] += 1
+            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [upgraded, override on]")
         else:
             old = existing or {}
             old_conf = old.get("confidence", {}).get("overall", 0.0)
@@ -309,8 +322,10 @@ def run_match_action(  # noqa: C901
                 assert existing is not None
                 update_track_in_plan(plan, src.tidal_id, new_dict)
                 counts["upgraded"] += 1
+                console.print(f"  -> upgraded to {new_dict.get('yt_video_id')}")
             else:
                 counts["kept"] += 1
+                console.print("  -> kept stored match")
     if not session.backup_done and session.plan_path.exists():
         bpath = backup_plan(session.plan_path)
         console.print(f"Backup -> {bpath.name}")
@@ -335,6 +350,29 @@ def _fmt_duration(sec: int | None) -> str:
         return "—"
     m, s = divmod(sec, 60)
     return f"{m}:{s:02d}"
+
+
+def _src_detail(src: SourceTrack) -> str:
+    """One-line Tidal source detail: album, year, duration, ISRC when known."""
+    parts = [src.album] if src.album else []
+    if src.album_year is not None:
+        parts.append(str(src.album_year))
+    parts.append(_fmt_duration(src.duration_sec))
+    if src.isrc:
+        parts.append(f"ISRC {src.isrc}")
+    return f"({', '.join(parts)})" if parts else ""
+
+
+def _yt_desc(result: Any) -> str:
+    """One-line YTM hit: video id plus title/artist when known."""
+    vid = result.yt_video_id or "(no match)"
+    title = result.yt_title or "?"
+    artist = result.yt_artist or "?"
+    return f"{vid} '{title}' by {artist}"
+
+
+def _summary_suffix(summary: str) -> str:
+    return f" — {summary}" if summary else ""
 
 
 def hot_hint(pre: str, hot: str, post: str = "", style: str = "bold bright_blue") -> Text:
@@ -812,7 +850,10 @@ def _do_match(console: Console, session: PlanningSession) -> None:
         run_match_action(session, yt_factory=_login)
     except SystemExit:
         # _ytm_login already printed guidance (missing secrets / expired token).
-        return
+        pass
+    except Exception as exc:
+        console.print(f"[red]Match failed: {exc}[/red]")
+    input("Press Enter to continue...")
 
 
 HELP_TEXT = """\
