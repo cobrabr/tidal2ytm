@@ -125,7 +125,9 @@ def test_get_liked_tracks_extracts_composer() -> None:
         version=None,
         composer="Johann Sebastian Bach",
     )
-    session = SimpleNamespace(user=SimpleNamespace(favorites=SimpleNamespace(tracks=lambda limit=0: [t])))
+    session = SimpleNamespace(
+        user=SimpleNamespace(favorites=SimpleNamespace(tracks=lambda limit=0: [t]))
+    )
 
     from tidal2ytm.tidal_source import get_liked_tracks
 
@@ -256,7 +258,10 @@ def test_parse_tidal_links() -> None:
 
 
 def test_resolve_links_against_library() -> None:
-    tracks = [_track(1, "Aria", "Gould", "Goldberg", album_id=7), _track(2, "Var 1", "Gould", "Goldberg", album_id=7)]
+    tracks = [
+        _track(1, "Aria", "Gould", "Goldberg", album_id=7),
+        _track(2, "Var 1", "Gould", "Goldberg", album_id=7),
+    ]
     hit = resolve_track_link(tracks, 1)
     assert hit is not None and hit.title == "Aria"
     assert resolve_track_link(tracks, 999) is None
@@ -438,9 +443,15 @@ def test_track_dict_conversion() -> None:
 def test_classify_new_existing_same_transferred() -> None:
     assert classify_track(None, "AAAAAAAAAAA") == "add-new"
     assert classify_track({"status": "pending", "yt_video_id": ""}, "AAAAAAAAAAA") == "ask"
-    assert classify_track({"status": "pending", "yt_video_id": "AAAAAAAAAAA"}, "AAAAAAAAAAA") == "keep-same"
+    assert (
+        classify_track({"status": "pending", "yt_video_id": "AAAAAAAAAAA"}, "AAAAAAAAAAA")
+        == "keep-same"
+    )
     assert classify_track({"status": "pending", "yt_video_id": ""}, None) == "keep-same"
-    assert classify_track({"status": "transferred", "yt_video_id": "AAAAAAAAAAA"}, "BBBBBBBBBBB") == "skip-transferred"
+    assert (
+        classify_track({"status": "transferred", "yt_video_id": "AAAAAAAAAAA"}, "BBBBBBBBBBB")
+        == "skip-transferred"
+    )
 
 
 def test_insert_creates_slugs_and_reuses_them() -> None:
@@ -672,7 +683,9 @@ def test_toggle_select_adds_and_removes() -> None:
 def test_match_action_confirms_before_matching(tmp_path: Path) -> None:
     from tidal2ytm import planning as planning_mod
 
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[_src()], selection={1: _src()})
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[_src()], selection={1: _src()}
+    )
     with patch.object(planning_mod, "match_track") as mock_match:
         counts = run_match_action(session, MagicMock(), input_fn=lambda _p: "n")
         mock_match.assert_not_called()
@@ -683,7 +696,9 @@ def test_match_action_adds_new_match(tmp_path: Path) -> None:
     from tidal2ytm import planning as planning_mod
     from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
 
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[_src()], selection={1: _src()})
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[_src()], selection={1: _src()}
+    )
     result = MatchResult(
         source=_src(),
         yt_video_id="AAAAAAAAAAA",

@@ -34,7 +34,7 @@ def test_run_transfer_scope_and_per_track_save(isolated_data_dir: Path, monkeypa
                 "tidal_id": 1,
                 "title": "Song",
                 "status": "pending",
-                "yt_video_id": "dQw4w9WgXcQ",
+                "yt_video_id": "CCCCCCCCCCC",
                 "confidence": {"overall": 0.9},
             },
             {
@@ -51,7 +51,7 @@ def test_run_transfer_scope_and_per_track_save(isolated_data_dir: Path, monkeypa
     yt.edit_song_library_status.return_value = {"status": "STATUS_SUCCEEDED"}
     transfer_mod.run_transfer(
         yt,
-        track_id="dQw4w9WgXcQ",
+        track_id="CCCCCCCCCCC",
         album_match_id=None,
         artist_match_id=None,
         all_tracks=False,
@@ -61,7 +61,7 @@ def test_run_transfer_scope_and_per_track_save(isolated_data_dir: Path, monkeypa
     )
     loaded = plan_io.load_plan(plan_path)
     assert any(
-        t["yt_video_id"] == "dQw4w9WgXcQ" and t["status"] == "transferred"
+        t["yt_video_id"] == "CCCCCCCCCCC" and t["status"] == "transferred"
         for t in plan_io.iter_tracks(loaded)
     )
     assert any(t["status"] == "needs_review" for t in plan_io.iter_tracks(loaded))
@@ -170,13 +170,13 @@ def test_transfer_dry_run_no_status_change(isolated_data_dir: Path, monkeypatch:
     plan_path = isolated_data_dir / "transfer_plan.toml"
     _seed_plan(
         plan_path,
-        [{"tidal_id": 5, "title": "Song", "status": "pending", "yt_video_id": "dQw4w9WgXcQ"}],
+        [{"tidal_id": 5, "title": "Song", "status": "pending", "yt_video_id": "CCCCCCCCCCC"}],
     )
     yt = MagicMock()
     yt.get_watch_playlist.return_value = {"tracks": [{"feedbackTokens": {"add": "tok"}}]}
     transfer_mod.run_transfer(
         yt,
-        track_id="dQw4w9WgXcQ",
+        track_id="CCCCCCCCCCC",
         album_match_id=None,
         artist_match_id=None,
         all_tracks=False,

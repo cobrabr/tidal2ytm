@@ -29,6 +29,20 @@ def test_cli_main_parses_help(monkeypatch: Any) -> None:
     assert e.value.code == 0
 
 
+def test_cli_main_planning_abort_exits_cleanly(monkeypatch: Any, capsys: Any) -> None:
+    import tidal2ytm.planning as planning_mod
+
+    monkeypatch.setattr(sys, "argv", ["tidal2ytm"])
+    monkeypatch.setattr(cli_mod, "_tidal_login", lambda: MagicMock())
+
+    def _abort(**kwargs: Any) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(planning_mod, "run_planning", _abort)
+    cli_mod.main()
+    assert "ended" in capsys.readouterr().out
+
+
 def test_cli_status_offline_no_plan_prints_message(
     tmp_path: Path, monkeypatch: Any, capsys: Any
 ) -> None:
@@ -216,18 +230,6 @@ def test_cli_main_review_filters(monkeypatch: Any) -> None:
         assert mock.call_args.kwargs["status_filter"] is not None
 
 
-def test_cli_plan_force_flag(monkeypatch: Any) -> None:
-    monkeypatch.setattr(sys, "argv", ["tidal2ytm", "plan", "--force"])
-    with (
-        patch("tidal2ytm.cli._tidal_login", return_value=MagicMock()),
-        patch("tidal2ytm.cli._ytm_login", return_value=MagicMock()),
-        patch("tidal2ytm.plan.run_plan") as mock_plan,
-    ):
-        cli_mod.main()
-        mock_plan.assert_called_once()
-        assert mock_plan.call_args.kwargs["force"] is True
-
-
 def test_cli_transfer_dry_run_flag(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "argv", ["tidal2ytm", "transfer", "--all", "--dry-run"])
     with (
@@ -248,7 +250,6 @@ def test_cli_main_unknown_command_exits(monkeypatch: Any) -> None:
 
 def test_cli_help_and_subcommand_help(monkeypatch: Any) -> None:
     for args in [
-        ["tidal2ytm", "plan", "--help"],
         ["tidal2ytm", "transfer", "--help"],
         ["tidal2ytm", "review", "--help"],
         ["tidal2ytm", "status", "--help"],
@@ -257,3 +258,20 @@ def test_cli_help_and_subcommand_help(monkeypatch: Any) -> None:
         with pytest.raises(SystemExit) as e:
             cli_mod.main()
         assert e.value.code == 0
+
+
+def test_cli_bare_invokes_planning(monkeypatch: Any) -> None:
+    monkeypatch.setattr(sys, "argv", ["tidal2ytm"])
+    with (
+        patch("tidal2ytm.cli._tidal_login", return_value=MagicMock()),
+        patch("tidal2ytm.planning.run_planning") as mock_p,
+    ):
+        cli_mod.main()
+        mock_p.assert_called_once()
+
+
+def test_cli_plan_removed(monkeypatch: Any) -> None:
+    monkeypatch.setattr(sys, "argv", ["tidal2ytm", "plan"])
+    with pytest.raises(SystemExit) as e:
+        cli_mod.main()
+    assert e.value.code == 2

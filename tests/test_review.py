@@ -256,12 +256,12 @@ def test_review_do_override_parses_url(isolated_data_dir: Path, monkeypatch: Any
         track_context=ctx,
     )
     track = filtered[0]
-    monkeypatch.setattr("builtins.input", lambda _: "https://youtu.be/dQw4w9WgXcQ")  # pyright: ignore[reportUnknownLambdaType]
+    monkeypatch.setattr("builtins.input", lambda _: "https://youtu.be/CCCCCCCCCCC")  # pyright: ignore[reportUnknownLambdaType]
     from rich.console import Console
 
     console = Console()
     review_mod._do_override(console, session, track)  # pyright: ignore[reportPrivateUsage]
-    assert track["yt_video_id"] == "dQw4w9WgXcQ"
+    assert track["yt_video_id"] == "CCCCCCCCCCC"
     assert track["status"] == "pending"
 
 
@@ -308,13 +308,13 @@ def test_review_do_override_rejects_invalid_then_accepts(
         track_context=ctx,
     )
     track = filtered[0]
-    inputs = iter(["not-a-url", "dQw4w9WgXcQ"])
+    inputs = iter(["not-a-url", "CCCCCCCCCCC"])
     monkeypatch.setattr("builtins.input", lambda _: next(inputs))  # pyright: ignore[reportUnknownLambdaType]
     from rich.console import Console
 
     console = Console()
     review_mod._do_override(console, session, track)  # pyright: ignore[reportPrivateUsage]
-    assert track["yt_video_id"] == "dQw4w9WgXcQ"
+    assert track["yt_video_id"] == "CCCCCCCCCCC"
 
 
 def test_review_run_no_plan_exits(tmp_path: Path) -> None:

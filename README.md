@@ -103,11 +103,11 @@ uv tool update tidal2ytm
 
 ## Usage
 
-The workflow consists of three steps: generating a plan, reviewing/resolving low-confidence matches, and executing the transfer.
+The workflow consists of three steps: planning what to match, reviewing/resolving low-confidence matches, and executing the transfer.
 
 ```pwsh
-# 1. Generate or update the transfer plan
-uv run tidal2ytm plan
+# 1. Interactively plan: search liked tracks, select, and match to YTM
+uv run tidal2ytm
 
 # 2. Interactively review low-confidence matches
 uv run tidal2ytm review --needs-review
@@ -116,15 +116,18 @@ uv run tidal2ytm review --needs-review
 uv run tidal2ytm transfer --all
 ```
 
-### 1. Plan (`plan`)
+### 1. Plan (interactive TUI)
 
-Scans Tidal liked tracks and searches YouTube Music to find matching candidates. Results are saved to `data/transfer_plan.toml`.
+Running `tidal2ytm` with no arguments opens the planning TUI. It fetches Tidal liked tracks once, then lets you choose what to match: everything, or a general search. You can also paste a Tidal track or album link; an album link selects that album's songs found in your liked tracks, never the album entity. Selections accumulate across searches and stay reviewable (with deselect) until the explicit match action writes results to `data/transfer_plan.toml`. The `m` key matches (asks `[Y/n]` first); differing re-matches of existing non-transferred entries prompt `[y/N]` each unless the `ctrl+o` override banner is on; transferred entries are always kept.
 
-```pwsh
-uv run tidal2ytm plan [--force]
-```
+#### Planning TUI keys:
 
-- `--force`: Overwrites better matches found on subsequent runs without prompting.
+- `e`: select everything (all liked tracks)
+- `/` or `s`: search (query or Tidal link; containing matches list with exact hits first, otherwise labelled closest matches; compilations group under Various Artists; arrows/j/k move, space toggles, `*` toggles all, `A`/`L` toggle artist/album (exact group on headers), `g` grouping, `/`/`s` new search, `q` quits, Enter confirms, Esc cancels)
+- `v`: review the accumulated selection (same list keys, `c` clears all)
+- `m`: match the selection to YTM
+- `ctrl+o` (TTY) / `O` (fallback): toggle override
+- `?` or `h`: help, `q`: quit
 
 ### 2. Review (`review`)
 

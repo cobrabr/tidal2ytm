@@ -69,12 +69,12 @@ class MatchResult:
 class AlbumGroup:
     name: str
     year: int | None
-    match_id: str  # e.g. "jethro-tull/war-child"
+    match_id: str  # e.g. "wren/cinder-child"
     tracks: list[MatchResult] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
 
 @dataclass
 class ArtistGroup:
     name: str
-    match_id: str  # e.g. "jethro-tull"
+    match_id: str  # e.g. "wren"
     albums: list[AlbumGroup] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]

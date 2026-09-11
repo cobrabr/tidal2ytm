@@ -185,12 +185,6 @@ def _ytm_login() -> YTMusic:  # noqa: C901
 # ---------------------------------------------------------------------------
 
 
-def cmd_plan(args: argparse.Namespace) -> None:
-    from .plan import run_plan
-
-    run_plan(_tidal_login(), _ytm_login(), plan_path=PLAN_FILE, force=args.force)
-
-
 def cmd_transfer(args: argparse.Namespace) -> None:
     from .transfer import run_transfer
 
@@ -261,7 +255,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     console = Console()
 
     if not PLAN_FILE.exists():
-        console.print("No transfer plan found. Run [bold]tidal2ytm plan[/bold] first.")
+        console.print("No transfer plan found. Run [bold]tidal2ytm[/bold] to build one first.")
         return
 
     plan: dict[str, Any] = load_plan(PLAN_FILE)
@@ -352,14 +346,7 @@ def main() -> None:
         prog="tidal2ytm",
         description="Transfer liked tracks from Tidal to YouTube Music, accurately.",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    # --- plan ---
-    p_plan = sub.add_parser("plan", help="Build or update the transfer plan.")
-    p_plan.add_argument(
-        "--force", action="store_true", help="Overwrite better matches without prompting."
-    )
-    p_plan.set_defaults(func=cmd_plan)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     # --- transfer ---
     p_t = sub.add_parser("transfer", help="Transfer tracks to YouTube Music library.")
@@ -411,6 +398,14 @@ def main() -> None:
     p_auth.set_defaults(func=cmd_auth)
 
     args = parser.parse_args()
+    if args.command is None:
+        from .planning import run_planning
+
+        try:
+            run_planning(tidal_session=_tidal_login(), plan_path=PLAN_FILE)
+        except (KeyboardInterrupt, EOFError):
+            print("\nPlanning session ended.")
+        return
     args.func(args)
 
 

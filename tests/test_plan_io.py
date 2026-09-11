@@ -9,11 +9,11 @@ import tidal2ytm.plan_io as plan_io  # pyright: ignore[reportPrivateUsage]
 
 def test_extract_video_id_forms() -> None:
     cases = {
-        "dQw4w9WgXcQ": "dQw4w9WgXcQ",
-        "https://www.youtube.com/watch?v=dQw4w9WgXcQ": "dQw4w9WgXcQ",
-        "https://youtu.be/dQw4w9WgXcQ?t=10": "dQw4w9WgXcQ",
-        "https://www.youtube.com/v/dQw4w9WgXcQ?foo=1": "dQw4w9WgXcQ",
-        "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=PL": "dQw4w9WgXcQ",
+        "CCCCCCCCCCC": "CCCCCCCCCCC",
+        "https://www.youtube.com/watch?v=CCCCCCCCCCC": "CCCCCCCCCCC",
+        "https://youtu.be/CCCCCCCCCCC?t=10": "CCCCCCCCCCC",
+        "https://www.youtube.com/v/CCCCCCCCCCC?foo=1": "CCCCCCCCCCC",
+        "https://music.youtube.com/watch?v=CCCCCCCCCCC&list=PL": "CCCCCCCCCCC",
     }
     for raw, expected in cases.items():
         assert plan_io._extract_video_id(raw) == expected  # pyright: ignore[reportPrivateUsage]
@@ -31,11 +31,11 @@ def test_load_plan_normalizes(isolated_data_dir: Path, tmp_path: Path) -> None:
     src = Path("tests/fixtures/sample_plan.toml").read_text(encoding="utf-8")
     plan_path = isolated_data_dir / "transfer_plan.toml"
     plan_path.write_text(
-        src.replace("dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ"), encoding="utf-8"
+        src.replace("CCCCCCCCCCC", "https://youtu.be/CCCCCCCCCCC"), encoding="utf-8"
     )
     plan = plan_io.load_plan(plan_path)
     vids = [t["yt_video_id"] for t in plan_io.iter_tracks(plan) if t["yt_video_id"]]
-    assert vids[0] == "dQw4w9WgXcQ"
+    assert vids[0] == "CCCCCCCCCCC"
 
 
 def test_save_plan_writes_header_and_backup(tmp_path: Path) -> None:

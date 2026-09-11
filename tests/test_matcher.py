@@ -19,17 +19,17 @@ def _yt_with_candidates(
 
 def test_matcher_isrc_via_candidate() -> None:
     track = {
-        "title": "Bungle",
-        "artists": ["Jethro Tull"],
-        "album": "War Child",
+        "title": "Muddle",
+        "artists": ["Wren"],
+        "album": "Cinder Child",
         "duration": 221,
         "isrc": "USABC1234567",
     }
     cand = {
-        "videoId": "dQw4w9WgXcQ",
-        "title": "Bungle in the Jungle",
-        "artists": [{"name": "Jethro Tull"}],
-        "album": {"name": "War Child"},
+        "videoId": "CCCCCCCCCCC",
+        "title": "Muddle in the Puddle",
+        "artists": [{"name": "Wren"}],
+        "album": {"name": "Cinder Child"},
         "duration_seconds": 221,
         "isrc": "USABC1234567",
     }
@@ -40,17 +40,17 @@ def test_matcher_isrc_via_candidate() -> None:
 
 def test_matcher_isrc_via_get_song_fallback() -> None:
     track = {
-        "title": "Bungle",
-        "artists": ["Jethro Tull"],
-        "album": "War Child",
+        "title": "Muddle",
+        "artists": ["Wren"],
+        "album": "Cinder Child",
         "duration": 221,
         "isrc": "USABC1234567",
     }
     cand = {
-        "videoId": "dQw4w9WgXcQ",
-        "title": "Bungle",
-        "artists": [{"name": "Jethro Tull"}],
-        "album": {"name": "War Child"},
+        "videoId": "CCCCCCCCCCC",
+        "title": "Muddle",
+        "artists": [{"name": "Wren"}],
+        "album": {"name": "Cinder Child"},
         "duration_seconds": 221,
     }
     yt = _yt_with_candidates(
@@ -62,24 +62,24 @@ def test_matcher_isrc_via_get_song_fallback() -> None:
 
 def test_matcher_duration_boundary_4s_pass_5s_fail() -> None:
     track = {
-        "title": "Chariots",
-        "artists": ["Vangelis"],
-        "album": "Chariots",
+        "title": "Ember",
+        "artists": ["Vesper"],
+        "album": "Ember",
         "duration": 209,
         "isrc": None,
     }
     cand_4s = {
         "videoId": "AAAAAAAAAAA",
-        "title": "Chariots of Fire",
-        "artists": [{"name": "Vangelis"}],
-        "album": {"name": "Chariots"},
+        "title": "Ember Glow",
+        "artists": [{"name": "Vesper"}],
+        "album": {"name": "Ember"},
         "duration_seconds": 213,
     }
     cand_5s = {
         "videoId": "BBBBBBBBBBB",
-        "title": "Chariots of Fire",
-        "artists": [{"name": "Vangelis"}],
-        "album": {"name": "Chariots"},
+        "title": "Ember Glow",
+        "artists": [{"name": "Vesper"}],
+        "album": {"name": "Ember"},
         "duration_seconds": 214,
     }
     yt = _yt_with_candidates([cand_4s])
@@ -112,12 +112,18 @@ def test_matcher_no_candidates_needs_review() -> None:
 
 
 def test_matcher_fuzzy_prefers_closest_album() -> None:
-    track = {"title": "Song", "artists": ["A"], "album": "War Child", "duration": 200, "isrc": None}
+    track = {
+        "title": "Song",
+        "artists": ["A"],
+        "album": "Cinder Child",
+        "duration": 200,
+        "isrc": None,
+    }
     c1 = {
         "videoId": "AAAAAAAAAAA",
         "title": "Song",
         "artists": [{"name": "A"}],
-        "album": {"name": "War Child"},
+        "album": {"name": "Cinder Child"},
         "duration_seconds": 200,
     }
     c2 = {
@@ -136,8 +142,8 @@ def test_matcher_fuzzy_prefers_closest_album() -> None:
 
 def test_matcher_similarity_threshold() -> None:
     # verify threshold 0.70 edge: identical strings 1.0, unrelated <0.70
-    assert _similarity("War Child", "War Child") == 1.0
-    assert _similarity("War Child", "Different Album") < 0.70
+    assert _similarity("Cinder Child", "Cinder Child") == 1.0
+    assert _similarity("Cinder Child", "Different Album") < 0.70
     assert _similarity("Song", "Song") == 1.0
     # ensure matcher threshold constant is 0.70
     from tidal2ytm.matcher import CONFIDENCE_THRESHOLD

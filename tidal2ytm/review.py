@@ -445,7 +445,8 @@ def run_review(  # noqa: C901
 
     if not plan_path.exists():
         console.print(
-            "[red]Error:[/red] No transfer plan found. Run [bold]tidal2ytm plan[/bold] first."
+            "[red]Error:[/red] No transfer plan found. "
+            "Run [bold]tidal2ytm[/bold] to build one first."
         )
         sys.exit(1)
 

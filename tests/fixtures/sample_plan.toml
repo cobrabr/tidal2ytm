@@ -8,29 +8,29 @@ failed = 0
 generated_at = "2026-08-29T00:00:00"
 
 [[artists]]
-name = "Jethro Tull"
-match_id = "jethro-tull"
+name = "Wren"
+match_id = "wren"
 
 [[artists.albums]]
-name = "War Child"
-match_id = "jethro-tull/war-child"
+name = "Cinder Child"
+match_id = "wren/cinder-child"
 [[artists.albums.tracks]]
 tidal_id = 123
-title = "Bungle in the Jungle"
-artists = ["Jethro Tull"]
-album = "War Child"
+title = "Muddle in the Puddle"
+artists = ["Wren"]
+album = "Cinder Child"
 duration = 221
 isrc = "USABC1234567"
-yt_video_id = "dQw4w9WgXcQ"
+yt_video_id = "CCCCCCCCCCC"
 status = "pending"
 match_method = "isrc"
 confidence = { overall = 1.0, title = 1.0, artist = 1.0, album = 1.0 }
 
 [[artists.albums.tracks]]
 tidal_id = 124
-title = "Skating Away"
-artists = ["Jethro Tull"]
-album = "War Child"
+title = "Drifting Away"
+artists = ["Wren"]
+album = "Cinder Child"
 duration = 267
 yt_video_id = ""
 status = "needs_review"
