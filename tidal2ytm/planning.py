@@ -546,7 +546,9 @@ def _esc_has_tail() -> bool:
     try:
         import msvcrt
 
-        return bool(msvcrt.kbhit())
+        # getattr: msvcrt members resolve only on Windows; keeps pyright strict clean elsewhere.
+        kbhit = getattr(msvcrt, "kbhit")  # noqa: B009
+        return bool(kbhit())
     except ImportError:
         import select
 
@@ -558,7 +560,8 @@ def _drain_tail() -> None:
     try:
         import msvcrt
 
-        drain_escape(msvcrt.kbhit, msvcrt.getwch)  # pyright: ignore[reportUnknownArgumentType]
+        # getattr: msvcrt members resolve only on Windows; keeps pyright strict clean elsewhere.
+        drain_escape(getattr(msvcrt, "kbhit"), getattr(msvcrt, "getwch"))  # noqa: B009
     except ImportError:
         import select
 
@@ -992,7 +995,8 @@ def kernel32() -> Any:
     import ctypes
     from ctypes import wintypes
 
-    kernel = ctypes.windll.kernel32
+    # getattr: ctypes.windll exists only on Windows; keeps pyright strict clean elsewhere.
+    kernel = getattr(ctypes, "windll").kernel32  # noqa: B009
     kernel.GetStdHandle.argtypes = [wintypes.DWORD]
     kernel.GetStdHandle.restype = wintypes.HANDLE
     kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
@@ -1067,7 +1071,8 @@ def read_key() -> str | None:
         try:
             import msvcrt
 
-            drain_escape(msvcrt.kbhit, msvcrt.getwch)  # pyright: ignore[reportUnknownArgumentType]
+            # getattr: msvcrt members resolve only on Windows; keeps pyright strict clean elsewhere.
+            drain_escape(getattr(msvcrt, "kbhit"), getattr(msvcrt, "getwch"))  # noqa: B009
         except ImportError:
             import select
 
