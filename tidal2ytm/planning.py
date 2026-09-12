@@ -552,7 +552,11 @@ def _esc_has_tail() -> bool:
     except ImportError:
         import select
 
-        return bool(select.select([sys.stdin], [], [], 0)[0])
+        try:
+            return bool(select.select([sys.stdin], [], [], 0)[0])
+        except (OSError, ValueError):
+            # Non-pollable stdin (pytest capture, closed pipe): assume a lone Esc press.
+            return False
 
 
 def _drain_tail() -> None:
