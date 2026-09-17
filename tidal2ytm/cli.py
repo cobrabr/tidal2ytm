@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
 import json
 import os
 import sys
 import webbrowser
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Callable, Generator
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 import tidalapi
 from ytmusicapi import YTMusic
@@ -19,21 +20,94 @@ if TYPE_CHECKING:
     from tidalapi.session import Session
 
 
-def _tidal_login() -> Session:
+def _save_tidal_token(session: Session) -> None:
+    expiry_time = session.expiry_time
+    # tidalapi stores back whatever expiry we passed to load_oauth_session,
+    # which may be the ISO string from the file rather than a datetime.
+    expiry_str = (
+        expiry_time.isoformat() if isinstance(expiry_time, datetime.datetime) else expiry_time
+    )
+    user = session.user
+    with open(TIDAL_TOKEN_FILE, "w") as f:
+        json.dump(
+            {
+                "token_type": session.token_type,
+                "access_token": session.access_token,
+                "refresh_token": session.refresh_token,
+                "expiry_time": expiry_str,
+                "user_id": user.id if user is not None else None,
+                "country_code": session.country_code,
+            },
+            f,
+            indent=2,
+        )
+
+
+@contextlib.contextmanager
+def wait_status(thing: str) -> Generator[None, None, None]:
+    """Show a yellow `dots`-spinner '<thing>…' wait indicator on TTY, plain print otherwise."""
+    text = f"{thing}…"
+    if sys.stdout.isatty():
+        from rich.console import Console
+
+        with Console().status(text, spinner="dots", spinner_style="yellow"):
+            yield
+    else:
+        print(text)
+        yield
+
+
+@overload
+def _tidal_login(*, login: Literal[True] = ...) -> Session: ...  # pyright: ignore[reportUnusedFunction]
+@overload
+def _tidal_login(*, login: Literal[False]) -> Session | None: ...  # pyright: ignore[reportUnusedFunction]
+def _tidal_login(*, login: bool = True) -> Session | None:  # pyright: ignore[reportUnusedFunction]
+    """Build a Tidal session; with login=False return None instead of logging in.
+
+    The planning TUI uses login=False at startup so a stale or missing token
+    never triggers a slow login or a browser flow before the first menu.
+    """
     session = tidalapi.Session()  # pyright: ignore[reportPrivateImportUsage]
     if os.path.exists(TIDAL_TOKEN_FILE):
         with open(TIDAL_TOKEN_FILE) as f:
             token_data = json.load(f)
+        expiry_time = auth_mod.parse_token_expiry(token_data.get("expiry_time"))
+        user_id = token_data.get("user_id")
+        if (
+            expiry_time is not None
+            and isinstance(user_id, int)
+            and auth_mod.token_fresh(expiry_time)
+        ):
+            # Token is far from expiring: hydrate the session locally instead
+            # of the validating round-trip. A revoked token still surfaces on
+            # first use via tidalapi's reactive refresh.
+            from tidalapi.user import LoggedInUser
+
+            session.token_type = token_data["token_type"]
+            session.access_token = token_data["access_token"]
+            session.refresh_token = token_data["refresh_token"]
+            session.expiry_time = expiry_time
+            session.country_code = token_data.get("country_code")
+            session.locale = "en_US"
+            session.user = LoggedInUser(session, user_id)
+            return session
+        if not login:
+            return None
         with contextlib.suppress(Exception):
             session.load_oauth_session(
                 token_data["token_type"],
                 token_data["access_token"],
                 token_data["refresh_token"],
-                token_data.get("expiry_time"),
+                expiry_time,
             )
             if session.check_login():
+                # Persist the (possibly refreshed) token so the next launch
+                # skips the refresh round-trip while it is still valid.
+                _save_tidal_token(session)
                 return session
         print("Cached token expired. Re-authenticating…")
+    if not login:
+        return None
 
     link_login, login_future = session.login_oauth()
     url = f"https://{link_login.verification_uri_complete}"
@@ -41,17 +115,7 @@ def _tidal_login() -> Session:
     webbrowser.open(url)
     login_future.result()
 
-    with open(TIDAL_TOKEN_FILE, "w") as f:
-        json.dump(
-            {
-                "token_type": session.token_type,
-                "access_token": session.access_token,
-                "refresh_token": session.refresh_token,
-                "expiry_time": session.expiry_time.isoformat() if session.expiry_time else None,
-            },
-            f,
-            indent=2,
-        )
+    _save_tidal_token(session)
     return session
 
 
@@ -194,8 +258,10 @@ def cmd_transfer(args: argparse.Namespace) -> None:
     artist_id = getattr(args, "artist", None)
     all_tracks = getattr(args, "all", False)
 
+    with wait_status("Authenticating with YouTube Music"):
+        yt = _ytm_login()
     run_transfer(
-        _ytm_login(),
+        yt,
         track_id=track_id,
         album_match_id=album_id,
         artist_match_id=artist_id,
@@ -299,9 +365,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         console.print(f"Total tracks: {total}")
 
     status_styles = {
-        TrackStatus.TRANSFERRED.value: "on green",
+        TrackStatus.TRANSFERRED.value: "on magenta",
         TrackStatus.PENDING.value: "",
-        TrackStatus.NEEDS_REVIEW.value: "on yellow",
+        TrackStatus.NEEDS_REVIEW.value: "on cyan",
         TrackStatus.SKIP.value: "dim",
         TrackStatus.FAILED.value: "on red",
     }
@@ -315,7 +381,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     # Show needs_review detail
     nr_count = counts.get(TrackStatus.NEEDS_REVIEW.value, 0)
     if nr_count:
-        console.print(f"\n[yellow]needs_review ({nr_count}):[/yellow]")
+        console.print(f"\n[cyan]needs_review ({nr_count}):[/cyan]")
         for t in iter_tracks_filtered(
             plan,
             status=TrackStatus.NEEDS_REVIEW,
@@ -402,7 +468,7 @@ def main() -> None:
         from .planning import run_planning
 
         try:
-            run_planning(tidal_session=_tidal_login(), plan_path=PLAN_FILE)
+            run_planning(plan_path=PLAN_FILE)
         except (KeyboardInterrupt, EOFError):
             print("\nPlanning session ended.")
         return

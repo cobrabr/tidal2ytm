@@ -65,8 +65,8 @@ def _confidence_text(value: float | None) -> Text:
 
 def _status_style(status: str) -> str:
     return {
-        TrackStatus.NEEDS_REVIEW.value: "on yellow",
-        TrackStatus.TRANSFERRED.value: "on green",
+        TrackStatus.NEEDS_REVIEW.value: "on cyan",
+        TrackStatus.TRANSFERRED.value: "on magenta",
         TrackStatus.SKIP.value: "dim",
         TrackStatus.FAILED.value: "on red",
         TrackStatus.PENDING.value: "",
@@ -162,19 +162,27 @@ All decisions are written immediately — there is no unsaved state.
 """
 
 
+def review_title(track: dict[str, Any], ctx: dict[int, dict[str, Any]]) -> Text:
+    """Panel title with a cyan Review marker plus the album match id."""
+    tidal_id = track.get("tidal_id", 0)
+    info = ctx.get(tidal_id, {})
+    title = Text()
+    title.append("Review", style="bold cyan")
+    title.append(f"  {info.get('album_match_id', '')}", style="bold")
+    title.append(
+        f"  Track {info.get('pos_in_album', '?')} of {info.get('total_in_album', '?')}",
+        style="dim",
+    )
+    return title
+
+
 def _render_track(
     console: Console,
     track: dict[str, Any],
     ctx: dict[int, dict[str, Any]],
     session: ReviewSession,
 ) -> None:
-    tidal_id = track.get("tidal_id", 0)
-    info = ctx.get(tidal_id, {})
-    alb_match_id = info.get("album_match_id", "")
-    pos = info.get("pos_in_album", "?")
-    total = info.get("total_in_album", "?")
-
-    title_text = f"[bold]{alb_match_id}[/bold]  Track {pos} of {total}"
+    title_text = review_title(track, ctx)
 
     # Left column: Source
     src_lines = [

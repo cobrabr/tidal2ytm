@@ -9,9 +9,11 @@ import os
 import sys
 from collections.abc import Callable, Container
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
+from rich.columns import Columns
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -69,10 +71,60 @@ class PlanningSession:
     selection: dict[int, SourceTrack] = field(default_factory=_empty_selection)
     override: bool = False
     backup_done: bool = False
+    library_loaded: bool = False
 
     @property
     def by_id(self) -> dict[int, SourceTrack]:
         return {t.tidal_id: t for t in self.liked}
+
+
+@dataclass
+class PlanCounts:
+    total: int = 0
+    pending: int = 0
+    needs_review: int = 0
+    transferred: int = 0
+    skip: int = 0
+    failed: int = 0
+    unreadable: bool = False
+
+
+def read_plan_counts(plan_path: Path) -> PlanCounts:
+    """Local-only plan totals; zeros when the file is absent or unreadable."""
+    if not plan_path.exists():
+        return PlanCounts()
+    try:
+        meta: dict[str, Any] = load_plan(plan_path).get("meta", {})
+    except (OSError, ValueError):
+        return PlanCounts(unreadable=True)
+    return PlanCounts(
+        total=int(meta.get("total_tracks", 0)),
+        pending=int(meta.get("pending", 0)),
+        needs_review=int(meta.get("needs_review", 0)),
+        transferred=int(meta.get("transferred", 0)),
+        skip=int(meta.get("skip", 0)),
+        failed=int(meta.get("failed", 0)),
+    )
+
+
+@dataclass
+class AuthPresence:
+    ytm_ok: bool = False
+    client_secret: bool = False
+    tidal_ok: bool = False
+
+
+def read_auth_presence(data_dir: Path | None = None) -> AuthPresence:
+    """Offline token-validity check; performs no network and never raises."""
+    from . import auth as auth_mod
+    from . import paths as paths_mod
+
+    root = data_dir if data_dir is not None else paths_mod.DATA_DIR
+    return AuthPresence(
+        ytm_ok=auth_mod.ytm_cache_valid(root / "ytm_auth.json"),
+        client_secret=bool(list(root.glob("client_secret_*.json"))),
+        tidal_ok=auth_mod.tidal_cache_valid(root / "tidal_token.json"),
+    )
 
 
 def toggle_select(selection: dict[int, SourceTrack], track: SourceTrack) -> bool:
@@ -263,15 +315,19 @@ def run_match_action(  # noqa: C901
         return counts
     if yt is None:
         assert yt_factory is not None
-        console.print("Authenticating with YouTube Music…")
-        yt = yt_factory()
+        from .cli import wait_status
+
+        with wait_status("Authenticating with YouTube Music"):
+            yt = yt_factory()
     if session.plan_path.exists():
         plan: dict[str, Any] = load_plan(session.plan_path)
     else:
         plan = {"meta": {}, "artists": []}
     ordered = iter_selection_ordered(session.selection)
     for i, src in enumerate(ordered, 1):
-        console.print(f"[{i}/{n}] Matching '{src.title}' by {src.artist} {_src_detail(src)} …")
+        tag = Text(f"[{i}/{n}] ", style=_STYLE_MATCH)
+        tag.append(f"Matching '{src.title}' by {src.artist} {_src_detail(src)} …")
+        console.print(tag)
         existing = find_existing_match(plan, src.tidal_id)
         try:
             result = match_track(src, yt)
@@ -339,7 +395,27 @@ def run_match_action(  # noqa: C901
     return counts
 
 
-def _select_all(session: PlanningSession, console: Console) -> None:
+def _ensure_library(
+    console: Console,
+    session: PlanningSession,
+    input_fn: Callable[[str], str] | None = None,
+) -> bool:
+    """True when the Tidal library is loaded; otherwise guidance plus pause."""
+    if session.library_loaded:
+        return True
+    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    console.print("Tidal library not loaded. Authenticate first (a).")
+    ask("Press Enter to continue…")
+    return False
+
+
+def _select_all(
+    session: PlanningSession,
+    console: Console,
+    input_fn: Callable[[str], str] | None = None,
+) -> None:
+    if not _ensure_library(console, session, input_fn):
+        return
     session.selection.clear()
     session.selection.update({t.tidal_id: t for t in session.liked})
     console.print(f"Selected everything: {len(session.selection)} track(s).")
@@ -385,12 +461,12 @@ def hot_hint(pre: str, hot: str, post: str = "", style: str = "bold bright_blue"
 
 
 def _mark_style(mark: str) -> str:
-    """Checkbox glyph style: grey empty, yellow partial, green full."""
+    """Checkbox glyph style: grey empty, blue partial, bright-blue full (select family)."""
     if mark == "☐":
         return "bright_black"
     if mark == "▣":
-        return "bold bright_yellow"
-    return "bold bright_green"
+        return "bold blue"
+    return "bold bright_blue"
 
 
 def _check_state(members: tuple[SourceTrack, ...], selection: dict[int, SourceTrack]) -> str:
@@ -413,11 +489,11 @@ def _track_details(t: SourceTrack, show_album: bool) -> str:
 
 
 def row_text(row: ListRow, selection: dict[int, SourceTrack], cursor: bool, grouping: str) -> Text:
-    """One picker row: cursor marker, tri-state checkbox, label, green details."""
+    """One picker row: cursor marker, tri-state checkbox, label, dim details."""
     text = Text(no_wrap=True, overflow="ellipsis")
     text.append(" " * row.indent)
     if cursor:
-        text.append("❯ ", style="bold cyan")  # noqa: RUF001
+        text.append("❯ ", style="bold bright_blue")  # noqa: RUF001
     else:
         text.append("  ")
     if row.kind == "track":
@@ -432,7 +508,7 @@ def row_text(row: ListRow, selection: dict[int, SourceTrack], cursor: bool, grou
             text.append(f"{t.artist} - {t.title} ")
         else:
             text.append(f"{t.title} ")
-        text.append(_track_details(t, show_album=grouping != "both"), style="green")
+        text.append(_track_details(t, show_album=grouping != "both"), style="dim")
         return text
     mark = _check_state(row.members, selection)
     text.append(mark, style=_mark_style(mark))
@@ -500,11 +576,11 @@ def picker_bar(grouping: str, clearable: bool) -> Text:
 
 
 def picker_head(title: str, title_term: str, hits_total: int, n_selected: int, notice: str) -> Text:
-    """Title bar: white label, magenta term, dim counts, yellow notice line."""
+    """Title bar: blue label, italic blue term, dim counts, yellow notice line."""
     head = Text(no_wrap=True, overflow="ellipsis")
-    head.append(title, style="bold white")
+    head.append(title, style="bold bright_blue")
     if title_term:
-        head.append(title_term, style="bold italic magenta")
+        head.append(title_term, style="bold italic bright_blue")
     head.append(f"  {hits_total} hit(s)  {n_selected} selected", style="dim")
     if notice:
         head.append(f"\n{notice}", style="yellow")
@@ -735,7 +811,13 @@ def _prompt_query() -> str | None:
         return None
 
 
-def _do_search(console: Console, session: PlanningSession) -> None:  # noqa: C901
+def _do_search(  # noqa: C901
+    console: Console,
+    session: PlanningSession,
+    input_fn: Callable[[str], str] | None = None,
+) -> None:
+    if not _ensure_library(console, session, input_fn):
+        return
     while True:
         query = _prompt_query()
         if query is None:
@@ -767,13 +849,13 @@ def _do_search(console: Console, session: PlanningSession) -> None:  # noqa: C90
     console.print(Panel(listing, title=Text(f"Search: {query}"), expand=True))
     console.print(Panel(key_hints(RESULTS_HINTS), border_style="dim", expand=True))
     try:
-        raw = input("Toggle numbers, 'a' for all, Enter to go back: ")
+        raw = input("Toggle numbers, '*' for all, Enter to go back: ")
     except (KeyboardInterrupt, EOFError):
         return
     raw = raw.strip()
     if not raw:
         return
-    if raw.lower() == "a":
+    if raw == "*":
         for t in hits:
             session.selection[t.tidal_id] = t
         console.print(f"Selected {len(hits)} track(s).")
@@ -860,24 +942,156 @@ def _do_match(console: Console, session: PlanningSession) -> None:
         pass
     except Exception as exc:
         console.print(f"[red]Match failed: {exc}[/red]")
-    input("Press Enter to continue...")
+    input("Press Enter to continue…")
+
+
+def _do_gateway_review(
+    console: Console,
+    session: PlanningSession,
+    input_fn: Callable[[str], str] | None = None,
+) -> None:
+    """Open the full review TUI in-process; guidance plus pause when no plan exists."""
+    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    try:
+        if not session.plan_path.exists():
+            console.print("No transfer plan found. Run a match first (m) to build one.")
+            ask("Press Enter to continue…")
+            return
+        from .review import run_review
+
+        counts = read_plan_counts(session.plan_path)
+        if counts.unreadable:
+            console.print(
+                "The transfer plan is unreadable. Fix or delete it, then match (m) to rebuild."
+            )
+            ask("Press Enter to continue…")
+            return
+        if counts.total == 0:
+            console.print("The transfer plan is empty. Run a match first (m) to add tracks.")
+            ask("Press Enter to continue…")
+            return
+        run_review(plan_path=session.plan_path)
+    except (KeyboardInterrupt, EOFError):
+        return
+    except SystemExit:
+        ask("Press Enter to continue…")
+    except Exception as exc:
+        console.print(f"[red]Review failed: {exc}[/red]")
+        ask("Press Enter to continue…")
+
+
+def _do_gateway_transfer(
+    console: Console,
+    session: PlanningSession,
+    *,
+    dry_run: bool,
+    input_fn: Callable[[str], str] | None = None,
+) -> None:
+    """Transfer all pending tracks in-process; pending-only, never needs_review."""
+    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    try:
+        if not session.plan_path.exists():
+            console.print("No transfer plan found. Run a match first (m) to build one.")
+            ask("Press Enter to continue…")
+            return
+        label = "Dry-run transfer" if dry_run else "Transfer"
+        answer = ask(f"{label} all pending tracks? [Y/n] ").strip().lower()
+        if answer not in ("", "y", "yes"):
+            return
+        from .cli import (
+            _ytm_login,  # pyright: ignore[reportPrivateUsage]
+            wait_status,
+        )
+        from .transfer import run_transfer
+
+        with wait_status("Authenticating with YouTube Music"):
+            yt = _ytm_login()
+        run_transfer(
+            yt,
+            all_tracks=True,
+            dry_run=dry_run,
+            include_needs_review=False,
+            plan_path=session.plan_path,
+        )
+    except (KeyboardInterrupt, EOFError):
+        return
+    except SystemExit:
+        pass
+    except Exception as exc:
+        console.print(f"[red]Transfer failed: {exc}[/red]")
+    ask("Press Enter to continue…")
+
+
+def _attempt_auth(console: Console, label: str, run: Callable[[], object]) -> bool:
+    """Run one provider auth; its failure is reported, never skips the other provider."""
+    try:
+        run()
+    except Exception as exc:
+        console.print(f"[red]{label} auth failed: {exc}[/red]")
+        return False
+    else:
+        console.print(f"{label} auth ok.")
+        return True
+
+
+def _do_gateway_auth(
+    console: Console,
+    session: PlanningSession,
+    input_fn: Callable[[str], str] | None = None,
+) -> None:
+    """Run the auth flows in-process; cached valid tokens are skipped via force=False."""
+    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    try:
+        scope = ask("Authenticate [both/tidal/ytm] (default both): ").strip().lower() or "both"
+        if scope not in ("both", "tidal", "ytm"):
+            console.print("[dim]Unknown scope (press ? for help)[/dim]")
+            ask("Press Enter to continue…")
+            return
+        from . import auth as auth_mod
+
+        tidal_ok = False
+        if scope in ("both", "ytm"):
+            _attempt_auth(console, "YTM", partial(auth_mod.run_ytm_auth, force=False))
+        if scope in ("both", "tidal"):
+            tidal_ok = _attempt_auth(
+                console, "Tidal", partial(auth_mod.run_tidal_auth, force=False)
+            )
+        if tidal_ok and not session.library_loaded:
+            from .cli import _tidal_login, wait_status  # pyright: ignore[reportPrivateUsage]
+            from .tidal_source import get_liked_tracks
+
+            with wait_status("Fetching Tidal tracks"):
+                session.liked = get_liked_tracks(_tidal_login())
+            session.library_loaded = True
+            console.print(f"Found {len(session.liked)} tracks.")
+    except (KeyboardInterrupt, EOFError):
+        return
+    except SystemExit:
+        pass
+    except Exception as exc:
+        console.print(f"[red]Auth failed: {exc}[/red]")
+    ask("Press Enter to continue…")
 
 
 HELP_TEXT = """\
 [bold underline]Planning[/bold underline]
-  e   Select everything (all liked tracks)
-  / | s   Search: type query or paste a Tidal link
-  v   Review selection across searches (deselect, clear)
-  m   Match selection to YTM (asks Y/n first)
-  ctrl+o (TTY) / O (fallback)   Toggle override (existing matches overwritten)
-  ? | h   Show this help
-  q   Quit
+  [bold bright_blue]e[/]   Select everything (whole library)
+  [bold bright_blue]/[/] | [bold bright_blue]s[/]   Search: type query or paste a Tidal link
+  [bold bright_blue]v[/]   Review selection across searches (deselect, clear)
+  [bold bright_green]m[/]   Match selection to YTM
+  [bold cyan]r[/]   Review all plan matches (full review TUI)
+  [bold bright_magenta]t[/]   Transfer pending plan tracks
+  [bold bright_magenta]d[/]   Dry-run transfer of pending plan tracks
+  [bold bright_red]a[/]   Authenticate with YTM and Tidal
+  [bold bright_green]ctrl+o[/] (TTY) / [bold bright_green]O[/] (fallback)   Toggle override mode
+  [bold bright_yellow]?[/] | [bold bright_yellow]h[/]   Show this help
+  [bold bright_yellow]q[/]   Quit tidal2ytm
 
 In search results: ↑/↓ or j/k moves, space toggles, '*' all, 'A' artist,
 'L' album, 'g' grouping, '/'|'s' new search, 'q' quits, Enter confirms,
 Esc cancels (asks) to go back.
 In review: same, plus 'c' clears the selection.
-Without a TTY: numbers toggle, 'a' selects all, Enter goes back.
+Without a TTY: numbers toggle, '*' selects all, Enter goes back.
 """
 
 
@@ -895,19 +1109,18 @@ def key_hints(hints: list[tuple[tuple[str, ...], str, str]]) -> Text:
     return bar
 
 
-MENU_HINTS: list[tuple[tuple[str, ...], str, str]] = [
-    (("e",), "verything", "bold bright_blue"),
-    (("/", "s"), "earch", "bold bright_blue"),
-    (("v",), "iew", "bold bright_blue"),
-    (("m",), "atch", "bold bright_blue"),
-    (("ctrl+o",), "verride", "bold bright_blue"),
-    (("?", "h"), "elp", "bold bright_yellow"),
-    (("q",), "uit", "bold bright_yellow"),
-]
+# Main-menu colour groups: selection blue (matches the search footer), match
+# green, review cyan, transfer magenta, auth red, meta keys yellow.
+_STYLE_SELECT = "bold bright_blue"
+_STYLE_MATCH = "bold bright_green"
+_STYLE_REVIEW = "bold cyan"
+_STYLE_TRANSFER = "bold bright_magenta"
+_STYLE_AUTH = "bold bright_red"
+_STYLE_HELP = "bold bright_yellow"
 
 RESULTS_HINTS: list[tuple[tuple[str, ...], str, str]] = [
     (("1-9",), " toggle", "bold bright_blue"),
-    (("a",), "ll", "bold bright_blue"),
+    (("*",), " all", "bold bright_blue"),
     (("Enter",), " back", "bold bright_blue"),
 ]
 
@@ -918,39 +1131,134 @@ REVIEW_HINTS: list[tuple[tuple[str, ...], str, str]] = [
 ]
 
 
-def menu_body(session: PlanningSession) -> Text:
+def menu_body(session: PlanningSession, has_plan: bool = True) -> Text:
+    """Grouped instruction lines; same-colour options share a line, groups split by blanks."""
+    blue = _STYLE_SELECT
+    green = _STYLE_MATCH
+    select = Text.assemble(
+        ("/", blue),
+        (" | ", "dim"),
+        ("s", blue),
+        ("earch for tracks (query or Tidal link)", "dim"),
+    )
+    if session.library_loaded:
+        track_word = "track" if len(session.liked) == 1 else "tracks"
+        selection = Text.assemble(
+            ("select ", "dim"),
+            ("e", blue),
+            (f"verything in your library ({len(session.liked)} {track_word}) or ", "dim"),
+            ("v", blue),
+            (f"iew the {len(session.selection)} selected across searches", "dim"),
+        )
+    else:
+        selection = Text.assemble(
+            ("library not loaded, cannot select or view tracks — ", "dim"),
+            ("a", _STYLE_AUTH),
+            ("uthenticate", "dim"),
+        )
+    match = Text.assemble(
+        ("m", green),
+        ("atch your selection to YTM, ", "dim"),
+        ("ctrl+o", green),
+        ("verride existing matches", "dim"),
+    )
+    review = Text.assemble(("r", _STYLE_REVIEW), ("eview every match in the plan", "dim"))
+    transfer = Text.assemble(
+        ("t", _STYLE_TRANSFER),
+        ("ransfer pending tracks to YTM or ", "dim"),
+        ("d", _STYLE_TRANSFER),
+        ("ry-run the transfer", "dim"),
+    )
+    auth = Text.assemble(("a", _STYLE_AUTH), ("uthenticate with Tidal and YTM", "dim"))
+    if not has_plan:
+        review.append("  (needs plan)", style="dim")
+        transfer.append("  (needs plan)", style="dim")
+    meta = Text.assemble(
+        ("?", _STYLE_HELP),
+        (" | ", "dim"),
+        ("h", _STYLE_HELP),
+        ("elp", "dim"),
+    )
+    quit_line = Text.assemble(("q", _STYLE_HELP), ("uit tidal2ytm", "dim"))
+    blocks: list[list[Text]] = [
+        [select, selection],
+        [match],
+        [review],
+        [transfer],
+        [auth],
+        [Text("─" * 40, style="dim"), meta, quit_line],
+    ]
     body = Text()
     if session.override:
         # Dark red: the named palette has none; hex downgrades gracefully.
         body.append("OVERRIDE: existing matches overwritten", style="#fecaca on #7f1d1d")
-    rows = [
-        (("e",), "verything", f"select all {len(session.liked)} liked tracks", "bold bright_blue"),
-        (("/", "s"), "earch", "query or Tidal link", "bold bright_blue"),
-        (
-            ("v",),
-            "iew",
-            f"review {len(session.selection)} selected across searches",
-            "bold bright_blue",
-        ),
-        (("m",), "atch", "match selection to YTM (asks Y/n first)", "bold bright_blue"),
-        (("ctrl+o",), "verride", "overwrite existing matches when on", "bold bright_blue"),
-        ((), "", "", ""),
-        (("?", "h"), "elp", "show help", "bold bright_yellow"),
-        (("q",), "uit", "quit", "bold bright_yellow"),
-    ]
-    for i, (keys, rest, desc, style) in enumerate(rows):
-        if i or session.override:
+        body.append("\n")
+    for bi, block in enumerate(blocks):
+        if bi:
             body.append("\n")
-        if not keys:
-            body.append("─" * 40, style="dim")
-            continue
-        for j, k in enumerate(keys):
-            if j:
-                body.append(" | ", style="dim")
-            body.append(k, style=style)
-        body.append(rest + "  ")
-        body.append(desc, style="dim")
+        for line in block:
+            body.append_text(line)
+            body.append("\n")
+    body.plain = body.plain.removesuffix("\n")
     return body
+
+
+def status_body(
+    session: PlanningSession,
+    counts: PlanCounts | None = None,
+    auth: AuthPresence | None = None,
+    has_plan: bool = True,
+) -> Text:
+    """Status panel: library, plan totals, and auth presence with ✓/✕ glyphs."""
+    body = Text()
+    if session.library_loaded:
+        body.append(str(len(session.liked)), style=_STYLE_SELECT)
+        body.append(" in library   ")
+        body.append(str(len(session.selection)), style=_STYLE_SELECT)
+        body.append(" selected")
+    else:
+        body.append("library not loaded — ")
+        body.append("a", style=_STYLE_AUTH)
+        body.append("uthenticate")
+    body.append("\n")
+    if not has_plan or counts is None:
+        body.append("plan", style=_STYLE_REVIEW)
+        body.append("  no plan yet — match (m) first")
+    elif counts.unreadable:
+        body.append("plan", style=_STYLE_REVIEW)
+        body.append("  ")
+        body.append("unreadable — showing zeros", style="bold red")
+    else:
+        body.append("plan", style=_STYLE_REVIEW)
+        body.append("  total ")
+        body.append(str(counts.total), style="bold")
+        body.append("  pending ")
+        body.append(str(counts.pending), style=_STYLE_TRANSFER)
+        body.append("  needs_review ")
+        body.append(str(counts.needs_review), style="bold bright_cyan")
+        body.append("  transferred ")
+        body.append(str(counts.transferred), style=_STYLE_TRANSFER)
+        body.append(f"  skip {counts.skip}  failed ")
+        body.append(str(counts.failed), style="bold red")
+    body.append("\n")
+    if auth is not None:
+        body.append("auth", style=_STYLE_AUTH)
+        body.append("  ")
+        for label, ok in (
+            ("YTM", auth.ytm_ok),
+            ("client_secret", auth.client_secret),
+            ("Tidal", auth.tidal_ok),
+        ):
+            glyph, glyph_style = _status_glyph(ok)
+            body.append(f"{label} ")
+            body.append(glyph, style=glyph_style)
+            body.append("  ")
+    return body
+
+
+def _status_glyph(ok: bool) -> tuple[str, str]:
+    """Green ✓ when the cached token is valid, red ✕ when missing or expired."""
+    return ("✓", "bold green") if ok else ("✕", "bold red")
 
 
 def track_row(n: int, selected: bool, t: SourceTrack) -> Text:
@@ -959,15 +1267,27 @@ def track_row(n: int, selected: bool, t: SourceTrack) -> Text:
     mark = "■" if selected else "☐"
     row.append(mark, style=_mark_style(mark))
     row.append(f" {t.artist} - {t.title} ")
-    row.append(_track_details(t, show_album=True), style="green")
+    row.append(_track_details(t, show_album=True), style="dim")
     return row
 
 
+def _ramp(t: float) -> str:
+    """Hex colour along the logo ramp: grey -> white -> red for t in [0, 1]."""
+    grey = (0x80, 0x80, 0x80)
+    white = (0xFF, 0xFF, 0xFF)
+    red = (0xFF, 0x00, 0x00)
+    low, high, span = (grey, white, t * 2) if t < 0.5 else (white, red, (t - 0.5) * 2)
+    mixed = tuple(round(a + (b - a) * span) for a, b in zip(low, high, strict=True))
+    return f"#{mixed[0]:02x}{mixed[1]:02x}{mixed[2]:02x}"
+
+
 def logo_text() -> Text:
-    return Text.assemble(
-        ("tidal2ytm", "bold bright_blue"),
-        ("   Tidal liked tracks to YouTube Music", "dim"),
-    )
+    word = "tidal2ytm"
+    logo = Text()
+    for i, ch in enumerate(word):
+        logo.append(ch, style=f"bold {_ramp(i / (len(word) - 1))}")
+    logo.append("   Transfer Tidal tracks to YouTube Music", style="dim")
+    return logo
 
 
 RESIZE_KEY = "\x00R"
@@ -1090,15 +1410,45 @@ def read_key() -> str | None:
     return None
 
 
+class _FlushTitlePanel(Panel):
+    """Panel whose title abuts the top border with no padding spaces.
+
+    Rich pads every panel title with one space each side (Panel._title),
+    which would strand the ┤/├ junctions away from the ─ runs. This repeats
+    Rich's title preparation verbatim minus the padding.
+    """
+
+    @property
+    def _title(self) -> Text | None:
+        if not self.title:
+            return None
+        text = self.title.copy() if isinstance(self.title, Text) else Text.from_markup(self.title)
+        text.end = ""
+        text.plain = text.plain.replace("\n", " ")
+        text.no_wrap = True
+        text.expand_tabs()
+        return text
+
+
 def _render_menu(console: Console, session: PlanningSession) -> None:
     console.clear()
-    logo = logo_text()
-    console.print(Panel(logo, border_style="dim", expand=True))
-    title = Text()
-    title.append("Planning", style="bold underline")
-    title.append(f"  {len(session.liked)} liked  {len(session.selection)} selected", style="dim")
-    console.print(Panel(menu_body(session), title=title, expand=True))
-    console.print(Panel(key_hints(MENU_HINTS), border_style="dim", expand=True))
+    console.print(Panel(logo_text(), border_style="dim", expand=True))
+    has_plan = session.plan_path.exists()
+    counts = read_plan_counts(session.plan_path) if has_plan else None
+    auth = read_auth_presence()
+    menu = _FlushTitlePanel(
+        menu_body(session, has_plan),
+        title=Text("┤ Main menu ├", style="bold"),
+        expand=True,
+    )
+    status_text = status_body(session, counts, auth, has_plan)
+    # Fixed content width: the menu takes everything else.
+    width = max((len(line) for line in status_text.plain.splitlines()), default=0) + 4
+    status = _FlushTitlePanel(
+        status_text, title=Text("┤ Status ├", style="bold"), width=width, expand=False
+    )
+    # Columns stacks the panels vertically when the terminal is too narrow.
+    console.print(Columns([menu, status], equal=False, expand=True))
 
 
 def _tui_loop(console: Console, session: PlanningSession) -> None:  # noqa: C901
@@ -1126,6 +1476,14 @@ def _tui_loop(console: Console, session: PlanningSession) -> None:  # noqa: C901
                 _do_review(console, session)
             elif key == "m":
                 _do_match(console, session)
+            elif key == "r":
+                _do_gateway_review(console, session)
+            elif key == "t":
+                _do_gateway_transfer(console, session, dry_run=False)
+            elif key == "d":
+                _do_gateway_transfer(console, session, dry_run=True)
+            elif key == "a":
+                _do_gateway_auth(console, session)
             elif key == "\x0f":  # ctrl+o
                 session.override = not session.override
                 state = "ON" if session.override else "off"
@@ -1134,7 +1492,7 @@ def _tui_loop(console: Console, session: PlanningSession) -> None:  # noqa: C901
                 console.print("[dim]Override needs ctrl+o (plain 'o' does nothing).[/dim]")
             elif key in ("?", "h"):
                 console.print(HELP_TEXT)
-                input("Press Enter to continue...")
+                input("Press Enter to continue…")
             elif key == "q":
                 break
             else:
@@ -1148,6 +1506,14 @@ def _tui_loop(console: Console, session: PlanningSession) -> None:  # noqa: C901
                 _do_review(console, session)
             elif key == "m":
                 _do_match(console, session)
+            elif key == "r":
+                _do_gateway_review(console, session)
+            elif key == "t":
+                _do_gateway_transfer(console, session, dry_run=False)
+            elif key == "d":
+                _do_gateway_transfer(console, session, dry_run=True)
+            elif key == "a":
+                _do_gateway_auth(console, session)
             elif key == "O":
                 session.override = not session.override
                 state = "ON" if session.override else "off"
@@ -1166,13 +1532,38 @@ def _tui_loop(console: Console, session: PlanningSession) -> None:  # noqa: C901
     console.print("\nPlanning session ended.")
 
 
-def run_planning(*, tidal_session: Any, plan_path: Path = PLAN_FILE) -> None:
-    """TUI entry point: fetch liked tracks once, then loop search/select/review/match."""
+def _try_startup_library_load(
+    console: Console,
+    session: PlanningSession,
+    input_fn: Callable[[str], str] | None = None,
+) -> None:
+    """Load the Tidal library at startup when the cached token is safely fresh.
+
+    Never logs in: a stale or missing token leaves the library unloaded for
+    the auth action (a), and a failed fetch prints guidance plus a pause (the
+    first menu render would otherwise clear it unseen).
+    """
+    from .cli import _tidal_login, wait_status  # pyright: ignore[reportPrivateUsage]
     from .tidal_source import get_liked_tracks
 
+    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    try:
+        tidal_session = _tidal_login(login=False)
+        if tidal_session is None:
+            return
+        with wait_status("Fetching Tidal tracks"):
+            session.liked = get_liked_tracks(tidal_session)
+    except Exception:
+        console.print(f"Could not load Tidal library — [{_STYLE_AUTH}]a[/]uthenticate to retry.")
+        ask("Press Enter to continue…")
+        return
+    session.library_loaded = True
+
+
+def run_planning(*, plan_path: Path = PLAN_FILE) -> None:
+    """TUI entry point: menu first; the library loads at startup when the cached
+    Tidal token is fresh, otherwise on demand via auth (a)."""
     console = Console()
-    console.print("Fetching Tidal liked tracks...")
-    liked = get_liked_tracks(tidal_session)
-    console.print(f"Found {len(liked)} tracks.")
-    session = PlanningSession(plan_path=plan_path, liked=liked)
+    session = PlanningSession(plan_path=plan_path)
+    _try_startup_library_load(console, session)
     _tui_loop(console, session)

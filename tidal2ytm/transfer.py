@@ -136,7 +136,7 @@ def run_transfer(  # noqa: C901
             continue
 
         if status == TrackStatus.NEEDS_REVIEW.value and not include_needs_review:
-            console.print(f"  [yellow]⚠ Skipping (needs_review):[/yellow] {title}")
+            console.print(f"  [cyan]⚠ Skipping (needs_review):[/cyan] {title}")
             skipped_review += 1
             continue
 

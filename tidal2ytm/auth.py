@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 import json
 import sys
+import time
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +18,60 @@ from . import paths
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
     from typing import Any
+
+# A cached token this far from expiry is trusted without a network round-trip.
+TOKEN_FRESH_MARGIN = datetime.timedelta(minutes=30)
+
+
+def parse_token_expiry(raw: object) -> datetime.datetime | None:
+    """Parse the cached `expiry_time` to a naive UTC datetime, if possible."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(datetime.UTC).replace(tzinfo=None)
+    return parsed
+
+
+def token_fresh(expiry: datetime.datetime | None) -> bool:
+    """True when `expiry` is further than TOKEN_FRESH_MARGIN in the future."""
+    if expiry is None:
+        return False
+    now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+    return expiry - now > TOKEN_FRESH_MARGIN
+
+
+def token_valid(expiry: datetime.datetime | None) -> bool:
+    """True when `expiry` is in the future (naive UTC compare, no margin)."""
+    if expiry is None:
+        return False
+    now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+    return expiry > now
+
+
+def tidal_cache_valid(token_file: Path) -> bool:
+    """Offline check: cached Tidal token exists and is unexpired. Never raises."""
+    try:
+        data: MutableMapping[str, Any] = json.loads(token_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return token_valid(parse_token_expiry(data.get("expiry_time")))
+
+
+def ytm_cache_valid(auth_file: Path) -> bool:
+    """Offline check: cached YTM token exists and is unexpired. Never raises."""
+    try:
+        data: MutableMapping[str, Any] = json.loads(auth_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    try:
+        expires_at = int(data.get("expires_at", 0))
+    except (TypeError, ValueError):
+        return False
+    return expires_at > int(time.time())
 
 
 def _read_client_secret(data_dir: Path) -> tuple[str, str]:
@@ -111,15 +167,18 @@ def run_tidal_auth(*, force: bool = False) -> Path:
             token_data: MutableMapping[str, Any] = json.loads(
                 token_file.read_text(encoding="utf-8")
             )
+            if token_fresh(parse_token_expiry(token_data.get("expiry_time"))):
+                return token_file
+            raw_expiry = token_data.get("expiry_time")
             session.load_oauth_session(
                 token_data["token_type"],
                 token_data["access_token"],
                 token_data["refresh_token"],
-                token_data.get("expiry_time"),
+                parse_token_expiry(raw_expiry),
             )
             if session.check_login():
                 return token_file
-        print("Cached Tidal token expired. Re-authenticating...")
+        print("Cached Tidal token expired. Re-authenticating…")
 
     link_login, login_future = session.login_oauth()
     url = f"https://{link_login.verification_uri_complete}"
@@ -127,13 +186,18 @@ def run_tidal_auth(*, force: bool = False) -> Path:
     webbrowser.open(url)
     login_future.result()
 
+    token_expiry = session.expiry_time
     token_file.write_text(
         json.dumps(
             {
                 "token_type": session.token_type,
                 "access_token": session.access_token,
                 "refresh_token": session.refresh_token,
-                "expiry_time": session.expiry_time.isoformat() if session.expiry_time else None,
+                # load_oauth_session stores expiry verbatim, so it may
+                # already be the ISO string from the file.
+                "expiry_time": token_expiry.isoformat()
+                if isinstance(token_expiry, datetime.datetime)
+                else token_expiry,
             },
             indent=2,
         ),

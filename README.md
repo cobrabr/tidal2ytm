@@ -126,8 +126,14 @@ Running `tidal2ytm` with no arguments opens the planning TUI. It fetches Tidal l
 - `/` or `s`: search (query or Tidal link; containing matches list with exact hits first, otherwise labelled closest matches; compilations group under Various Artists; arrows/j/k move, space toggles, `*` toggles all, `A`/`L` toggle artist/album (exact group on headers), `g` grouping, `/`/`s` new search, `q` quits, Enter confirms, Esc cancels)
 - `v`: review the accumulated selection (same list keys, `c` clears all)
 - `m`: match the selection to YTM
+- `r`: review all matches (opens the review TUI in-process)
+- `t`: transfer pending tracks (asks `[Y/n]` first, pending only)
+- `d`: dry-run transfer of pending tracks (logs actions without writing to the library)
+- `a`: auth both/tidal/ytm (prompts for scope, skips cached valid tokens)
 - `ctrl+o` (TTY) / `O` (fallback): toggle override
 - `?` or `h`: help, `q`: quit
+
+The main menu always shows plan counts plus YTM, client secret, and Tidal auth file presence.
 
 ### 2. Review (`review`)
 
