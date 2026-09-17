@@ -1636,16 +1636,27 @@ def test_gateway_auth_defaults_to_both(monkeypatch: Any, tmp_path: Path, capsys:
         done.append("tidal")
         return tmp_path / "tidal_token.json"
 
+    def _fake_login() -> object:
+        return object()
+
+    def _fake_liked(_session: Any) -> list[Any]:
+        return [_src(1)]
+
     monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _fake_ytm_auth)
     monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
+    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
     planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
         Console(),
-        PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={}),
+        session,
         input_fn=lambda _p: "",
     )
     assert done == ["ytm", "tidal"]
+    assert session.library_loaded is True
     out = capsys.readouterr().out
     assert "YTM" in out and "Tidal" in out
+    assert "Found 1 tracks." in out
 
 
 def test_gateway_auth_tidal_only(monkeypatch: Any, tmp_path: Path) -> None:
@@ -1669,14 +1680,25 @@ def test_gateway_auth_tidal_only(monkeypatch: Any, tmp_path: Path) -> None:
         done.append("tidal")
         return tmp_path / "tidal_token.json"
 
+    def _fake_login() -> object:
+        return object()
+
+    def _fake_liked(_session: Any) -> list[Any]:
+        return [_src(1)]
+
     monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _no_ytm)
     monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
+    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
     planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
         Console(),
-        PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={}),
+        session,
         input_fn=lambda _p: "tidal",
     )
     assert done == ["tidal"]
+    assert session.library_loaded is True
+    assert len(session.liked) == 1
 
 
 def test_gateway_auth_ytm_failure_still_runs_tidal(
@@ -1702,17 +1724,75 @@ def test_gateway_auth_ytm_failure_still_runs_tidal(
         done.append("tidal")
         return tmp_path / "tidal_token.json"
 
+    def _fake_login() -> object:
+        return object()
+
+    def _fake_liked(_session: Any) -> list[Any]:
+        return [_src(1)]
+
     monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _boom_ytm)
     monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
+    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
     planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
         Console(),
-        PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={}),
+        session,
         input_fn=lambda _p: "",
     )
     assert done == ["tidal"]
+    assert session.library_loaded is True
     out = capsys.readouterr().out
     assert "YTM auth failed" in out
     assert "Tidal auth ok." in out
+    assert "Found 1 tracks." in out
+
+
+def test_gateway_auth_makes_no_real_network_calls(
+    monkeypatch: Any, tmp_path: Path, capsys: Any
+) -> None:
+    import socket
+
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    def _fake_ytm_auth(
+        *,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        force: bool = False,
+    ) -> Path:
+        del client_id, client_secret, force
+        return tmp_path / "ytm_auth.json"
+
+    def _fake_tidal_auth(*, force: bool = False) -> Path:
+        del force
+        return tmp_path / "tidal_token.json"
+
+    def _fake_login() -> object:
+        return object()
+
+    def _fake_liked(_session: Any) -> list[Any]:
+        return [_src(1), _src(2)]
+
+    def _no_network(*args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        raise AssertionError("real network used in gateway-auth test")
+
+    monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _fake_ytm_auth)
+    monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
+    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    monkeypatch.setattr(socket, "getaddrinfo", _no_network)
+    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
+    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
+        Console(),
+        session,
+        input_fn=lambda _p: "",
+    )
+    assert session.library_loaded is True
+    assert "Found 2 tracks." in capsys.readouterr().out
 
 
 def test_help_text_describes_full_review() -> None:
