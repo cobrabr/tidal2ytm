@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from tidal2ytm.matcher import _similarity, match_track  # pyright: ignore[reportPrivateUsage]
-from tidal2ytm.models import MatchMethod, TrackStatus
+import pytest
+
+from tidal2ytm.matcher import match_track
+from tidal2ytm.models import MatchMethod, SourceTrack, TrackStatus
 
 
 def _yt_with_candidates(
@@ -15,6 +17,65 @@ def _yt_with_candidates(
     yt.search.return_value = candidates
     yt.get_song.return_value = song_detail or {}
     return yt
+
+
+class FakeYT:
+    """Typed fake: scripted search candidates; get_song returns detail or raises."""
+
+    def __init__(
+        self,
+        candidates: list[dict[str, Any]],
+        song_detail: dict[str, Any] | None = None,
+        song_error: BaseException | None = None,
+    ) -> None:
+        self._candidates = candidates
+        self._song_detail = song_detail
+        self._song_error = song_error
+
+    def search(self, query: str, filter: str = "songs", limit: int = 10) -> list[dict[str, Any]]:
+        return self._candidates
+
+    def get_song(self, video_id: str) -> dict[str, Any]:
+        if self._song_error is not None:
+            raise self._song_error
+        return self._song_detail if self._song_detail is not None else {}
+
+
+def _source(data: dict[str, Any]) -> SourceTrack:
+    """Matcher-boundary conversion: tests build tracks the way prod code does."""
+    return SourceTrack.from_dict({"tidal_id": 31, "album_id": 7, **data})
+
+
+def test_from_dict_rejects_bad_identity() -> None:
+    with pytest.raises(ValueError):
+        SourceTrack.from_dict({"tidal_id": "not-a-number", "title": "Ember Fall"})
+
+
+def test_matcher_get_song_errors_propagate() -> None:
+    track = SourceTrack(
+        tidal_id=31,
+        title="Ember Fall",
+        artist="Vesper Vale",
+        artists=["Vesper Vale"],
+        album="Ashen Light",
+        album_id=7,
+        album_year=2021,
+        duration_sec=209,
+        isrc="USABC1234567",
+        track_num=1,
+        disc_num=1,
+        version=None,
+    )
+    cand = {
+        "videoId": "AAAAAAAAAAA",
+        "title": "Ember Fall",
+        "artists": [{"name": "Vesper Vale"}],
+        "album": {"name": "Ashen Light"},
+        "duration_seconds": 209,
+    }
+    yt = FakeYT([cand], song_error=RuntimeError("auth expired"))
+    with pytest.raises(RuntimeError):
+        match_track(track, yt)  # type: ignore[arg-type]
 
 
 def test_matcher_isrc_via_candidate() -> None:
@@ -34,7 +95,7 @@ def test_matcher_isrc_via_candidate() -> None:
         "isrc": "USABC1234567",
     }
     yt = _yt_with_candidates([cand])
-    res = match_track(track, yt)
+    res = match_track(_source(track), yt)
     assert res.match_method == MatchMethod.ISRC and res.confidence.overall == 1.0
 
 
@@ -56,7 +117,7 @@ def test_matcher_isrc_via_get_song_fallback() -> None:
     yt = _yt_with_candidates(
         [cand], song_detail={"microformat": {"microformatDataRenderer": {"isrc": "USABC1234567"}}}
     )
-    res = match_track(track, yt)
+    res = match_track(_source(track), yt)
     assert res.match_method == MatchMethod.ISRC
 
 
@@ -83,14 +144,14 @@ def test_matcher_duration_boundary_4s_pass_5s_fail() -> None:
         "duration_seconds": 214,
     }
     yt = _yt_with_candidates([cand_4s])
-    res1 = match_track(track, yt)
+    res1 = match_track(_source(track), yt)
     # 4s delta within tolerance → pending with high confidence
     # (DURATION or FUZZY depending on album similarity)
     assert res1.status == TrackStatus.PENDING
     assert res1.match_method in (MatchMethod.DURATION, MatchMethod.FUZZY)
     assert res1.confidence.overall >= 0.70
     yt2 = _yt_with_candidates([cand_5s])
-    res2 = match_track(track, yt2)
+    res2 = match_track(_source(track), yt2)
     assert (
         res2.match_method in (MatchMethod.FUZZY, MatchMethod.NONE)
         or res2.status == TrackStatus.NEEDS_REVIEW
@@ -107,7 +168,7 @@ def test_matcher_no_candidates_needs_review() -> None:
         "isrc": None,
     }
     yt = _yt_with_candidates([])
-    res = match_track(track, yt)
+    res = match_track(_source(track), yt)
     assert res.status == TrackStatus.NEEDS_REVIEW
 
 
@@ -134,18 +195,161 @@ def test_matcher_fuzzy_prefers_closest_album() -> None:
         "duration_seconds": 200,
     }
     yt = _yt_with_candidates([c2, c1])
-    res = match_track(track, yt)
-    assert res.yt_video_id in ("AAAAAAAAAAA", "BBBBBBBBBBB")
+    res = match_track(_source(track), yt)
     # closest album should win when both pass duration; assert the war-child candidate wins
     assert res.yt_video_id == "AAAAAAAAAAA"
 
 
-def test_matcher_similarity_threshold() -> None:
-    # verify threshold 0.70 edge: identical strings 1.0, unrelated <0.70
-    assert _similarity("Cinder Child", "Cinder Child") == 1.0
-    assert _similarity("Cinder Child", "Different Album") < 0.70
-    assert _similarity("Song", "Song") == 1.0
-    # ensure matcher threshold constant is 0.70
-    from tidal2ytm.matcher import CONFIDENCE_THRESHOLD
+def test_matcher_threshold_edge_just_below_rejects() -> None:
+    # candidate with exact artist/album and equal duration, but a title whose
+    # similarity (0.32) drags confidence to 0.694 — just below the 0.70 gate
+    track = {
+        "title": "Cinder Child",
+        "artists": ["Wren"],
+        "album": "Cinder Child",
+        "duration": 200,
+        "isrc": None,
+    }
+    cand = {
+        "videoId": "AAAAAAAAAAA",
+        "title": "Paper Lantern",
+        "artists": [{"name": "Wren"}],
+        "album": {"name": "Cinder Child"},
+        "duration_seconds": 200,
+    }
+    yt = _yt_with_candidates([cand])
+    res = match_track(_source(track), yt)
+    assert res.status == TrackStatus.NEEDS_REVIEW
+    assert res.review_reason == "Low confidence (0.69)"
+    assert res.confidence.overall == pytest.approx(0.694)
 
-    assert CONFIDENCE_THRESHOLD == 0.70
+
+def test_non_latin_title_does_not_score_one() -> None:
+    track = {
+        "title": "音楽",
+        "artists": ["アーティスト"],
+        "album": "アルバム",
+        "duration": 200,
+        "isrc": None,
+    }
+    cand = {
+        "videoId": "AAAAAAAAAAA",
+        "title": "音楽",
+        "artists": [{"name": "アーティスト"}],
+        "album": {"name": "アルバム"},
+        "duration_seconds": 200,
+    }
+    yt = _yt_with_candidates([cand])
+    result = match_track(_source(track), yt)
+    assert result.confidence.overall < 1.0
+
+
+def test_unknown_source_duration_skips_duration_gate() -> None:
+    track = {
+        "title": "Ember",
+        "artists": ["Blashen"],
+        "album": "Ash",
+        "duration": 0,
+        "isrc": None,
+    }
+    cand = {
+        "videoId": "BBBBBBBBBBB",
+        "title": "Ember",
+        "artists": [{"name": "Blashen"}],
+        "album": {"name": "Ash"},
+        "duration_seconds": 213,
+    }
+    yt = _yt_with_candidates([cand])
+    assert match_track(_source(track), yt).status is TrackStatus.PENDING
+
+
+def test_wrong_album_is_needs_review_even_with_perfect_title_artist() -> None:
+    track = {
+        "title": "Ember",
+        "artists": ["Blashen"],
+        "album": "Ash",
+        "duration": 213,
+        "isrc": None,
+    }
+    cand = {
+        "videoId": "CCCCCCCCCCC",
+        "title": "Ember",
+        "artists": [{"name": "Blashen"}],
+        "album": {"name": "Completely Different"},
+        "duration_seconds": 213,
+    }
+    yt = _yt_with_candidates([cand])
+    result = match_track(_source(track), yt)
+    assert result.status == TrackStatus.NEEDS_REVIEW
+
+
+def test_isrc_miss_falls_back_to_duration_over_fuzzy_title() -> None:
+    # Candidate B: exact title/artist/album but wrong duration (fails the gate).
+    # Candidate A: candidate-metadata ISRC mismatch + right duration — the ISRC
+    # miss (including the bounded get_song fallback) must fall through to the
+    # duration strategy instead of letting the fuzzy-title candidate win.
+    track = {
+        "title": "Ember Fall",
+        "artists": ["Vesper Vale"],
+        "album": "Ashen Light",
+        "duration": 209,
+        "isrc": "USABC1234567",
+    }
+    cand_fuzzy_wrong_dur = {
+        "videoId": "BBBBBBBBBBB",
+        "title": "Ember Fall",
+        "artists": [{"name": "Vesper Vale"}],
+        "album": {"name": "Ashen Light"},
+        "duration_seconds": 300,
+    }
+    cand_isrc_miss_right_dur = {
+        "videoId": "AAAAAAAAAAA",
+        "title": "Ember Fall (Live)",
+        "artists": [{"name": "Vesper Vale"}],
+        "album": {"name": "Quartz Sea"},
+        "duration_seconds": 209,
+        "isrc": "USZZZ9999999",
+    }
+    yt = _yt_with_candidates([cand_fuzzy_wrong_dur, cand_isrc_miss_right_dur])
+    res = match_track(_source(track), yt)
+    assert res.yt_video_id == "AAAAAAAAAAA"
+    assert res.match_method == MatchMethod.DURATION
+
+
+def test_matcher_candidates_missing_keys_are_skipped() -> None:
+    track = {
+        "title": "Ember",
+        "artists": ["Vesper"],
+        "album": "Ash",
+        "duration": 200,
+        "isrc": None,
+    }
+    cands = [
+        {"title": "Ember"},  # no videoId
+        {
+            "videoId": "AAAAAAAAAAA",
+            "title": "Ember",
+            "artists": [{"name": "Vesper"}],
+            "album": {"name": "Ash"},  # no duration_seconds
+        },
+    ]
+    yt = _yt_with_candidates(cands)
+    res = match_track(_source(track), yt)
+    assert res.yt_video_id is None
+    assert res.match_method == MatchMethod.NONE
+    assert res.status == TrackStatus.NEEDS_REVIEW
+    assert res.review_reason == "No candidates found"
+
+
+def test_matcher_search_errors_propagate() -> None:
+    track = {
+        "title": "Ember",
+        "artists": ["Vesper"],
+        "album": "Ash",
+        "duration": 200,
+        "isrc": None,
+    }
+    yt = MagicMock()
+    yt.search.side_effect = RuntimeError("search down")
+    with pytest.raises(RuntimeError):
+        match_track(_source(track), yt)  # type: ignore[arg-type]

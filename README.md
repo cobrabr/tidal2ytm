@@ -36,7 +36,7 @@ irm https://astral.sh/uv/install.ps1 | iex
 ```pwsh
 git clone https://github.com/cobrabr/tidal2ytm.git
 cd tidal2ytm
-uv sync
+uv sync --frozen
 ```
 
 ### 3. Authenticate (once)
@@ -137,7 +137,7 @@ The main menu always shows plan counts plus YTM, client secret, and Tidal auth f
 
 ### 2. Review (`review`)
 
-Interactive Rich TUI to accept, skip, or override matches. Decisions are saved instantly. On first write, a backup of the plan is saved to `data/transfer_plan.YYYYMMDD_HHMMSS.toml`.
+Interactive Rich TUI to accept, skip, or override matches. Decisions are saved instantly. On first write, a backup of the plan is saved to `data/transfer_plan.YYYYMMDD_HHMMSS_ffffff.toml`.
 
 ```pwsh
 uv run tidal2ytm review [--needs-review | --pending | --failed | --skip | --transferred | --all-statuses]
@@ -177,7 +177,7 @@ uv run tidal2ytm transfer (--track <video-id> | --album <match-id> | --artist <m
 - `--artist`: Artist `match_id` (e.g. `jethro-tull`).
 - `--all`: Transfer all pending tracks.
 - `--dry-run`: Match and log actions without adding to YouTube Music library.
-- `--include-needs-review`: Forces transfer of low-confidence matches without prior review. Shows a warning panel before starting.
+- `--include-needs-review`: Forces transfer of low-confidence matches without prior review. Shows a warning panel before starting (Enter continues, `n` declines).
 
 ### 4. Status (`status`)
 
@@ -194,10 +194,30 @@ All runtime files are written to the `data/` directory (git-ignored).
 | File                                      | Purpose                                                             |
 | ----------------------------------------- | ------------------------------------------------------------------- |
 | `data/transfer_plan.toml`                 | The main transfer plan                                              |
-| `data/transfer_plan.YYYYMMDD_HHMMSS.toml` | Automated backup created on first review write                      |
+| `data/transfer_plan.YYYYMMDD_HHMMSS_ffffff.toml` | Automated backup created on first mutating write (review, match, or transfer) |
 | `data/tidal_token.json`                   | Cached Tidal OAuth token (created by `tidal2ytm auth`)              |
 | `data/ytm_auth.json`                      | Cached YTM OAuth token (created by `tidal2ytm auth`)                |
 | `data/client_secret_*.json`               | Google Cloud OAuth client credentials you download from the Console |
+
+## Development
+
+Requires Python ≥3.11 and [`uv`](https://docs.astral.sh/uv/getting-started/installation/). Install dependencies (including the dev group) with:
+
+```pwsh
+uv sync --frozen
+```
+
+Run the quality gates before pushing:
+
+```pwsh
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+uv run pytest -q
+uv run pytest --cov --cov-report=term-missing -q
+```
+
+`pyright` runs in strict mode and must report zero errors. Coverage is report-only. Tests live in `tests/` and use fictional artist/track names and synthetic IDs only — never real catalogue data. Pre-commit and pre-push hooks run the same gates locally (ruff check-only, `uv run pyright`, pytest).
 
 ## Notes
 

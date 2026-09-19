@@ -6,8 +6,8 @@ No other module should contain slug logic.
 
 from __future__ import annotations
 
+import hashlib
 import re
-import secrets
 import unicodedata
 
 
@@ -41,14 +41,14 @@ def album_slug(name: str) -> str:
               • Has spaces → acronym (first char of each word; digit-only
                 words contribute the full word). If still > 15, truncate.
               • Single token → truncate to 15.
-    Step 5 — Non-Latin fallback: "album-" + 5 random lowercase alnum chars.
+    Step 5 — Non-Latin fallback: "album-" + 6-char SHA-1 hex digest.
     """
     # Step 1
     s = unicodedata.normalize("NFKD", name)
     s = s.encode("ascii", "ignore").decode()
     s = re.sub(r"[^a-zA-Z0-9 ]", " ", s)
     if not s.strip():
-        return _non_latin_fallback()
+        return _non_latin_fallback(name)
 
     # Step 2
     s = s.lower()
@@ -68,29 +68,34 @@ def album_slug(name: str) -> str:
         return words[0][:15]
 
 
-def _non_latin_fallback() -> str:
-    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
-    rand_id = "".join(secrets.choice(alphabet) for _ in range(5))
-    return f"album-{rand_id}"
-
-
-def make_album_match_id(artist_name: str, album_name: str) -> str:
-    """Return 'artist-slug/album-slug'."""
-    return f"{artist_slug(artist_name)}/{album_slug(album_name)}"
+def _non_latin_fallback(name: str) -> str:
+    digest = hashlib.sha1(name.encode("utf-8"), usedforsecurity=False).hexdigest()[:6]
+    return f"album-{digest}"
 
 
 def dedup_slugs(slugs: list[str]) -> list[str]:
     """
     Given an ordered list of slugs at the same level, append -2, -3, …
     to duplicates. The first occurrence is unchanged.
+
+    Candidates skip any suffix already taken by an earlier entry so the
+    result contains no duplicates.
     """
     seen: dict[str, int] = {}
+    used: set[str] = set()
     result: list[str] = []
     for slug in slugs:
-        if slug not in seen:
+        if slug not in seen and slug not in used:
             seen[slug] = 1
+            used.add(slug)
             result.append(slug)
         else:
-            seen[slug] += 1
-            result.append(f"{slug}-{seen[slug]}")
+            n = seen.get(slug, 1) + 1
+            while f"{slug}-{n}" in used or f"{slug}-{n}" in seen:
+                n += 1
+            seen[slug] = n
+            candidate = f"{slug}-{n}"
+            seen[candidate] = 1
+            used.add(candidate)
+            result.append(candidate)
     return result

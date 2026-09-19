@@ -7,23 +7,39 @@ import json
 import os
 import sys
 import webbrowser
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
+import requests
 import tidalapi
+from tidalapi.exceptions import TidalAPIError
 from ytmusicapi import YTMusic
 
 from . import auth as auth_mod
+from .errors import Tidal2YtmError
 from .paths import DATA_DIR, PLAN_FILE, TIDAL_TOKEN_FILE, YTM_AUTH_FILE
+from .style import STATUS_STYLE
 
 if TYPE_CHECKING:
     from tidalapi.session import Session
+
+# Same narrow auth/network failure surface as auth.py (same list in both files).
+_AUTH_ERRORS: tuple[type[BaseException], ...] = (  # pyright: ignore[reportUnknownVariableType]
+    OSError,
+    ValueError,
+    KeyError,
+    TypeError,
+    requests.RequestException,
+    TidalAPIError,
+)
 
 
 def _save_tidal_token(session: Session) -> None:
     expiry_time = session.expiry_time
     # tidalapi stores back whatever expiry we passed to load_oauth_session,
     # which may be the ISO string from the file rather than a datetime.
+    if isinstance(expiry_time, datetime.datetime) and expiry_time.tzinfo is None:
+        expiry_time = expiry_time.replace(tzinfo=datetime.UTC)
     expiry_str = (
         expiry_time.isoformat() if isinstance(expiry_time, datetime.datetime) else expiry_time
     )
@@ -69,42 +85,70 @@ def _tidal_login(*, login: bool = True) -> Session | None:  # pyright: ignore[re
     """
     session = tidalapi.Session()  # pyright: ignore[reportPrivateImportUsage]
     if os.path.exists(TIDAL_TOKEN_FILE):
-        with open(TIDAL_TOKEN_FILE) as f:
-            token_data = json.load(f)
+        token_data: dict[str, Any] = {}
+        try:
+            with open(TIDAL_TOKEN_FILE) as f:
+                loaded: Any = json.load(f)
+                if isinstance(loaded, dict):
+                    token_data = cast(dict[str, Any], loaded)
+        except (OSError, ValueError):
+            pass
         expiry_time = auth_mod.parse_token_expiry(token_data.get("expiry_time"))
         user_id = token_data.get("user_id")
-        if (
+        country_code = token_data.get("country_code")
+        token_type = token_data.get("token_type")
+        access_token = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token")
+        has_full_schema = (
             expiry_time is not None
             and isinstance(user_id, int)
-            and auth_mod.token_fresh(expiry_time)
+            and isinstance(country_code, str)
+            and country_code != ""
+            and isinstance(token_type, str)
+            and token_type != ""
+            and isinstance(access_token, str)
+            and access_token != ""
+            and isinstance(refresh_token, str)
+            and refresh_token != ""
+        )
+        if (
+            has_full_schema
+            and expiry_time is not None
+            and isinstance(user_id, int)
+            and auth_mod.token_usable(expiry_time, margin=auth_mod.TOKEN_FRESH_MARGIN)
         ):
             # Token is far from expiring: hydrate the session locally instead
             # of the validating round-trip. A revoked token still surfaces on
             # first use via tidalapi's reactive refresh.
             from tidalapi.user import LoggedInUser
 
-            session.token_type = token_data["token_type"]
-            session.access_token = token_data["access_token"]
-            session.refresh_token = token_data["refresh_token"]
+            session.token_type = token_type
+            session.access_token = access_token
+            session.refresh_token = refresh_token
             session.expiry_time = expiry_time
-            session.country_code = token_data.get("country_code")
+            session.country_code = country_code
             session.locale = "en_US"
             session.user = LoggedInUser(session, user_id)
             return session
         if not login:
             return None
-        with contextlib.suppress(Exception):
-            session.load_oauth_session(
-                token_data["token_type"],
-                token_data["access_token"],
-                token_data["refresh_token"],
-                expiry_time,
-            )
-            if session.check_login():
-                # Persist the (possibly refreshed) token so the next launch
-                # skips the refresh round-trip while it is still valid.
-                _save_tidal_token(session)
-                return session
+        with contextlib.suppress(*_AUTH_ERRORS):
+            if (
+                isinstance(token_type, str)
+                and isinstance(access_token, str)
+                and isinstance(refresh_token, str)
+            ):
+                session.load_oauth_session(
+                    token_type,
+                    access_token,
+                    refresh_token,
+                    expiry_time,
+                )
+                if session.check_login():
+                    # Persist the (possibly refreshed) token so the next launch
+                    # skips the refresh round-trip while it is still valid.
+                    _save_tidal_token(session)
+                    return session
         print("Cached token expired. Re-authenticating…")
     if not login:
         return None
@@ -119,129 +163,15 @@ def _tidal_login(*, login: bool = True) -> Session | None:  # pyright: ignore[re
     return session
 
 
-def _ytm_login() -> YTMusic:  # noqa: C901
-    if not os.path.exists(YTM_AUTH_FILE):
-        print(
-            f"'{YTM_AUTH_FILE}' not found.\n"
-            "Run once to create it:\n"
-            "  uv run tidal2ytm auth\n"
-            "Or follow the OAuth setup at:\n"
-            "  https://console.cloud.google.com/apis/credentials "
-            "(TVs and Limited Input devices)"
-        )
-        sys.exit(1)
+# Public seam for the planning TUI and tests; keeps the underscore name private.
+tidal_login = _tidal_login
 
-    # Locate the client secrets file in data/
-    secret_files = list(DATA_DIR.glob("client_secret_*.json"))
-    if not secret_files:
-        print(
-            "Error: Google Cloud client secrets JSON file not found in 'data/' "
-            "directory.\n"
-            "Run `uv run tidal2ytm auth` for setup, or download the client "
-            "secrets JSON from Google Cloud Console and save it in 'data/' "
-            "(e.g. 'data/client_secret_<details>.json')."
-        )
-        sys.exit(1)
 
-    client_secret_file = secret_files[0]
-    client_id = None
-    client_secret = None
-    try:
-        with open(client_secret_file, encoding="utf-8") as f:
-            data: dict[str, Any] = json.load(f)
-            for key in ["installed", "web"]:
-                if key in data:
-                    client_id = data[key].get("client_id")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-                    client_secret = data[key].get("client_secret")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-                    break
-            if not client_id or not client_secret:
-                for val in data.values():  # pyright: ignore[reportUnknownVariableType]
-                    if isinstance(val, dict) and "client_id" in val and "client_secret" in val:
-                        client_id = val["client_id"]  # pyright: ignore[reportUnknownVariableType]
-                        client_secret = val["client_secret"]  # pyright: ignore[reportUnknownVariableType]
-                        break
-    except Exception as e:
-        print(f"Error reading client secrets file '{client_secret_file.name}': {e}")
-        sys.exit(1)
+def _ytm_login() -> YTMusic:
+    """Thin wrapper over YTMClient using this module's (patchable) path globals."""
+    from .ytm_client import YTMClient
 
-    if not client_id or not client_secret:
-        print(
-            f"Error: Could not parse 'client_id' and 'client_secret' "
-            f"from '{client_secret_file.name}'."
-        )
-        sys.exit(1)
-
-    from ytmusicapi import OAuthCredentials
-
-    creds = OAuthCredentials(
-        cast(str, client_id),  # pyright: ignore[reportUnknownArgumentType]
-        cast(str, client_secret),  # pyright: ignore[reportUnknownArgumentType]
-    )
-    yt = YTMusic(str(YTM_AUTH_FILE), oauth_credentials=creds)
-
-    # Probe the token immediately so an expired/revoked refresh token surfaces
-    # here with a clear message rather than as a cryptic KeyError mid-run.
-    try:
-        _ = yt._token.access_token  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType]
-    except (KeyError, Exception):
-        print(
-            "Error: YouTube Music authentication token is expired or revoked.\n"
-            "Re-authenticate by running:\n"
-            "\n"
-            "  uv run tidal2ytm auth --re-auth"
-        )
-        sys.exit(1)
-
-    # Use TVHTML5 clientName by default so authenticated calls succeed.
-    yt.context["context"]["client"].update(
-        {"clientName": "TVHTML5", "clientVersion": "7.20230924.01.00"}
-    )
-
-    # Patch _session.post to strip auth headers and use WEB_REMIX for read endpoints.
-    original_post = cast(Callable[..., Any], yt._session.post)  # pyright: ignore[reportUnknownMemberType, reportPrivateUsage]
-
-    def patched_post(url: str, *args: Any, **kwargs: Any) -> Any:
-        is_unauth = "/search?" in url or "/player?" in url
-        if is_unauth:
-            import copy
-            import time
-
-            if "headers" in kwargs:
-                headers = kwargs["headers"].copy()
-                headers.pop("authorization", None)
-                headers.pop("X-Goog-Request-Time", None)
-                kwargs["headers"] = headers
-
-            original_client = yt.context["context"]["client"].copy()
-            yt.context["context"]["client"].update(
-                {
-                    "clientName": "WEB_REMIX",
-                    "clientVersion": "1." + time.strftime("%Y%m%d", time.gmtime()) + ".01.00",
-                }
-            )
-
-            if "json" in kwargs and isinstance(kwargs["json"], dict):
-                kwargs["json"] = copy.deepcopy(kwargs["json"])  # pyright: ignore[reportUnknownArgumentType]
-                body = kwargs["json"]  # pyright: ignore[reportUnknownVariableType]
-                if "context" in body and "client" in body["context"]:
-                    body["context"]["client"].update(  # pyright: ignore[reportUnknownMemberType]
-                        {
-                            "clientName": "WEB_REMIX",
-                            "clientVersion": "1."
-                            + time.strftime("%Y%m%d", time.gmtime())
-                            + ".01.00",
-                        }
-                    )
-            try:
-                return original_post(url, *args, **kwargs)
-            finally:
-                yt.context["context"]["client"].update(original_client)
-        else:
-            return original_post(url, *args, **kwargs)
-
-    yt._session.post = patched_post  # pyright: ignore[reportUnknownMemberType, reportPrivateUsage, reportAttributeAccessIssue]
-
-    return yt
+    return YTMClient(auth_file=YTM_AUTH_FILE, data_dir=DATA_DIR).login()
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +246,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     from rich.text import Text
 
     from .models import TrackStatus
-    from .plan_io import iter_tracks_filtered, load_plan
+    from .plan_io import iter_tracks_filtered, load_plan, update_plan_meta
 
     console = Console()
 
@@ -330,9 +260,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     import os
 
     mtime = os.path.getmtime(PLAN_FILE)
-    from datetime import datetime
-
-    last_updated = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+    last_updated = datetime.datetime.fromtimestamp(mtime).astimezone().strftime("%Y-%m-%d %H:%M")
 
     artist_filter = getattr(args, "artist", None)
     album_filter = getattr(args, "album", None)
@@ -354,6 +282,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         counts = Counter(t.get("status", TrackStatus.PENDING.value) for t in tracks)
         console.print(f"Total tracks (scoped): {total}")
     else:
+        # Recompute from tracks instead of trusting possibly-stale [meta].
+        update_plan_meta(plan)
+        meta = plan.get("meta", {})
         total = meta.get("total_tracks", 0)
         counts = {
             TrackStatus.TRANSFERRED.value: meta.get("transferred", 0),
@@ -364,15 +295,16 @@ def cmd_status(args: argparse.Namespace) -> None:
         }
         console.print(f"Total tracks: {total}")
 
-    status_styles = {
-        TrackStatus.TRANSFERRED.value: "on magenta",
-        TrackStatus.PENDING.value: "",
-        TrackStatus.NEEDS_REVIEW.value: "on cyan",
-        TrackStatus.SKIP.value: "dim",
-        TrackStatus.FAILED.value: "on red",
-    }
+    status_order = (
+        TrackStatus.TRANSFERRED.value,
+        TrackStatus.PENDING.value,
+        TrackStatus.NEEDS_REVIEW.value,
+        TrackStatus.SKIP.value,
+        TrackStatus.FAILED.value,
+    )
     console.print()
-    for status, style in status_styles.items():
+    for status in status_order:
+        style = STATUS_STYLE.get(status, "")
         count = counts.get(status, 0)
         line = Text(f"  {status + ':':16} {count:>4}")
         line.stylize(style)
@@ -472,7 +404,11 @@ def main() -> None:
         except (KeyboardInterrupt, EOFError):
             print("\nPlanning session ended.")
         return
-    args.func(args)
+    try:
+        args.func(args)
+    except Tidal2YtmError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

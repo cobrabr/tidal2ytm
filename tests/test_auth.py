@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import argparse
 import datetime
 import json
-import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 import tidal2ytm.auth as auth
 
@@ -53,6 +53,8 @@ def test_run_tidal_auth_opens_browser_and_writes_token(
     mock_session.access_token = "at"  # noqa: S105
     mock_session.refresh_token = "rt"  # noqa: S105
     mock_session.expiry_time = datetime.datetime(2026, 8, 29)
+    mock_session.country_code = "US"
+    mock_session.user.id = 4242
     mock_future = MagicMock()
     mock_future.result.return_value = None
     mock_session.login_oauth.return_value = (
@@ -70,9 +72,7 @@ def test_run_tidal_auth_returns_cached_token_when_fresh(
 ) -> None:
     import webbrowser
 
-    far = (
-        datetime.datetime.now(datetime.UTC).replace(tzinfo=None) + datetime.timedelta(days=4)
-    ).isoformat()
+    far = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=4)).isoformat()
     (isolated_data_dir / "tidal_token.json").write_text(
         json.dumps(
             {
@@ -103,25 +103,16 @@ def test_run_tidal_auth_returns_cached_token_when_fresh(
     result = auth.run_tidal_auth(force=False)
     assert result == isolated_data_dir / "tidal_token.json"
     assert opened == []
-    import tidal2ytm.cli as cli
-
-    parser = argparse.ArgumentParser()
-    sub = parser.add_subparsers(dest="command", required=True)  # noqa: F841  # pyright: ignore[reportUnusedVariable]
-    with patch.object(sys, "argv", ["tidal2ytm", "auth", "--help"]):
-        try:
-            cli.main()
-        except SystemExit as e:
-            assert e.code == 0
 
 
 def _utc_in(days: float) -> datetime.datetime:
-    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None) + datetime.timedelta(days=days)
+    return datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=days)
 
 
 def test_token_valid_accepts_only_future_expiry() -> None:
-    assert auth.token_valid(_utc_in(4)) is True
-    assert auth.token_valid(_utc_in(-1)) is False
-    assert auth.token_valid(None) is False
+    assert auth.token_usable(_utc_in(4)) is True
+    assert auth.token_usable(_utc_in(-1)) is False
+    assert auth.token_usable(None) is False
 
 
 def test_tidal_cache_valid_checks_expiry_offline(isolated_data_dir: Path) -> None:
@@ -150,3 +141,132 @@ def test_ytm_cache_valid_checks_expiry_offline(isolated_data_dir: Path) -> None:
     assert auth.ytm_cache_valid(auth_file) is False  # expired
     auth_file.write_text(json.dumps({"expires_at": int(time.time()) + 3600}))
     assert auth.ytm_cache_valid(auth_file) is True  # fresh
+
+
+def test_token_usable_margin() -> None:
+    now = datetime.datetime.now(datetime.UTC)
+    assert auth.token_usable(now + datetime.timedelta(minutes=31)) is True
+    assert (
+        auth.token_usable(
+            now + datetime.timedelta(minutes=29),
+            margin=datetime.timedelta(minutes=30),
+        )
+        is False
+    )
+    assert auth.token_usable(now - datetime.timedelta(seconds=1)) is False
+    assert auth.token_usable(None) is False
+
+
+def test_client_secret_sorted_and_strict(isolated_data_dir: Path) -> None:
+    for f in isolated_data_dir.glob("client_secret_*.json"):
+        f.unlink()
+    with pytest.raises(FileNotFoundError):
+        auth.read_client_secret(isolated_data_dir)
+    (isolated_data_dir / "client_secret_b.json").write_text(
+        json.dumps({"installed": {"client_id": "b-id", "client_secret": "b-sec"}}),
+        encoding="utf-8",
+    )
+    (isolated_data_dir / "client_secret_a.json").write_text(
+        json.dumps({"installed": {"client_id": "a-id", "client_secret": "a-sec"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError):
+        auth.read_client_secret(isolated_data_dir)
+    (isolated_data_dir / "client_secret_b.json").unlink()
+    cid, csec = auth.read_client_secret(isolated_data_dir)
+    assert (cid, csec) == ("a-id", "a-sec")
+
+
+def test_tidal_auth_writer_emits_full_schema(isolated_data_dir: Path, monkeypatch: Any) -> None:
+    import webbrowser
+    from types import SimpleNamespace
+
+    expiry = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=30)
+
+    class _FakeSession:
+        def __init__(self) -> None:
+            self.token_type = "Bearer"  # noqa: S105
+            self.access_token = "fresh-access"  # noqa: S105
+            self.refresh_token = "fresh-refresh"  # noqa: S105
+            self.expiry_time = expiry
+            self.country_code = "US"
+            self.user: Any = SimpleNamespace(id=4242)
+
+        def login_oauth(self) -> Any:
+            link = SimpleNamespace(verification_uri_complete="example.com/verify")
+            future = SimpleNamespace(result=lambda: None)
+            return link, future
+
+    monkeypatch.setattr("tidalapi.Session", _FakeSession)
+
+    def _noop_open(url: str) -> bool:
+        del url
+        return True
+
+    monkeypatch.setattr(webbrowser, "open", _noop_open)
+    result = auth.run_tidal_auth(force=True)
+    data = json.loads(result.read_text(encoding="utf-8"))
+    assert isinstance(data["user_id"], int)
+    assert isinstance(data["country_code"], str)
+    assert isinstance(data["access_token"], str)
+    assert isinstance(data["refresh_token"], str)
+    assert isinstance(data["expiry_time"], str)
+
+
+def test_corrupt_token_file_falls_back_to_login_not_crash(
+    isolated_data_dir: Path, monkeypatch: Any
+) -> None:
+    import webbrowser
+
+    token_file = isolated_data_dir / "tidal_token.json"
+    token_file.write_text("not valid json {{{", encoding="utf-8")
+
+    opened: list[str] = []
+
+    def _record_open(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(webbrowser, "open", _record_open)
+
+    class _LoginSession:
+        def __init__(self) -> None:
+            from types import SimpleNamespace
+
+            self.token_type = "Bearer"  # noqa: S105
+            self.access_token = "new-access"  # noqa: S105
+            self.refresh_token = "new-refresh"  # noqa: S105
+            self.expiry_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=30)
+            self.country_code = "US"
+            self.user: Any = SimpleNamespace(id=4242)
+
+        def load_oauth_session(self, *args: Any, **kwargs: Any) -> bool:
+            del args, kwargs
+            raise AssertionError("corrupt cache must not attempt hydrate")
+
+        def check_login(self) -> bool:
+            raise AssertionError("corrupt cache must not check login")
+
+        def login_oauth(self) -> Any:
+            from types import SimpleNamespace
+
+            link = SimpleNamespace(verification_uri_complete="example.com/verify")
+            future = SimpleNamespace(result=lambda: None)
+            return link, future
+
+    monkeypatch.setattr("tidalapi.Session", _LoginSession)
+    result = auth.run_tidal_auth(force=False)
+    assert opened != []
+    data = json.loads(result.read_text(encoding="utf-8"))
+    assert data["access_token"] == "new-access"  # noqa: S105
+
+
+def test_ytm_cache_valid_refreshable_counts_as_valid(isolated_data_dir: Path) -> None:
+    import time
+
+    auth_file = isolated_data_dir / "ytm_auth.json"
+    auth_file.write_text(
+        json.dumps({"expires_at": int(time.time()) - 10, "refresh_token": "rt"}),
+        encoding="utf-8",
+    )
+    assert auth.ytm_cache_valid(auth_file) is True

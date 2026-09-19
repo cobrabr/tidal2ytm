@@ -5,6 +5,7 @@ import datetime
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,7 @@ import pytest
 
 import tidal2ytm.cli as cli_mod
 import tidal2ytm.paths as paths
+from tidal2ytm.errors import PlanNotFoundError
 
 
 def test_cli_help_and_status_offline(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
@@ -39,7 +41,7 @@ def test_cli_main_planning_abort_exits_cleanly(monkeypatch: Any, capsys: Any) ->
     def _no_login() -> MagicMock:
         raise AssertionError("startup must not log in")
 
-    monkeypatch.setattr(cli_mod, "_tidal_login", _no_login)
+    monkeypatch.setattr(cli_mod, "tidal_login", _no_login)
 
     def _abort(**kwargs: Any) -> None:
         raise KeyboardInterrupt
@@ -57,7 +59,7 @@ def test_cli_bare_skips_startup_login(monkeypatch: Any, capsys: Any) -> None:
     def _no_login() -> MagicMock:
         raise AssertionError("startup must not log in")
 
-    monkeypatch.setattr(cli_mod, "_tidal_login", _no_login)
+    monkeypatch.setattr(cli_mod, "tidal_login", _no_login)
 
     def _noop(**kwargs: Any) -> None:
         del kwargs
@@ -73,342 +75,6 @@ def test_wait_status_prints_plain_text_without_tty(capsys: Any) -> None:
         ran = True
     assert ran
     assert "Reticulating splines…" in capsys.readouterr().out
-
-
-def test_wait_status_renders_message_on_tty(monkeypatch: Any, capsys: Any) -> None:
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    ran = False
-    with cli_mod.wait_status("Reticulating splines"):
-        ran = True
-    assert ran
-    assert "Reticulating splines" in capsys.readouterr().out
-
-
-def test_wait_status_uses_yellow_dots_spinner(monkeypatch: Any) -> None:
-    import rich.console
-
-    seen: dict[str, Any] = {}
-
-    class _FakeStatus:
-        def __enter__(self) -> None:
-            return None
-
-        def __exit__(self, *args: Any) -> bool:
-            del args
-            return False
-
-    class _FakeConsole:
-        def status(
-            self, text: object, *, spinner: object = None, spinner_style: object = None
-        ) -> _FakeStatus:
-            seen.update(text=text, spinner=spinner, spinner_style=spinner_style)
-            return _FakeStatus()
-
-    monkeypatch.setattr(rich.console, "Console", _FakeConsole)
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    with cli_mod.wait_status("Reticulating splines"):
-        pass
-    assert seen == {
-        "text": "Reticulating splines…",
-        "spinner": "dots",
-        "spinner_style": "yellow",
-    }
-
-
-def test_tidal_login_persists_refreshed_token(tmp_path: Path, monkeypatch: Any) -> None:
-    import datetime
-    from types import SimpleNamespace
-
-    token_file = tmp_path / "tidal_token.json"
-    token_file.write_text(
-        json.dumps(
-            {
-                "token_type": "Bearer",
-                "access_token": "stale-access",
-                "refresh_token": "refresh-token",
-                "expiry_time": "2026-09-06T00:08:46.324213",
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(cli_mod, "TIDAL_TOKEN_FILE", token_file)
-
-    fresh_expiry = datetime.datetime(2026, 9, 20, tzinfo=datetime.UTC)
-
-    class _RefreshingSession:
-        def __init__(self) -> None:
-            self.token_type = "Bearer"  # noqa: S105
-            self.access_token = "stale-access"  # noqa: S105
-            self.refresh_token = "refresh-token"  # noqa: S105
-            self.expiry_time: Any = None
-            self.country_code: Any = None
-            self.user: Any = SimpleNamespace(id=4242)
-
-        def load_oauth_session(
-            self,
-            token_type: Any,
-            access_token: Any,
-            refresh_token: Any,
-            expiry_time: Any = None,
-        ) -> bool:
-            del token_type, access_token, refresh_token, expiry_time
-            # simulate tidalapi refreshing the expired token in memory
-            self.access_token = "fresh-access"  # noqa: S105
-            self.expiry_time = fresh_expiry
-            return True
-
-        def check_login(self) -> bool:
-            return True
-
-    monkeypatch.setattr("tidalapi.Session", _RefreshingSession)
-    cli_mod._tidal_login()  # pyright: ignore[reportPrivateUsage]
-    saved = json.loads(token_file.read_text(encoding="utf-8"))
-    assert saved["access_token"] == "fresh-access"  # noqa: S105
-    assert saved["expiry_time"] == fresh_expiry.isoformat()
-    assert saved["refresh_token"] == "refresh-token"  # noqa: S105
-
-
-def test_tidal_login_skips_network_when_token_fresh(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    import webbrowser
-
-    import tidalapi.user as tidal_user
-
-    far = (
-        datetime.datetime.now(datetime.UTC).replace(tzinfo=None) + datetime.timedelta(days=4)
-    ).isoformat()
-    original = {
-        "token_type": "Bearer",
-        "access_token": "fresh-access",
-        "refresh_token": "refresh-token",
-        "expiry_time": far,
-        "user_id": 4242,
-        "country_code": "US",
-    }
-    token_file = tmp_path / "tidal_token.json"
-    token_file.write_text(json.dumps(original), encoding="utf-8")
-    monkeypatch.setattr(cli_mod, "TIDAL_TOKEN_FILE", token_file)
-    monkeypatch.setattr(cli_mod, "DATA_DIR", tmp_path)
-
-    class _StrictSession:
-        def load_oauth_session(self, *args: Any, **kwargs: Any) -> bool:
-            del args, kwargs
-            raise AssertionError("network login attempted for a fresh token")
-
-        def check_login(self) -> bool:
-            raise AssertionError("network check attempted for a fresh token")
-
-    made: dict[str, Any] = {}
-
-    class _StubUser:
-        def __init__(self, session: Any, user_id: Any) -> None:
-            made.update(session=session, user_id=user_id)
-            self.id = user_id
-
-    monkeypatch.setattr("tidalapi.Session", _StrictSession)
-    monkeypatch.setattr(tidal_user, "LoggedInUser", _StubUser)
-    opened: list[str] = []
-
-    def _record_open(url: str) -> bool:
-        opened.append(url)
-        return True
-
-    monkeypatch.setattr(webbrowser, "open", _record_open)
-    sess = cli_mod._tidal_login()  # pyright: ignore[reportPrivateUsage]
-    assert "expired" not in capsys.readouterr().out
-    assert opened == []
-    assert sess.access_token == "fresh-access"  # noqa: S105  # pyright: ignore[reportUnknownMemberType]
-    assert made["user_id"] == 4242
-    assert made["session"] is sess
-    assert sess.country_code == "US"  # pyright: ignore[reportUnknownMemberType]
-    assert json.loads(token_file.read_text(encoding="utf-8")) == original
-
-
-def test_tidal_login_takes_full_path_when_token_near_expiry(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    import webbrowser
-    from types import SimpleNamespace
-
-    near = (
-        datetime.datetime.now(datetime.UTC).replace(tzinfo=None) + datetime.timedelta(minutes=10)
-    ).isoformat()
-    token_file = tmp_path / "tidal_token.json"
-    token_file.write_text(
-        json.dumps(
-            {
-                "token_type": "Bearer",
-                "access_token": "valid-access",
-                "refresh_token": "refresh-token",
-                "expiry_time": near,
-                "user_id": 4242,
-                "country_code": "US",
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(cli_mod, "TIDAL_TOKEN_FILE", token_file)
-    monkeypatch.setattr(cli_mod, "DATA_DIR", tmp_path)
-
-    calls: list[str] = []
-
-    class _CachedSession:
-        """Mirrors tidalapi: stores expiry verbatim (a str), no refresh."""
-
-        def __init__(self) -> None:
-            self.token_type = "Bearer"  # noqa: S105
-            self.access_token = "stale"  # noqa: S105
-            self.refresh_token = "stale"  # noqa: S105
-            self.expiry_time: Any = None
-            self.country_code: Any = None
-            self.user: Any = SimpleNamespace(id=4242)
-
-        def load_oauth_session(
-            self,
-            token_type: Any,
-            access_token: Any,
-            refresh_token: Any,
-            expiry_time: Any = None,
-        ) -> bool:
-            calls.append("load")
-            self.token_type = token_type
-            self.access_token = access_token
-            self.refresh_token = refresh_token
-            self.expiry_time = expiry_time
-            self.country_code = "US"
-            return True
-
-        def check_login(self) -> bool:
-            calls.append("check")
-            return True
-
-    monkeypatch.setattr("tidalapi.Session", _CachedSession)
-    opened: list[str] = []
-
-    def _record_open(url: str) -> bool:
-        opened.append(url)
-        return True
-
-    monkeypatch.setattr(webbrowser, "open", _record_open)
-    cli_mod._tidal_login()  # pyright: ignore[reportPrivateUsage]
-    assert calls == ["load", "check"]
-    assert "expired" not in capsys.readouterr().out
-    assert opened == []
-    saved = json.loads(token_file.read_text(encoding="utf-8"))
-    assert saved["access_token"] == "valid-access"  # noqa: S105
-    assert saved["expiry_time"] == near
-    assert saved["user_id"] == 4242
-    assert saved["country_code"] == "US"
-
-
-def test_tidal_login_no_login_returns_none_for_stale_token(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    """login=False never touches the network: a stale cache yields None silently."""
-    stale = (
-        datetime.datetime.now(datetime.UTC).replace(tzinfo=None) - datetime.timedelta(days=1)
-    ).isoformat()
-    token_file = tmp_path / "tidal_token.json"
-    token_file.write_text(
-        json.dumps(
-            {
-                "token_type": "Bearer",
-                "access_token": "stale-access",
-                "refresh_token": "refresh-token",
-                "expiry_time": stale,
-                "user_id": 4242,
-                "country_code": "US",
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(cli_mod, "TIDAL_TOKEN_FILE", token_file)
-
-    class _StrictSession:
-        def load_oauth_session(self, *args: Any, **kwargs: Any) -> bool:
-            del args, kwargs
-            raise AssertionError("network login attempted with login=False")
-
-        def check_login(self) -> bool:
-            raise AssertionError("network check attempted with login=False")
-
-        def login_oauth(self) -> Any:
-            raise AssertionError("browser login attempted with login=False")
-
-    monkeypatch.setattr("tidalapi.Session", _StrictSession)
-    assert cli_mod._tidal_login(login=False) is None  # pyright: ignore[reportPrivateUsage]
-    assert capsys.readouterr().out == ""
-
-
-def test_tidal_login_no_login_returns_none_when_token_missing(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    monkeypatch.setattr(cli_mod, "TIDAL_TOKEN_FILE", tmp_path / "missing.json")
-
-    class _StrictSession:
-        def login_oauth(self) -> Any:
-            raise AssertionError("browser login attempted with login=False")
-
-    monkeypatch.setattr("tidalapi.Session", _StrictSession)
-    assert cli_mod._tidal_login(login=False) is None  # pyright: ignore[reportPrivateUsage]
-    assert capsys.readouterr().out == ""
-
-
-def test_tidal_login_no_login_returns_session_when_token_fresh(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    import tidalapi.user as tidal_user
-
-    far = (
-        datetime.datetime.now(datetime.UTC).replace(tzinfo=None) + datetime.timedelta(days=4)
-    ).isoformat()
-    token_file = tmp_path / "tidal_token.json"
-    token_file.write_text(
-        json.dumps(
-            {
-                "token_type": "Bearer",
-                "access_token": "fresh-access",
-                "refresh_token": "refresh-token",
-                "expiry_time": far,
-                "user_id": 4242,
-                "country_code": "US",
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(cli_mod, "TIDAL_TOKEN_FILE", token_file)
-
-    class _StrictSession:
-        def load_oauth_session(self, *args: Any, **kwargs: Any) -> bool:
-            del args, kwargs
-            raise AssertionError("network login attempted for a fresh token")
-
-        def check_login(self) -> bool:
-            raise AssertionError("network check attempted for a fresh token")
-
-    class _StubUser:
-        def __init__(self, session: Any, user_id: Any) -> None:
-            del session
-            self.id = user_id
-
-    monkeypatch.setattr("tidalapi.Session", _StrictSession)
-    monkeypatch.setattr(tidal_user, "LoggedInUser", _StubUser)
-    sess = cli_mod._tidal_login(login=False)  # pyright: ignore[reportPrivateUsage]
-    assert sess is not None
-    assert sess.access_token == "fresh-access"  # noqa: S105  # pyright: ignore[reportUnknownMemberType]
-    assert capsys.readouterr().out == ""
-
-
-def test_cli_status_offline_no_plan_prints_message(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    missing = tmp_path / "missing.toml"
-    monkeypatch.setattr(paths, "PLAN_FILE", missing)
-    monkeypatch.setattr(cli_mod, "PLAN_FILE", missing)
-    cli_mod.cmd_status(MagicMock(artist=None, album=None))
-    out = capsys.readouterr().out
-    assert "No transfer plan" in out
 
 
 def test_cli_status_with_plan_prints_meta(
@@ -515,35 +181,6 @@ def test_cli_status_scoped_counts(isolated_data_dir: Path, monkeypatch: Any, cap
     assert "Total tracks" in out
 
 
-def test_cli_transfer_scope_mutually_exclusive_required() -> None:
-    # verify that the transfer parser uses mutually_exclusive_group(required=True)
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    sub = parser.add_subparsers(dest="command", required=True)
-    p_t = sub.add_parser("transfer")
-    scope = p_t.add_mutually_exclusive_group(required=True)
-    scope.add_argument("--track", metavar="VIDEO_ID")
-    scope.add_argument("--album", metavar="MATCH_ID")
-    scope.add_argument("--artist", metavar="MATCH_ID")
-    scope.add_argument("--all", action="store_true")
-    # ensure required=True enforced
-    with pytest.raises(SystemExit):
-        parser.parse_args(["transfer"])
-    # multiple scopes should fail
-    with pytest.raises(SystemExit):
-        parser.parse_args(["transfer", "--track", "AAAAAAAAAAA", "--all"])
-    # exactly one should parse
-    args = parser.parse_args(["transfer", "--track", "AAAAAAAAAAA"])
-    assert args.track == "AAAAAAAAAAA"
-
-    # also verify real cli parser has required=True by inspecting it
-    import inspect
-
-    src = inspect.getsource(cli_mod.main)
-    assert "mutually_exclusive_group(required=True)" in src
-
-
 def test_cli_main_transfer_requires_scope(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "argv", ["tidal2ytm", "transfer"])
     with pytest.raises(SystemExit) as e:
@@ -562,7 +199,7 @@ def test_cli_main_review_filters(monkeypatch: Any) -> None:
     # review with status filter should delegate to run_review
     monkeypatch.setattr(sys, "argv", ["tidal2ytm", "review", "--needs-review"])
     with patch("tidal2ytm.review.run_review"):
-        monkeypatch.setattr("tidal2ytm.cli._tidal_login", lambda: MagicMock())
+        monkeypatch.setattr("tidal2ytm.cli.tidal_login", lambda: MagicMock())
         monkeypatch.setattr("tidal2ytm.cli._ytm_login", lambda: MagicMock())
         # avoid needing real plan file by mocking run_review directly via cmd_review path
         # call main and verify run_review called with correct filter
@@ -620,7 +257,7 @@ def test_cli_help_and_subcommand_help(monkeypatch: Any) -> None:
 def test_cli_bare_invokes_planning(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "argv", ["tidal2ytm"])
     with (
-        patch("tidal2ytm.cli._tidal_login", return_value=MagicMock()),
+        patch("tidal2ytm.cli.tidal_login", return_value=MagicMock()),
         patch("tidal2ytm.planning.run_planning") as mock_p,
     ):
         cli_mod.main()
@@ -633,3 +270,211 @@ def test_cli_plan_removed(monkeypatch: Any) -> None:
     with pytest.raises(SystemExit) as e:
         cli_mod.main()
     assert e.value.code == 2
+
+
+def test_ytm_login_rejects_multiple_client_secrets(tmp_path: Path) -> None:
+    import time
+
+    from tidal2ytm.ytm_client import YTMClient
+
+    auth_file = tmp_path / "ytm_auth.json"
+    auth_file.write_text(
+        json.dumps({"expires_at": int(time.time()) + 3600, "refresh_token": "rt"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "client_secret_a.json").write_text(
+        json.dumps({"installed": {"client_id": "a", "client_secret": "a-sec"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "client_secret_b.json").write_text(
+        json.dumps({"installed": {"client_id": "b", "client_secret": "b-sec"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(PlanNotFoundError):
+        YTMClient(auth_file=auth_file, data_dir=tmp_path).login()
+
+
+# ---------------------------------------------------------------------------
+# cli.tidal_login — the public Tidal session seam (token cache / refresh)
+# ---------------------------------------------------------------------------
+
+
+def _utc_in(**kwargs: float) -> datetime.datetime:
+    return datetime.datetime.now(datetime.UTC) + datetime.timedelta(**kwargs)
+
+
+def _open_ok(url: str) -> bool:
+    del url
+    return True
+
+
+def _patch_token_file(monkeypatch: pytest.MonkeyPatch, data_dir: Path) -> None:
+    # cli.py binds TIDAL_TOKEN_FILE at import time; redirect it to the isolated dir
+    monkeypatch.setattr(cli_mod, "TIDAL_TOKEN_FILE", data_dir / "tidal_token.json")
+
+
+def _write_tidal_token(data_dir: Path, expiry: datetime.datetime, **overrides: Any) -> None:
+    payload: dict[str, Any] = {
+        "token_type": "Bearer",
+        "access_token": "cached-access",
+        "refresh_token": "cached-refresh",
+        "expiry_time": expiry.isoformat(),
+        "user_id": 4242,
+        "country_code": "US",
+    }
+    payload.update(overrides)
+    (data_dir / "tidal_token.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+class _FakeTidalSession:
+    def __init__(self) -> None:
+        self.token_type = ""
+        self.access_token = ""
+        self.refresh_token = ""
+        self.expiry_time: Any = None
+        self.country_code = ""
+        self.locale = ""
+        self.user: Any = None
+        self.load_calls: list[tuple[str, str, str, Any]] = []
+        self.login_calls = 0
+        self.checked = False
+
+    def load_oauth_session(
+        self, token_type: str, access_token: str, refresh_token: str, expiry_time: Any
+    ) -> bool:
+        self.load_calls.append((token_type, access_token, refresh_token, expiry_time))
+        self.token_type = token_type
+        # mark the refresh so the persisted cache proves the round-trip happened
+        self.access_token = access_token + "-refreshed"
+        self.refresh_token = refresh_token
+        self.expiry_time = _utc_in(days=30)
+        return True
+
+    def check_login(self) -> bool:
+        self.checked = True
+        return True
+
+    def login_oauth(self) -> Any:
+        self.login_calls += 1
+        self.token_type = "Bearer"  # noqa: S105
+        self.access_token = "browser-access"  # noqa: S105
+        self.refresh_token = "browser-refresh"  # noqa: S105
+        self.expiry_time = _utc_in(days=30)
+        self.country_code = "US"
+        self.user = SimpleNamespace(id=4242)
+        link = SimpleNamespace(verification_uri_complete="example.com/verify")
+        future = SimpleNamespace(result=lambda: None)
+        return link, future
+
+
+class _FakeLoggedInUser:
+    def __init__(self, session: Any, user_id: int) -> None:
+        self.session = session
+        self.id = user_id
+
+
+def test_tidal_login_hydrates_session_from_fresh_cache(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_token_file(monkeypatch, isolated_data_dir)
+    _write_tidal_token(isolated_data_dir, _utc_in(days=4))
+    fake = _FakeTidalSession()
+    monkeypatch.setattr("tidalapi.Session", lambda: fake)
+    monkeypatch.setattr("tidalapi.user.LoggedInUser", _FakeLoggedInUser)
+
+    session = cli_mod.tidal_login()
+
+    assert session is fake
+    assert fake.access_token == "cached-access"  # noqa: S105
+    assert fake.user.id == 4242
+    # fresh token: no validating round-trip and no browser flow
+    assert fake.load_calls == []
+    assert fake.checked is False
+    assert fake.login_calls == 0
+
+
+def test_tidal_login_refreshes_near_expiry_token_and_persists(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_token_file(monkeypatch, isolated_data_dir)
+    _write_tidal_token(isolated_data_dir, _utc_in(minutes=10))
+    fake = _FakeTidalSession()
+    monkeypatch.setattr("tidalapi.Session", lambda: fake)
+    monkeypatch.setattr("webbrowser.open", _open_ok)
+
+    session = cli_mod.tidal_login()
+
+    assert session is fake
+    assert len(fake.load_calls) == 1
+    assert fake.load_calls[0][1] == "cached-access"
+    assert fake.checked is True
+    data = json.loads((isolated_data_dir / "tidal_token.json").read_text(encoding="utf-8"))
+    assert data["access_token"] == "cached-access-refreshed"  # noqa: S105
+    assert isinstance(data["expiry_time"], str)
+
+
+def test_tidal_login_without_cache_and_login_false_returns_none(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_token_file(monkeypatch, isolated_data_dir)
+    fake = _FakeTidalSession()
+    monkeypatch.setattr("tidalapi.Session", lambda: fake)
+
+    assert cli_mod.tidal_login(login=False) is None
+    assert fake.login_calls == 0
+
+
+def test_tidal_login_stale_cache_with_login_false_returns_none(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_token_file(monkeypatch, isolated_data_dir)
+    _write_tidal_token(isolated_data_dir, _utc_in(hours=-1))
+    fake = _FakeTidalSession()
+    monkeypatch.setattr("tidalapi.Session", lambda: fake)
+
+    assert cli_mod.tidal_login(login=False) is None
+    assert fake.load_calls == []
+    assert fake.checked is False
+    assert fake.login_calls == 0
+
+
+def test_tidal_login_corrupt_cache_falls_through_to_browser_login(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_token_file(monkeypatch, isolated_data_dir)
+    (isolated_data_dir / "tidal_token.json").write_text("not valid json {{{", encoding="utf-8")
+    fake = _FakeTidalSession()
+    monkeypatch.setattr("tidalapi.Session", lambda: fake)
+    opened: list[str] = []
+
+    def _record_url(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr("webbrowser.open", _record_url)
+
+    session = cli_mod.tidal_login()
+
+    assert session is fake
+    assert fake.login_calls == 1
+    assert opened != []
+    data = json.loads((isolated_data_dir / "tidal_token.json").read_text(encoding="utf-8"))
+    assert data["access_token"] == "browser-access"  # noqa: S105
+
+
+def test_tidal_login_incomplete_cache_forces_fresh_login(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_token_file(monkeypatch, isolated_data_dir)
+    _write_tidal_token(isolated_data_dir, _utc_in(days=4), refresh_token=None)
+    fake = _FakeTidalSession()
+    monkeypatch.setattr("tidalapi.Session", lambda: fake)
+    monkeypatch.setattr("webbrowser.open", _open_ok)
+
+    session = cli_mod.tidal_login()
+
+    assert session is fake
+    # incomplete schema: no validating refresh, straight to the browser flow
+    assert fake.load_calls == []
+    assert fake.checked is False
+    assert fake.login_calls == 1

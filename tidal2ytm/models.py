@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 
 class MatchMethod(StrEnum):
@@ -29,6 +30,13 @@ class ConfidenceBreakdown:
     summary: str | None = None
 
 
+def _to_int(v: Any, default: int) -> int:
+    try:
+        return int(v) if v is not None else default
+    except (ValueError, TypeError):
+        return default
+
+
 @dataclass
 class SourceTrack:
     tidal_id: int
@@ -44,9 +52,42 @@ class SourceTrack:
     disc_num: int
     version: str | None
 
-    @property
-    def year(self) -> int | None:
-        return self.album_year
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SourceTrack:
+        """Strict boundary: tidal_id must coerce to a positive int, else ValueError."""
+        try:
+            tidal_id = int(data.get("tidal_id", 0))
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"invalid tidal_id: {data.get('tidal_id')!r}") from exc
+        if tidal_id <= 0:
+            raise ValueError(f"invalid tidal_id: {data.get('tidal_id')!r}")
+        raw_artists = data.get("artists")
+        if raw_artists is None:
+            raw_artist = data.get("artist")
+            artists: list[str] = [raw_artist] if raw_artist else []
+        elif isinstance(raw_artists, str):
+            artists = [raw_artists]
+        else:
+            artists = list(raw_artists) if raw_artists else []
+        artist = artists[0] if artists else data.get("artist", "") or ""
+        album = data.get("album", "")
+        duration_raw = data.get("duration_sec")
+        if duration_raw is None:
+            duration_raw = data.get("duration", 0)
+        return cls(
+            tidal_id=tidal_id,
+            title=data.get("title", ""),
+            artist=artist,
+            artists=artists,
+            album=album,
+            album_id=_to_int(data.get("album_id", -1), -1),
+            album_year=data.get("album_year"),
+            duration_sec=_to_int(duration_raw, 0),
+            isrc=data.get("isrc"),
+            track_num=_to_int(data.get("track_num", 0), 0),
+            disc_num=_to_int(data.get("disc_num", data.get("volume_num", 0)), 0),
+            version=data.get("version"),
+        )
 
 
 @dataclass
@@ -63,18 +104,3 @@ class MatchResult:
     confidence: ConfidenceBreakdown
     status: TrackStatus
     review_reason: str | None = None
-
-
-@dataclass
-class AlbumGroup:
-    name: str
-    year: int | None
-    match_id: str  # e.g. "wren/cinder-child"
-    tracks: list[MatchResult] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-
-
-@dataclass
-class ArtistGroup:
-    name: str
-    match_id: str  # e.g. "wren"
-    albums: list[AlbumGroup] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]

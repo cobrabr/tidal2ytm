@@ -161,3 +161,6 @@ __marimo__/
 
 # Runtime data (tokens, state, review queue)
 data/
+
+# Agent execution scratch (ledgers, briefs, review packages)
+.superpowers/

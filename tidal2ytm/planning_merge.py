@@ -97,7 +97,11 @@ def classify_track(existing: dict[str, Any] | None, new_video_id: str | None) ->
         return "add-new"
     if existing.get("status") == TrackStatus.TRANSFERRED.value:
         return "skip-transferred"
-    if (existing.get("yt_video_id") or "") == (new_video_id or ""):
+    stored = existing.get("yt_video_id") or ""
+    new = new_video_id or ""
+    if not stored and not new:
+        return "ask"
+    if stored == new:
         return "keep-same"
     return "ask"
 
@@ -111,7 +115,8 @@ def insert_track(
     artists = cast("list[dict[str, Any]]", plan.get("artists") or [])
     plan["artists"] = artists
     artist_entry: dict[str, Any] | None = next(
-        (a for a in artists if a.get("name") == artist_name), None
+        (a for a in artists if str(a.get("name", "")).casefold() == artist_name.casefold()),
+        None,
     )
     if artist_entry is None:
         taken = [a.get("match_id", "") for a in artists]
@@ -122,7 +127,8 @@ def insert_track(
     albums = cast("list[dict[str, Any]]", artist_entry.get("albums") or [])
     artist_entry["albums"] = albums
     album_entry: dict[str, Any] | None = next(
-        (a for a in albums if a.get("name") == album_name), None
+        (a for a in albums if str(a.get("name", "")).casefold() == album_name.casefold()),
+        None,
     )
     if album_entry is None:
         taken_album = [str(a.get("match_id", "")).split("/")[-1] for a in albums]

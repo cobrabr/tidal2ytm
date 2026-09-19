@@ -5,9 +5,10 @@ cross-search selection, and match it to YTM on demand.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
-from collections.abc import Callable, Container
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -31,9 +32,30 @@ except ImportError:  # pragma: no cover
 
 HAS_READCHAR = _has_readchar
 
+from .format import fmt_duration  # noqa: E402
+from .keys import (  # noqa: E402
+    RESIZE_KEY,
+    classify_windows_event,
+    clear_screen,
+    drain_escape,
+    drain_tail,
+    esc_has_tail,
+    kernel32,
+    map_windows_key,
+    read_windows_console_key,
+)
 from .matcher import match_track  # noqa: E402
 from .models import SourceTrack  # noqa: E402
 from .paths import PLAN_FILE  # noqa: E402
+from .picker_rows import (  # noqa: E402
+    ListRow,
+    PickerView,
+    build_rows,
+    toggle_row,
+    toggle_scope,
+    toggle_select,
+    visible_window,
+)
 from .plan_io import (  # noqa: E402
     backup_plan,
     find_existing_match,
@@ -55,20 +77,16 @@ from .planning_search import (  # noqa: E402
     search_library,
 )
 
-
-def _empty_track_list() -> list[SourceTrack]:
-    return []
-
-
-def _empty_selection() -> dict[int, SourceTrack]:
-    return {}
+# Re-exports: the Windows key helpers moved to keys.py (Task 11); planning
+# keeps them importable at the old path for callers and tests.
+__all__ = ["classify_windows_event", "drain_escape", "kernel32", "map_windows_key"]
 
 
 @dataclass
 class PlanningSession:
     plan_path: Path
-    liked: list[SourceTrack] = field(default_factory=_empty_track_list)
-    selection: dict[int, SourceTrack] = field(default_factory=_empty_selection)
+    liked: list[SourceTrack] = field(default_factory=list[SourceTrack])
+    selection: dict[int, SourceTrack] = field(default_factory=dict[int, SourceTrack])
     override: bool = False
     backup_done: bool = False
     library_loaded: bool = False
@@ -127,28 +145,6 @@ def read_auth_presence(data_dir: Path | None = None) -> AuthPresence:
     )
 
 
-def toggle_select(selection: dict[int, SourceTrack], track: SourceTrack) -> bool:
-    """Toggle one track; returns True when the track is now selected."""
-    if track.tidal_id in selection:
-        del selection[track.tidal_id]
-        return False
-    selection[track.tidal_id] = track
-    return True
-
-
-@dataclass
-class ListRow:
-    """One navigable picker row: an artist/album header or a single track."""
-
-    kind: str  # "artist" | "album" | "disc" | "track"
-    artist: str = ""
-    album: str = ""
-    track: SourceTrack | None = None
-    indent: int = 0
-    members: tuple[SourceTrack, ...] = ()
-    show_artist: bool = False
-
-
 def default_grouping(n: int) -> str:
     """Size-based default: flat under 20 hits, by artist to 50, artist+album above."""
     if n < 20:
@@ -156,14 +152,6 @@ def default_grouping(n: int) -> str:
     if n <= 50:
         return "artist"
     return "both"
-
-
-def _album_sort_key(t: SourceTrack) -> tuple[int, int, str]:
-    """Albums by year ascending, unknown years last, then name."""
-    return (t.album_year is None, t.album_year or 0, t.album.lower())
-
-
-VA_LABEL = "Various Artists"
 
 
 def find_compilations(liked: list[SourceTrack]) -> set[int]:
@@ -174,128 +162,97 @@ def find_compilations(liked: list[SourceTrack]) -> set[int]:
     return {album_id for album_id, names in artists.items() if len(names) > 1}
 
 
-def _album_rows(artist: str, bt: list[SourceTrack], rows: list[ListRow]) -> None:
-    """Append one album header plus its tracks, adding disc headers when multi-disc."""
-    album = bt[0].album
-    show_artist = artist == VA_LABEL
-    rows.append(ListRow("album", artist=artist, album=album, indent=2, members=tuple(bt)))
-    discs: dict[int, list[SourceTrack]] = {}
-    for t in bt:
-        discs.setdefault(t.disc_num, []).append(t)
-    if len(discs) == 1:
-        for t in sorted(bt, key=lambda t: (t.disc_num, t.track_num)):
-            rows.append(
-                ListRow(
-                    "track",
-                    artist=t.artist,
-                    album=t.album,
-                    track=t,
-                    indent=4,
-                    show_artist=show_artist,
-                )
-            )
-        return
-    for disc_num in sorted(discs):
-        dt = sorted(discs[disc_num], key=lambda t: t.track_num)
-        rows.append(ListRow("disc", artist=artist, album=album, indent=4, members=tuple(dt)))
-        for t in dt:
-            rows.append(
-                ListRow(
-                    "track",
-                    artist=t.artist,
-                    album=t.album,
-                    track=t,
-                    indent=6,
-                    show_artist=show_artist,
-                )
-            )
+def _match_one(
+    src: SourceTrack,
+    plan: dict[str, Any],
+    yt: Any,
+    console: Console,
+    counts: dict[str, int],
+) -> dict[str, Any] | None:
+    """Match one selected track into the plan; None when matching failed.
+
+    A failed match is recorded here: an unmatched needs_review entry when no
+    match is stored yet, otherwise the stored match is kept and counted.
+    """
+    existing = find_existing_match(plan, src.tidal_id)
+    try:
+        result = match_track(src, yt)
+    except Exception as exc:
+        if existing is None:
+            insert_track(plan, unmatched_track_dict(src, f"Match error: {exc}"), src.album_year)
+            counts["new"] += 1
+            console.print(f"  -> match failed: {exc} [recorded as needs_review]")
+        else:
+            counts["kept"] += 1
+            console.print(f"  -> match failed: {exc} [kept stored match]")
+        return None
+    return match_result_to_track_dict(result)
 
 
-def build_rows(
-    hits: list[SourceTrack], grouping: str, compilations: Container[int] = frozenset()
-) -> list[ListRow]:
-    """Flatten hits into sorted navigable rows: artists alpha, albums by year,
-    tracks by track-list order inside albums, by title otherwise. Disc headers
-    appear only inside multi-disc albums when grouping by album. Compilation
-    albums group under Various Artists with artist-prefixed tracks."""
-    if grouping == "none":
-        ordered = sorted(hits, key=lambda t: t.title.lower())
-        return [
-            ListRow("track", artist=t.artist, album=t.album, track=t, show_artist=True)
-            for t in ordered
-        ]
-    rows: list[ListRow] = []
-    artists: dict[str, list[SourceTrack]] = {}
-    for t in hits:
-        artists.setdefault(VA_LABEL if t.album_id in compilations else t.artist, []).append(t)
-    for artist in sorted(artists, key=str.lower):
-        atracks = artists[artist]
-        rows.append(ListRow("artist", artist=artist, members=tuple(atracks)))
-        if grouping == "artist":
-            for t in sorted(atracks, key=lambda t: t.title.lower()):
-                rows.append(
-                    ListRow(
-                        "track",
-                        artist=t.artist,
-                        album=t.album,
-                        track=t,
-                        indent=2,
-                        show_artist=artist == VA_LABEL,
-                    )
-                )
-            continue
-        albums: dict[str, list[SourceTrack]] = {}
-        for t in atracks:
-            albums.setdefault(t.album, []).append(t)
-        ordered_albums = sorted(albums.values(), key=lambda bt: _album_sort_key(bt[0]))
-        for bt in ordered_albums:
-            _album_rows(artist, bt, rows)
-    return rows
+def _resolve_conflict(
+    existing: dict[str, Any] | None,
+    new_dict: dict[str, Any],
+    ask: Callable[[str], str],
+) -> bool:
+    """Ask whether to overwrite a stored match; False on abort or decline."""
+    old = existing or {}
+    old_conf = old.get("confidence", {}).get("overall", 0.0)
+    new_conf = new_dict.get("confidence", {}).get("overall", 0.0)
+    prompt = (
+        f"Differing match for '{new_dict.get('title')}':\n"
+        f"  stored: {old.get('match_method', 'none')} "
+        f"{old.get('yt_video_id', '')} @ {old_conf:.2f}\n"
+        f"  new: {new_dict.get('match_method')} "
+        f"{new_dict.get('yt_video_id')} @ {new_conf:.2f}\n"
+        "Overwrite? [y/N] "
+    )
+    try:
+        return ask(prompt).strip().lower() in ("y", "yes")
+    except (KeyboardInterrupt, EOFError):
+        return False
 
 
-def _toggle_members(selection: dict[int, SourceTrack], members: list[SourceTrack]) -> None:
-    if all(t.tidal_id in selection for t in members):
-        for t in members:
-            del selection[t.tidal_id]
-    else:
-        for t in members:
-            selection[t.tidal_id] = t
-
-
-def toggle_row(selection: dict[int, SourceTrack], row: ListRow) -> None:
-    """Space on a row: flip a track, or select-all-or-clear a header group."""
-    if row.kind == "track":
-        assert row.track is not None
-        toggle_select(selection, row.track)
-    else:
-        _toggle_members(selection, list(row.members))
-
-
-def toggle_scope(
-    selection: dict[int, SourceTrack],
-    hits: list[SourceTrack],
-    artist: str | None = None,
-    album: str | None = None,
+def _apply_match_action(
+    plan: dict[str, Any],
+    src: SourceTrack,
+    existing: dict[str, Any] | None,
+    new_dict: dict[str, Any],
+    counts: dict[str, int],
+    override: bool,
+    ask: Callable[[str], str],
+    console: Console,
 ) -> None:
-    """Bulk toggle: all shown, or one artist/album slice (select-all-or-clear)."""
-    members = [
-        t
-        for t in hits
-        if (artist is None or t.artist == artist) and (album is None or t.album == album)
-    ]
-    _toggle_members(selection, members)
+    """Apply one successful match to the plan per its merge action."""
+    conf = new_dict["confidence"]["overall"]
+    summary = new_dict["confidence"].get("summary", "")
+    method = new_dict["match_method"]
+    yt_desc = _yt_desc(new_dict)
+    action = classify_track(existing, new_dict["yt_video_id"])
+    if action == "skip-transferred":
+        counts["skipped"] += 1
+        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [skipped, already transferred]")
+    elif action == "add-new":
+        insert_track(plan, new_dict, src.album_year)
+        counts["new"] += 1
+        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [new]{_summary_suffix(summary)}")
+    elif action == "keep-same":
+        counts["kept"] += 1
+        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [kept, same as stored]")
+    elif override:
+        assert existing is not None
+        update_track_in_plan(plan, src.tidal_id, new_dict)
+        counts["upgraded"] += 1
+        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [upgraded, override on]")
+    elif _resolve_conflict(existing, new_dict, ask):
+        update_track_in_plan(plan, src.tidal_id, new_dict)
+        counts["upgraded"] += 1
+        console.print(f"  -> upgraded to {new_dict.get('yt_video_id')}")
+    else:
+        counts["kept"] += 1
+        console.print("  -> kept stored match")
 
 
-def visible_window(rows: list[ListRow], cursor: int, height: int) -> tuple[int, int]:
-    """Viewport [start, end) of row indexes keeping the cursor visible."""
-    n = len(rows)
-    if n <= height:
-        return (0, n)
-    start = min(max(cursor - height + 1, 0), n - height)
-    return (start, start + height)
-
-
-def run_match_action(  # noqa: C901
+def run_match_action(
     session: PlanningSession,
     yt: Any = None,
     input_fn: Callable[[str], str] | None = None,
@@ -310,7 +267,10 @@ def run_match_action(  # noqa: C901
         return dict(counts)
     n = len(session.selection)
     plural = "s" if n != 1 else ""
-    answer = ask(f"Match {n} selected track{plural}? [Y/n] ").strip().lower()
+    try:
+        answer = ask(f"Match {n} selected track{plural}? [Y/n] ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return counts
     if answer not in ("", "y", "yes"):
         return counts
     if yt is None:
@@ -329,59 +289,10 @@ def run_match_action(  # noqa: C901
         tag.append(f"Matching '{src.title}' by {src.artist} {_src_detail(src)} …")
         console.print(tag)
         existing = find_existing_match(plan, src.tidal_id)
-        try:
-            result = match_track(src, yt)
-            new_vid: str | None = result.yt_video_id
-            new_dict: dict[str, Any] = match_result_to_track_dict(result)
-        except Exception as exc:
-            if existing is None:
-                insert_track(plan, unmatched_track_dict(src, f"Match error: {exc}"), src.album_year)
-                counts["new"] += 1
-                console.print(f"  -> match failed: {exc} [recorded as needs_review]")
-            else:
-                counts["kept"] += 1
-                console.print(f"  -> match failed: {exc} [kept stored match]")
+        new_dict = _match_one(src, plan, yt, console, counts)
+        if new_dict is None:
             continue
-        conf = result.confidence.overall
-        summary = result.confidence.summary or ""
-        method = result.match_method.value
-        yt_desc = _yt_desc(result)
-        action = classify_track(existing, new_vid)
-        if action == "skip-transferred":
-            counts["skipped"] += 1
-            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [skipped, already transferred]")
-        elif action == "add-new":
-            insert_track(plan, new_dict, src.album_year)
-            counts["new"] += 1
-            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [new]{_summary_suffix(summary)}")
-        elif action == "keep-same":
-            counts["kept"] += 1
-            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [kept, same as stored]")
-        elif session.override:
-            assert existing is not None
-            update_track_in_plan(plan, src.tidal_id, new_dict)
-            counts["upgraded"] += 1
-            console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [upgraded, override on]")
-        else:
-            old = existing or {}
-            old_conf = old.get("confidence", {}).get("overall", 0.0)
-            new_conf = new_dict.get("confidence", {}).get("overall", 0.0)
-            prompt = (
-                f"Differing match for '{src.title}':\n"
-                f"  stored: {old.get('match_method', 'none')} "
-                f"{old.get('yt_video_id', '')} @ {old_conf:.2f}\n"
-                f"  new: {new_dict.get('match_method')} "
-                f"{new_dict.get('yt_video_id')} @ {new_conf:.2f}\n"
-                "Overwrite? [y/N] "
-            )
-            if ask(prompt).strip().lower() in ("y", "yes"):
-                assert existing is not None
-                update_track_in_plan(plan, src.tidal_id, new_dict)
-                counts["upgraded"] += 1
-                console.print(f"  -> upgraded to {new_dict.get('yt_video_id')}")
-            else:
-                counts["kept"] += 1
-                console.print("  -> kept stored match")
+        _apply_match_action(plan, src, existing, new_dict, counts, session.override, ask, console)
     if not session.backup_done and session.plan_path.exists():
         bpath = backup_plan(session.plan_path)
         console.print(f"Backup -> {bpath.name}")
@@ -405,7 +316,8 @@ def _ensure_library(
         return True
     ask: Callable[[str], str] = input if input_fn is None else input_fn
     console.print("Tidal library not loaded. Authenticate first (a).")
-    ask("Press Enter to continue…")
+    with contextlib.suppress(KeyboardInterrupt, EOFError):
+        ask("Press Enter to continue…")
     return False
 
 
@@ -421,29 +333,22 @@ def _select_all(
     console.print(f"Selected everything: {len(session.selection)} track(s).")
 
 
-def _fmt_duration(sec: int | None) -> str:
-    if not sec:
-        return "—"
-    m, s = divmod(sec, 60)
-    return f"{m}:{s:02d}"
-
-
 def _src_detail(src: SourceTrack) -> str:
     """One-line Tidal source detail: album, year, duration, ISRC when known."""
     parts = [src.album] if src.album else []
     if src.album_year is not None:
         parts.append(str(src.album_year))
-    parts.append(_fmt_duration(src.duration_sec))
+    parts.append(fmt_duration(src.duration_sec))
     if src.isrc:
         parts.append(f"ISRC {src.isrc}")
     return f"({', '.join(parts)})" if parts else ""
 
 
-def _yt_desc(result: Any) -> str:
-    """One-line YTM hit: video id plus title/artist when known."""
-    vid = result.yt_video_id or "(no match)"
-    title = result.yt_title or "?"
-    artist = result.yt_artist or "?"
+def _yt_desc(track: dict[str, Any]) -> str:
+    """One-line YTM hit from a track dict: video id plus title/artist when known."""
+    vid = track.get("yt_video_id") or "(no match)"
+    title = track.get("yt_title") or "?"
+    artist = track.get("yt_artist") or "?"
     return f"{vid} '{title}' by {artist}"
 
 
@@ -484,7 +389,7 @@ def _track_details(t: SourceTrack, show_album: bool) -> str:
     parts = [t.album] if show_album else []
     if t.album_year is not None:
         parts.append(str(t.album_year))
-    parts.append(_fmt_duration(t.duration_sec))
+    parts.append(fmt_duration(t.duration_sec))
     return "| " + ", ".join(parts)
 
 
@@ -587,23 +492,17 @@ def picker_head(title: str, title_term: str, hits_total: int, n_selected: int, n
     return head
 
 
-def picker_screen(
-    title: str,
-    title_term: str,
-    rows: list[ListRow],
-    cursor: int,
-    selection: dict[int, SourceTrack],
-    grouping: str,
-    hits_total: int,
-    height: int,
-    clearable: bool,
-    notice: str = "",
-) -> Group:
+def picker_frame(view: PickerView) -> Group:
     """One constant-height frame: title, padded viewport, footer. For Live."""
-    head = picker_head(title, title_term, hits_total, len(selection), notice)
-    start, end = visible_window(rows, cursor, height)
-    lines = [row_text(rows[i], selection, i == cursor, grouping) for i in range(start, end)]
-    while len(lines) < height:
+    head = picker_head(
+        view.title, view.title_term, view.hits_total, len(view.selection), view.notice
+    )
+    start, end = visible_window(view.rows, view.cursor, view.height)
+    lines = [
+        row_text(view.rows[i], view.selection, i == view.cursor, view.grouping)
+        for i in range(start, end)
+    ]
+    while len(lines) < view.height:
         lines.append(Text(""))
     body = Text(no_wrap=True, overflow="ellipsis")
     for i, line in enumerate(lines):
@@ -613,45 +512,160 @@ def picker_screen(
     return Group(
         Panel(head, border_style="dim", expand=True),
         Panel(body, expand=True),
-        Panel(picker_bar(grouping, clearable), border_style="dim", expand=True),
+        Panel(picker_bar(view.grouping, view.clearable), border_style="dim", expand=True),
     )
 
 
-def _esc_has_tail() -> bool:
-    """True when input bytes follow an ESC: a click burst, not a lone Esc press."""
-    try:
-        import msvcrt
+class _PickerDriver:
+    """Single-dispatch key router for the selection picker (see run_picker)."""
 
-        # getattr: msvcrt members resolve only on Windows; keeps pyright strict clean elsewhere.
-        kbhit = getattr(msvcrt, "kbhit")  # noqa: B009
-        return bool(kbhit())
-    except ImportError:
-        import select
+    def __init__(
+        self,
+        console: Console,
+        session: PlanningSession,
+        hits: list[SourceTrack],
+        *,
+        title: str,
+        title_term: str,
+        notice: str,
+        clearable: bool,
+        live: Live,
+        ask: Callable[[str], str],
+    ) -> None:
+        self.console = console
+        self.session = session
+        self.hits = hits
+        self.title = title
+        self.title_term = title_term
+        self.notice = notice
+        self.clearable = clearable
+        self.live = live
+        self.ask = ask
+        self.snapshot = dict(session.selection)
+        self.compilations = find_compilations(session.liked)
+        self.grouping = default_grouping(len(hits))
+        self.cursor = 0
+        self.view_h = viewport_height(
+            console.size.height or 24, footer_lines(console, self.grouping, clearable)
+        )
+        self._grouping_order = {"none": "artist", "artist": "both", "both": "none"}
 
-        try:
-            return bool(select.select([sys.stdin], [], [], 0)[0])
-        except (OSError, ValueError):
-            # Non-pollable stdin (pytest capture, closed pipe): assume a lone Esc press.
-            return False
+    def rows(self) -> list[ListRow]:
+        return build_rows(self.hits, self.grouping, self.compilations)
 
-
-def _drain_tail() -> None:
-    """Swallow a pending escape burst (e.g. a mouse click report)."""
-    try:
-        import msvcrt
-
-        # getattr: msvcrt members resolve only on Windows; keeps pyright strict clean elsewhere.
-        drain_escape(getattr(msvcrt, "kbhit"), getattr(msvcrt, "getwch"))  # noqa: B009
-    except ImportError:
-        import select
-
-        drain_escape(
-            lambda: bool(select.select([sys.stdin], [], [], 0)[0]),
-            lambda: sys.stdin.read(1),
+    def view(self, rows: list[ListRow]) -> PickerView:
+        return PickerView(
+            title=self.title,
+            title_term=self.title_term,
+            rows=rows,
+            cursor=self.cursor,
+            selection=self.session.selection,
+            grouping=self.grouping,
+            hits_total=len(self.hits),
+            height=self.view_h,
+            clearable=self.clearable,
+            notice=self.notice,
         )
 
+    def refresh_height(self, height: int | None) -> None:
+        """Re-measure the viewport when the frame height is not fixed."""
+        if height is not None:
+            return
+        self.view_h = viewport_height(
+            self.console.size.height or 24,
+            footer_lines(self.console, self.grouping, self.clearable),
+        )
 
-def run_picker(  # noqa: C901
+    def clamp_cursor(self, rows: list[ListRow]) -> None:
+        self.cursor = max(0, min(self.cursor, len(rows) - 1)) if rows else 0
+
+    def confirm_cancel(self) -> bool:
+        """Discard-changes prompt with Live stopped; True means discarded."""
+        self.live.stop()
+        try:
+            answer = self.ask("Discard these selection changes? [y/N] ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            self.live.start(refresh=True)
+            return False
+        if answer in ("y", "yes"):
+            self.session.selection.clear()
+            self.session.selection.update(self.snapshot)
+            return True
+        self.live.start(refresh=True)
+        return False
+
+    def _cancel(self, key: str) -> str:
+        """Esc / Ctrl+C: drain a click burst, else cancel back to the snapshot."""
+        if key == readchar_key.ESC and _esc_has_tail():  # type: ignore[union-attr]
+            _drain_tail()
+            return ""
+        if self.session.selection == self.snapshot or self.confirm_cancel():
+            return "confirm"
+        return ""
+
+    def _move(self, key: str) -> None:
+        """Cursor movement keys."""
+        if key in (readchar_key.UP, "k"):  # type: ignore[union-attr]
+            self.cursor -= 1
+        elif key in (readchar_key.DOWN, "j"):  # type: ignore[union-attr]
+            self.cursor += 1
+        elif key == readchar_key.PAGE_UP:  # type: ignore[union-attr]
+            self.cursor -= self.view_h
+        elif key == readchar_key.PAGE_DOWN:  # type: ignore[union-attr]
+            self.cursor += self.view_h
+
+    def _toggle(self, key: str, rows: list[ListRow]) -> None:
+        """Selection and grouping keys; disjoint from the movement key set."""
+        if key == readchar_key.SPACE:  # type: ignore[union-attr]
+            if rows:
+                toggle_row(self.session.selection, rows[self.cursor])
+        elif key == "*":
+            toggle_scope(self.session.selection, self.hits)
+        elif key in ("A", "L") and rows:
+            row = rows[self.cursor]
+            if row.kind == "track":
+                if key == "A":
+                    toggle_scope(self.session.selection, self.hits, artist=row.artist)
+                else:
+                    toggle_scope(self.session.selection, self.hits, album=row.album)
+            else:
+                toggle_row(self.session.selection, row)
+        elif key == "g":
+            self.grouping = self._grouping_order[self.grouping]
+        elif self.clearable and key == "c":
+            self.session.selection.clear()
+
+    def dispatch(self, key: str, rows: list[ListRow]) -> str:
+        """Apply one keypress; returns "search", "confirm", "quit", or "" to continue."""
+        if key == RESIZE_KEY:
+            _clear_screen()
+            return ""
+        if key in ("/", "s"):
+            if self.session.selection == self.snapshot or self.confirm_cancel():
+                return "search"
+            return ""
+        if key == "q":
+            if self.session.selection == self.snapshot or self.confirm_cancel():
+                return "quit"
+            return ""
+        if key in (readchar_key.ENTER, "\r", "\n"):  # type: ignore[union-attr]
+            return "confirm"
+        if key == readchar_key.ESC or key == "\x03":  # type: ignore[union-attr]
+            return self._cancel(key)
+        if key.startswith("\x1b") and key not in (
+            readchar_key.UP,  # type: ignore[union-attr]
+            readchar_key.DOWN,  # type: ignore[union-attr]
+            readchar_key.PAGE_UP,  # type: ignore[union-attr]
+            readchar_key.PAGE_DOWN,  # type: ignore[union-attr]
+        ):
+            _drain_tail()
+            return ""
+        self._move(key)
+        self._toggle(key, rows)
+        return ""
+
+
+def run_picker(
     console: Console,
     session: PlanningSession,
     hits: list[SourceTrack],
@@ -667,125 +681,68 @@ def run_picker(  # noqa: C901
 
     Returns "search" when the user asks for a new search, else None.
     """
-    snapshot = dict(session.selection)
-    compilations = find_compilations(session.liked)
-    grouping = default_grouping(len(hits))
-    order = {"none": "artist", "artist": "both", "both": "none"}
-    cursor = 0
     ask: Callable[[str], str] = input if input_fn is None else input_fn
+    grouping = default_grouping(len(hits))
     if height is None:
         view_h = viewport_height(
             console.size.height or 24, footer_lines(console, grouping, clearable)
         )
     else:
         view_h = height
-    rk = readchar_key
     live = Live(
-        picker_screen(
-            title, title_term, [], 0, session.selection, grouping, 0, view_h, clearable, notice
+        picker_frame(
+            PickerView(
+                title=title,
+                title_term=title_term,
+                rows=[],
+                cursor=0,
+                selection=session.selection,
+                grouping=grouping,
+                hits_total=0,
+                height=view_h,
+                clearable=clearable,
+                notice=notice,
+            )
         ),
         console=console,
         auto_refresh=False,
         transient=False,
     )
-
-    def _confirm_cancel() -> bool:
-        """Discard-changes prompt with Live stopped; True means discarded."""
-        live.stop()
-        answer = ask("Discard these selection changes? [y/N] ").strip().lower()
-        if answer in ("y", "yes"):
-            session.selection.clear()
-            session.selection.update(snapshot)
-            return True
-        live.start(refresh=True)
-        return False
+    driver = _PickerDriver(
+        console,
+        session,
+        hits,
+        title=title,
+        title_term=title_term,
+        notice=notice,
+        clearable=clearable,
+        live=live,
+        ask=ask,
+    )
+    driver.view_h = view_h
 
     console.clear()
     live.start()
+    rows: list[ListRow] = []
+    built_grouping: str | None = None
     try:
         while True:
-            if height is None:
-                view_h = viewport_height(
-                    console.size.height or 24, footer_lines(console, grouping, clearable)
-                )
-            rows = build_rows(hits, grouping, compilations)
-            cursor = max(0, min(cursor, len(rows) - 1)) if rows else 0
-            live.update(
-                picker_screen(
-                    title,
-                    title_term,
-                    rows,
-                    cursor,
-                    session.selection,
-                    grouping,
-                    len(hits),
-                    view_h,
-                    clearable,
-                    notice,
-                ),
-                refresh=True,
-            )
-            key = _picker_readkey()
-            if key == RESIZE_KEY:
-                _clear_screen()
-                continue
-            if key in ("/", "s") and (session.selection == snapshot or _confirm_cancel()):
+            driver.refresh_height(height)
+            if driver.grouping != built_grouping:
+                rows = driver.rows()
+                built_grouping = driver.grouping
+            driver.clamp_cursor(rows)
+            live.update(picker_frame(driver.view(rows)), refresh=True)
+            action = driver.dispatch(_picker_readkey(), rows)
+            if action == "search":
                 return "search"
-            if key == "q":
-                if session.selection == snapshot or _confirm_cancel():
-                    raise KeyboardInterrupt
-            elif key in (rk.UP, "k"):  # type: ignore[union-attr]
-                cursor -= 1
-            elif key in (rk.DOWN, "j"):  # type: ignore[union-attr]
-                cursor += 1
-            elif key == rk.PAGE_UP:  # type: ignore[union-attr]
-                cursor -= view_h
-            elif key == rk.PAGE_DOWN:  # type: ignore[union-attr]
-                cursor += view_h
-            elif key == rk.SPACE:  # type: ignore[union-attr]
-                if rows:
-                    toggle_row(session.selection, rows[cursor])
-            elif key == "*":
-                toggle_scope(session.selection, hits)
-            elif key == "A":
-                if rows:
-                    row = rows[cursor]
-                    if row.kind == "track":
-                        toggle_scope(session.selection, hits, artist=row.artist)
-                    else:
-                        toggle_row(session.selection, row)
-            elif key == "L":
-                if rows:
-                    row = rows[cursor]
-                    if row.kind == "track":
-                        toggle_scope(session.selection, hits, album=row.album)
-                    else:
-                        toggle_row(session.selection, row)
-            elif key == "g":
-                grouping = order[grouping]
-            elif clearable and key == "c":
-                session.selection.clear()
-            elif key in (rk.ENTER, "\r", "\n"):  # type: ignore[union-attr]
-                return
-            elif key == rk.ESC:  # type: ignore[union-attr]
-                if _esc_has_tail():
-                    _drain_tail()
-                    continue
-                if session.selection == snapshot:
-                    return
-                if _confirm_cancel():
-                    return
-            elif key == "\x03":
-                if session.selection == snapshot:
-                    return
-                if _confirm_cancel():
-                    return
-            elif key.startswith("\x1b"):
-                _drain_tail()
-                continue
+            if action == "quit":
+                raise KeyboardInterrupt
+            if action == "confirm":
+                return None
     except (KeyboardInterrupt, EOFError):
         session.selection.clear()
-        session.selection.update(snapshot)
+        session.selection.update(driver.snapshot)
         raise
     finally:
         live.stop()
@@ -800,7 +757,7 @@ def resolve_search(session: PlanningSession, query: str) -> tuple[list[SourceTra
             hit = session.by_id.get(link_id)
             return ([hit] if hit is not None else [], True)
         return (resolve_album_link(session.liked, link_id), True)
-    return search_library(session.liked, query, "general")
+    return search_library(session.liked, query)
 
 
 def _prompt_query() -> str | None:
@@ -811,7 +768,62 @@ def _prompt_query() -> str | None:
         return None
 
 
-def _do_search(  # noqa: C901
+def number_toggle_list(raw: str, count: int) -> list[int]:
+    """1-based indexes parsed from a whitespace-separated reply; junk ignored."""
+    picked: list[int] = []
+    for tok in raw.split():
+        try:
+            idx = int(tok)
+        except ValueError:
+            continue
+        if 1 <= idx <= count:
+            picked.append(idx)
+    return picked
+
+
+def _apply_search_toggle(
+    console: Console, session: PlanningSession, hits: list[SourceTrack], raw: str
+) -> None:
+    """Fallback toggle action: '*' selects all, numbers toggle, empty does nothing."""
+    if not raw:
+        return
+    if raw == "*":
+        for t in hits:
+            session.selection[t.tidal_id] = t
+        console.print(f"Selected {len(hits)} track(s).")
+        return
+    toggled = 0
+    for idx in number_toggle_list(raw, len(hits)):
+        toggle_select(session.selection, hits[idx - 1])
+        toggled += 1
+    console.print(f"Toggled {toggled}; {len(session.selection)} selected in total.")
+
+
+def _present_search_fallback(
+    console: Console,
+    session: PlanningSession,
+    hits: list[SourceTrack],
+    query: str,
+    notice: str,
+) -> None:
+    """Numbered listing with the toggle prompt for non-TTY sessions."""
+    if notice:
+        console.print(Text(notice, style="yellow"))
+    listing = Text()
+    listing.append(f"{len(hits)} hit(s), Tidal side:", style="underline")
+    for i, t in enumerate(hits, 1):
+        listing.append("\n")
+        listing.append_text(track_row(i, t.tidal_id in session.selection, t))
+    console.print(Panel(listing, title=Text(f"Search: {query}"), expand=True))
+    console.print(Panel(key_hints(RESULTS_HINTS), border_style="dim", expand=True))
+    try:
+        raw = input("Toggle numbers, '*' for all, Enter to go back: ")
+    except (KeyboardInterrupt, EOFError):
+        return
+    _apply_search_toggle(console, session, hits, raw.strip())
+
+
+def _do_search(
     console: Console,
     session: PlanningSession,
     input_fn: Callable[[str], str] | None = None,
@@ -831,45 +843,13 @@ def _do_search(  # noqa: C901
             return
         notice = "" if direct else f'No matches for "{query}" — closest:'
         if not (HAS_READCHAR and sys.stdin.isatty()):
-            break
+            _present_search_fallback(console, session, hits, query, notice)
+            return
         if (
             run_picker(console, session, hits, title="Search: ", title_term=query, notice=notice)
             != "search"
         ):
             return
-    if notice:
-        console.print(Text(notice, style="yellow"))
-    listing = Text()
-    listing.append(f"{len(hits)} hit(s), Tidal side:", style="underline")
-    order: list[SourceTrack] = []
-    for t in hits:
-        order.append(t)
-        listing.append("\n")
-        listing.append_text(track_row(len(order), t.tidal_id in session.selection, t))
-    console.print(Panel(listing, title=Text(f"Search: {query}"), expand=True))
-    console.print(Panel(key_hints(RESULTS_HINTS), border_style="dim", expand=True))
-    try:
-        raw = input("Toggle numbers, '*' for all, Enter to go back: ")
-    except (KeyboardInterrupt, EOFError):
-        return
-    raw = raw.strip()
-    if not raw:
-        return
-    if raw == "*":
-        for t in hits:
-            session.selection[t.tidal_id] = t
-        console.print(f"Selected {len(hits)} track(s).")
-        return
-    toggled = 0
-    for tok in raw.split():
-        try:
-            idx = int(tok)
-        except ValueError:
-            continue
-        if 1 <= idx <= len(order):
-            toggle_select(session.selection, order[idx - 1])
-            toggled += 1
-    console.print(f"Toggled {toggled}; {len(session.selection)} selected in total.")
 
 
 def _review_picker_action(console: Console, session: PlanningSession) -> None:
@@ -914,12 +894,8 @@ def _do_review(console: Console, session: PlanningSession) -> None:
         console.print("Selection cleared.")
         return
     removed = 0
-    for tok in raw.split():
-        try:
-            idx = int(tok)
-        except ValueError:
-            continue
-        if 1 <= idx <= len(ordered) and ordered[idx - 1].tidal_id in session.selection:
+    for idx in number_toggle_list(raw, len(ordered)):
+        if ordered[idx - 1].tidal_id in session.selection:
             del session.selection[ordered[idx - 1].tidal_id]
             removed += 1
     console.print(f"Removed {removed}; {len(session.selection)} selected in total.")
@@ -931,18 +907,19 @@ def _do_match(console: Console, session: PlanningSession) -> None:
         return
 
     def _login() -> Any:
-        from .cli import _ytm_login  # pyright: ignore[reportPrivateUsage]
+        from .ytm_client import YTMClient
 
-        return _ytm_login()
+        return YTMClient().login()
 
     try:
         run_match_action(session, yt_factory=_login)
     except SystemExit:
-        # _ytm_login already printed guidance (missing secrets / expired token).
+        # YTMClient.login already printed guidance (missing secrets / expired token).
         pass
     except Exception as exc:
         console.print(f"[red]Match failed: {exc}[/red]")
-    input("Press Enter to continue…")
+    with contextlib.suppress(KeyboardInterrupt, EOFError):
+        input("Press Enter to continue…")
 
 
 def _do_gateway_review(
@@ -998,14 +975,12 @@ def _do_gateway_transfer(
         answer = ask(f"{label} all pending tracks? [Y/n] ").strip().lower()
         if answer not in ("", "y", "yes"):
             return
-        from .cli import (
-            _ytm_login,  # pyright: ignore[reportPrivateUsage]
-            wait_status,
-        )
+        from .cli import wait_status
         from .transfer import run_transfer
+        from .ytm_client import YTMClient
 
         with wait_status("Authenticating with YouTube Music"):
-            yt = _ytm_login()
+            yt = YTMClient().login()
         run_transfer(
             yt,
             all_tracks=True,
@@ -1057,11 +1032,11 @@ def _do_gateway_auth(
                 console, "Tidal", partial(auth_mod.run_tidal_auth, force=False)
             )
         if tidal_ok and not session.library_loaded:
-            from .cli import _tidal_login, wait_status  # pyright: ignore[reportPrivateUsage]
+            from .cli import tidal_login, wait_status
             from .tidal_source import get_liked_tracks
 
             with wait_status("Fetching Tidal tracks"):
-                session.liked = get_liked_tracks(_tidal_login())
+                session.liked = get_liked_tracks(tidal_login())
             session.library_loaded = True
             console.print(f"Found {len(session.liked)} tracks.")
     except (KeyboardInterrupt, EOFError):
@@ -1271,172 +1246,46 @@ def track_row(n: int, selected: bool, t: SourceTrack) -> Text:
     return row
 
 
-def _ramp(t: float) -> str:
-    """Hex colour along the logo ramp: grey -> white -> red for t in [0, 1]."""
-    grey = (0x80, 0x80, 0x80)
-    white = (0xFF, 0xFF, 0xFF)
-    red = (0xFF, 0x00, 0x00)
-    low, high, span = (grey, white, t * 2) if t < 0.5 else (white, red, (t - 0.5) * 2)
-    mixed = tuple(round(a + (b - a) * span) for a, b in zip(low, high, strict=True))
-    return f"#{mixed[0]:02x}{mixed[1]:02x}{mixed[2]:02x}"
+def _esc_has_tail() -> bool:
+    """Escape-burst probe kept patchable at this module path; see keys.esc_has_tail."""
+    return esc_has_tail()
 
 
-def logo_text() -> Text:
-    word = "tidal2ytm"
-    logo = Text()
-    for i, ch in enumerate(word):
-        logo.append(ch, style=f"bold {_ramp(i / (len(word) - 1))}")
-    logo.append("   Transfer Tidal tracks to YouTube Music", style="dim")
-    return logo
+def _drain_tail() -> None:
+    """Escape-burst drain kept patchable at this module path; see keys.drain_tail."""
+    drain_tail()
 
 
-RESIZE_KEY = "\x00R"
-
-
-def classify_windows_event(event_type: int, key_down: bool, vk: int, ch: str) -> str | None:
-    """One console input record: resize marker, key string, or None to discard."""
-    if event_type == 4:  # WINDOW_BUFFER_SIZE_EVENT
-        return RESIZE_KEY
-    if event_type != 1 or not key_down:  # key-down events only
-        return None
-    if ch in ("\x00", ""):
-        return map_windows_key(vk)
-    return ch
-
-
-def map_windows_key(vk: int) -> str | None:
-    """Map a Windows virtual-key code to a readchar-style key, else None."""
-    return {
-        38: readchar_key.UP,  # type: ignore[union-attr]
-        40: readchar_key.DOWN,  # type: ignore[union-attr]
-        33: readchar_key.PAGE_UP,  # type: ignore[union-attr]
-        34: readchar_key.PAGE_DOWN,  # type: ignore[union-attr]
-    }.get(vk)
-
-
-def kernel32() -> Any:
-    """kernel32 with 64-bit-safe prototypes (unprototyped calls truncate handles)."""
-    import ctypes
-    from ctypes import wintypes
-
-    # getattr: ctypes.windll exists only on Windows; keeps pyright strict clean elsewhere.
-    kernel = getattr(ctypes, "windll").kernel32  # noqa: B009
-    kernel.GetStdHandle.argtypes = [wintypes.DWORD]
-    kernel.GetStdHandle.restype = wintypes.HANDLE
-    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    kernel.WaitForSingleObject.restype = wintypes.DWORD
-    kernel.ReadConsoleInputW.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-        ctypes.POINTER(wintypes.DWORD),
-    ]
-    kernel.ReadConsoleInputW.restype = wintypes.BOOL
-    return kernel
-
-
-def _read_windows_key() -> str:
-    """Block for one keypress, discarding mouse/window/resize events.
-
-    msvcrt/readchar observe every console input record, so a click can surface
-    as junk or stall the read; filtering to key-down events fixes both.
-    """
-    import ctypes
-    from ctypes import wintypes
-
-    kernel = kernel32()
-    stdin = kernel.GetStdHandle(wintypes.DWORD(-10))
-    buf = ctypes.create_string_buffer(32)
-    count = wintypes.DWORD(0)
-    while True:
-        kernel.WaitForSingleObject(stdin, 0xFFFFFFFF)
-        if not kernel.ReadConsoleInputW(stdin, buf, 1, ctypes.byref(count)):
-            continue
-        if not count.value:
-            continue
-        raw = bytes(buf.raw)
-        key = classify_windows_event(
-            int.from_bytes(raw[0:2], "little"),
-            int.from_bytes(raw[4:8], "little") != 0,
-            int.from_bytes(raw[10:12], "little"),
-            raw[14:16].decode("utf-16-le"),
-        )
-        if key is None:
-            continue
-        return key
+def _clear_screen() -> None:
+    """Hard clear kept at this module path; see keys.clear_screen."""
+    clear_screen()
 
 
 def _picker_readkey() -> str:
     """One picker keypress: console-event-filtered on Windows, readchar elsewhere."""
     if os.name == "nt":
-        return _read_windows_key()
+        return read_windows_console_key()
     return readchar.readkey()  # type: ignore[attr-defined]
-
-
-def _clear_screen() -> None:
-    """Hard clear bypassing Rich: console.clear() misroutes inside Live."""
-    out = sys.__stdout__
-    assert out is not None
-    out.write("\x1b[2J\x1b[H]")
-    out.flush()
-
-
-def drain_escape(read_ready: Callable[[], bool], read_one: Callable[[], str]) -> None:
-    """Swallow the tail of an ANSI escape burst (e.g. mouse click reports)."""
-    while read_ready():
-        if "@" <= read_one() <= "~":
-            return
 
 
 def read_key() -> str | None:
     """One logical keypress; mouse bursts and stray control codes collapse to None."""
     key: str = readchar.readkey()  # type: ignore[attr-defined]
     if key.startswith("\x1b"):
-        try:
-            import msvcrt
-
-            # getattr: msvcrt members resolve only on Windows; keeps pyright strict clean elsewhere.
-            drain_escape(getattr(msvcrt, "kbhit"), getattr(msvcrt, "getwch"))  # noqa: B009
-        except ImportError:
-            import select
-
-            drain_escape(
-                lambda: bool(select.select([sys.stdin], [], [], 0)[0]),
-                lambda: sys.stdin.read(1),
-            )
+        _drain_tail()
         return None
     if len(key) == 1 and (key.isprintable() or key in "\r\n\t\x03\x0f"):
         return key
     return None
 
 
-class _FlushTitlePanel(Panel):
-    """Panel whose title abuts the top border with no padding spaces.
-
-    Rich pads every panel title with one space each side (Panel._title),
-    which would strand the ┤/├ junctions away from the ─ runs. This repeats
-    Rich's title preparation verbatim minus the padding.
-    """
-
-    @property
-    def _title(self) -> Text | None:
-        if not self.title:
-            return None
-        text = self.title.copy() if isinstance(self.title, Text) else Text.from_markup(self.title)
-        text.end = ""
-        text.plain = text.plain.replace("\n", " ")
-        text.no_wrap = True
-        text.expand_tabs()
-        return text
-
-
 def _render_menu(console: Console, session: PlanningSession) -> None:
     console.clear()
-    console.print(Panel(logo_text(), border_style="dim", expand=True))
+    console.print(Panel("tidal2ytm", border_style="dim", expand=True))
     has_plan = session.plan_path.exists()
     counts = read_plan_counts(session.plan_path) if has_plan else None
     auth = read_auth_presence()
-    menu = _FlushTitlePanel(
+    menu = Panel(
         menu_body(session, has_plan),
         title=Text("┤ Main menu ├", style="bold"),
         expand=True,
@@ -1444,15 +1293,70 @@ def _render_menu(console: Console, session: PlanningSession) -> None:
     status_text = status_body(session, counts, auth, has_plan)
     # Fixed content width: the menu takes everything else.
     width = max((len(line) for line in status_text.plain.splitlines()), default=0) + 4
-    status = _FlushTitlePanel(
-        status_text, title=Text("┤ Status ├", style="bold"), width=width, expand=False
-    )
+    status = Panel(status_text, title=Text("┤ Status ├", style="bold"), width=width, expand=False)
     # Columns stacks the panels vertically when the terminal is too narrow.
     console.print(Columns([menu, status], equal=False, expand=True))
 
 
-def _tui_loop(console: Console, session: PlanningSession) -> None:  # noqa: C901
+# Menu dispatch table: key → handler. The override and unknown-key paths are
+# mode-dependent (ctrl+o vs capital O) and live in _dispatch_menu.
+COMMANDS: dict[str, Callable[[Console, PlanningSession], None]] = {
+    "e": lambda console, session: _select_all(session, console),
+    "/": _do_search,
+    "s": _do_search,
+    "v": _do_review,
+    "m": lambda console, session: _do_match(console, session),
+    "r": _do_gateway_review,
+    "t": lambda console, session: _do_gateway_transfer(console, session, dry_run=False),
+    "d": lambda console, session: _do_gateway_transfer(console, session, dry_run=True),
+    "a": _do_gateway_auth,
+}
+
+# Per-mode messages for keys that look like the override key but are not.
+_OVERRIDE_HINTS: dict[bool, str] = {
+    True: "[dim]Override needs ctrl+o (plain 'o' does nothing).[/dim]",
+    False: "[dim]Override needs capital O here (ctrl+o on a TTY).[/dim]",
+}
+
+_UNKNOWN_MESSAGES: dict[bool, str] = {
+    True: "[dim]Unknown key  (press ? for help)[/dim]",
+    False: "[dim]Unknown command  (press ? for help)[/dim]",
+}
+
+
+def _dispatch_menu(
+    console: Console,
+    session: PlanningSession,
+    key: str,
+    override_key: str,
+    use_readchar: bool,
+) -> bool:
+    """Run one menu command; True when the session should end."""
+    command = COMMANDS.get(key)
+    if command is not None:
+        command(console, session)
+        return False
+    if key == override_key:
+        session.override = not session.override
+        state = "ON" if session.override else "off"
+        console.print(f"Override {state}.")
+    elif key in ("o", "O"):
+        console.print(_OVERRIDE_HINTS[use_readchar])
+    elif key in ("?", "h"):
+        console.print(HELP_TEXT)
+        if use_readchar:
+            with contextlib.suppress(KeyboardInterrupt, EOFError):
+                input("Press Enter to continue…")
+    elif key == "q":
+        return True
+    else:
+        console.print(_UNKNOWN_MESSAGES[use_readchar])
+    return False
+
+
+def _tui_loop(console: Console, session: PlanningSession) -> None:
     use_readchar = HAS_READCHAR and sys.stdin.isatty()
+    override_key = "\x0f" if use_readchar else "O"
     _render_menu(console, session)
     while True:
         try:
@@ -1467,65 +1371,8 @@ def _tui_loop(console: Console, session: PlanningSession) -> None:  # noqa: C901
         except (KeyboardInterrupt, EOFError):
             break
 
-        if use_readchar:
-            if key == "e":
-                _select_all(session, console)
-            elif key in ("/", "s"):
-                _do_search(console, session)
-            elif key == "v":
-                _do_review(console, session)
-            elif key == "m":
-                _do_match(console, session)
-            elif key == "r":
-                _do_gateway_review(console, session)
-            elif key == "t":
-                _do_gateway_transfer(console, session, dry_run=False)
-            elif key == "d":
-                _do_gateway_transfer(console, session, dry_run=True)
-            elif key == "a":
-                _do_gateway_auth(console, session)
-            elif key == "\x0f":  # ctrl+o
-                session.override = not session.override
-                state = "ON" if session.override else "off"
-                console.print(f"Override {state}.")
-            elif key in ("o", "O"):
-                console.print("[dim]Override needs ctrl+o (plain 'o' does nothing).[/dim]")
-            elif key in ("?", "h"):
-                console.print(HELP_TEXT)
-                input("Press Enter to continue…")
-            elif key == "q":
-                break
-            else:
-                console.print("[dim]Unknown key  (press ? for help)[/dim]")
-        else:
-            if key == "e":
-                _select_all(session, console)
-            elif key in ("/", "s"):
-                _do_search(console, session)
-            elif key == "v":
-                _do_review(console, session)
-            elif key == "m":
-                _do_match(console, session)
-            elif key == "r":
-                _do_gateway_review(console, session)
-            elif key == "t":
-                _do_gateway_transfer(console, session, dry_run=False)
-            elif key == "d":
-                _do_gateway_transfer(console, session, dry_run=True)
-            elif key == "a":
-                _do_gateway_auth(console, session)
-            elif key == "O":
-                session.override = not session.override
-                state = "ON" if session.override else "off"
-                console.print(f"Override {state}.")
-            elif key == "o":
-                console.print("[dim]Override needs capital O here (ctrl+o on a TTY).[/dim]")
-            elif key in ("?", "h"):
-                console.print(HELP_TEXT)
-            elif key == "q":
-                break
-            else:
-                console.print("[dim]Unknown command  (press ? for help)[/dim]")
+        if _dispatch_menu(console, session, key, override_key, use_readchar):
+            break
 
         _render_menu(console, session)
 
@@ -1543,12 +1390,12 @@ def _try_startup_library_load(
     the auth action (a), and a failed fetch prints guidance plus a pause (the
     first menu render would otherwise clear it unseen).
     """
-    from .cli import _tidal_login, wait_status  # pyright: ignore[reportPrivateUsage]
+    from .cli import tidal_login, wait_status
     from .tidal_source import get_liked_tracks
 
     ask: Callable[[str], str] = input if input_fn is None else input_fn
     try:
-        tidal_session = _tidal_login(login=False)
+        tidal_session = tidal_login(login=False)
         if tidal_session is None:
             return
         with wait_status("Fetching Tidal tracks"):

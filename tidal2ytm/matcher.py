@@ -1,28 +1,15 @@
 from __future__ import annotations
 
-import contextlib
-import re
-import unicodedata
-from difflib import SequenceMatcher
 from typing import Any, cast
 
 from ytmusicapi import YTMusic
 
 from .models import ConfidenceBreakdown, MatchMethod, MatchResult, SourceTrack, TrackStatus
+from .text import similarity
 
 DURATION_TOLERANCE_SEC = 4
 CONFIDENCE_THRESHOLD = 0.70
-
-
-def _normalize(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s)
-    s = s.encode("ascii", "ignore").decode()
-    s = re.sub(r"[^\w\s]", " ", s.lower())
-    return re.sub(r"\s+", " ", s).strip()
-
-
-def _similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, _normalize(a), _normalize(b)).ratio()
+_MAX_ISRC_LOOKUPS = 5
 
 
 def _build_query(track: SourceTrack) -> str:
@@ -44,66 +31,6 @@ def _isrc_from_song_detail(detail: dict[str, Any]) -> str | None:
         if isinstance(renderer, dict) and "isrc" in renderer:
             return cast(str, renderer["isrc"])
     return None
-
-
-def _coerce_source(track: SourceTrack | dict[str, Any]) -> SourceTrack:
-    if isinstance(track, dict):
-        title = track.get("title", "")
-        raw_artists = track.get("artists")
-        if raw_artists is None:
-            raw_artist = track.get("artist")
-            artists: list[str] = [raw_artist] if raw_artist else []
-        elif isinstance(raw_artists, str):
-            artists = [raw_artists]
-        else:
-            artists = list(raw_artists) if raw_artists else []
-        artist = artists[0] if artists else track.get("artist", "") or ""
-        album = track.get("album", "")
-        duration_sec = track.get("duration_sec")
-        if duration_sec is None:
-            duration_sec = track.get("duration", 0)
-        try:
-            duration_sec = int(duration_sec) if duration_sec is not None else 0
-        except Exception:
-            duration_sec = 0
-        isrc = track.get("isrc")
-        version = track.get("version")
-        tidal_id = track.get("tidal_id", 0)
-        try:
-            tidal_id = int(tidal_id)
-        except Exception:
-            tidal_id = 0
-        album_id = track.get("album_id", -1)
-        try:
-            album_id = int(album_id)
-        except Exception:
-            album_id = -1
-        album_year = track.get("album_year", track.get("year"))
-        track_num = track.get("track_num", 0)
-        try:
-            track_num = int(track_num) if track_num is not None else 0
-        except Exception:
-            track_num = 0
-        disc_num = track.get("disc_num", track.get("volume_num", 0))
-        try:
-            disc_num = int(disc_num) if disc_num is not None else 0
-        except Exception:
-            disc_num = 0
-        return SourceTrack(
-            tidal_id=tidal_id,
-            title=title,
-            artist=artist,
-            artists=artists,
-            album=album,
-            album_id=album_id,
-            album_year=album_year,
-            duration_sec=duration_sec,
-            isrc=isrc,
-            track_num=track_num,
-            disc_num=disc_num,
-            version=version,
-        )
-    return track  # type: ignore[return-value]
 
 
 def _isrc_from_candidate(candidate: dict[str, Any]) -> str | None:
@@ -131,8 +58,7 @@ def _build_fuzzy_summary(
     return s
 
 
-def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult:  # noqa: C901
-    track = _coerce_source(track)
+def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
     query = _build_query(track)
     candidates: list[dict[str, Any]] = yt.search(query, filter="songs", limit=10)  # type: ignore[no-untyped-call]
 
@@ -141,6 +67,8 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
     best_method = MatchMethod.NONE
     best_confidence = 0.0
     best_breakdown: ConfidenceBreakdown | None = None
+    best_wrong_album = False
+    isrc_lookups = 0
 
     for candidate in candidates:
         vid = candidate.get("videoId")
@@ -175,9 +103,14 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
                     confidence=breakdown,
                     status=TrackStatus.PENDING,
                 )
-            # Fallback: fetch detail
-            with contextlib.suppress(Exception):
-                detail: dict[str, Any] = yt.get_song(vid)  # type: ignore[no-untyped-call]
+            # Fallback: fetch detail (bounded; a lookup miss falls through to
+            # fuzzy, while transport/auth errors propagate).
+            if isrc_lookups < _MAX_ISRC_LOOKUPS:
+                isrc_lookups += 1
+                try:
+                    detail: dict[str, Any] = yt.get_song(vid)  # type: ignore[no-untyped-call]
+                except KeyError:
+                    detail = {}
                 fetched_isrc = _isrc_from_song_detail(detail)
                 if fetched_isrc and fetched_isrc.upper() == track.isrc.upper():
                     breakdown = ConfidenceBreakdown(overall=1.0, summary="Exact ISRC match")
@@ -199,13 +132,14 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
         if c_dur is None:
             continue
         dur_delta = abs(c_dur - track.duration_sec)
-        if dur_delta > DURATION_TOLERANCE_SEC:
+        gate_ok = dur_delta <= DURATION_TOLERANCE_SEC if track.duration_sec > 0 else True
+        if not gate_ok:
             continue
 
-        title_sim = _similarity(c_title, track.title)  # pyright: ignore[reportUnknownArgumentType]
-        artist_sim = _similarity(c_artist, track.artist)  # pyright: ignore[reportUnknownArgumentType]
+        title_sim = similarity(c_title, track.title)  # pyright: ignore[reportUnknownArgumentType]
+        artist_sim = similarity(c_artist, track.artist)  # pyright: ignore[reportUnknownArgumentType]
         base_conf = title_sim * 0.6 + artist_sim * 0.4
-        album_sim = _similarity(c_album, track.album) if c_album else 0.0
+        album_sim = similarity(c_album, track.album) if c_album else 0.0
         conf = base_conf * 0.75 + album_sim * 0.25
 
         if conf > best_confidence:
@@ -221,6 +155,7 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
             }
             wrong_album = album_sim < 0.5
             best_method = MatchMethod.DURATION if album_sim < 0.3 else MatchMethod.FUZZY
+            best_wrong_album = wrong_album
             best_breakdown = ConfidenceBreakdown(
                 overall=conf,
                 title_similarity=title_sim,
@@ -232,10 +167,14 @@ def match_track(track: SourceTrack | dict[str, Any], yt: YTMusic) -> MatchResult
                 ),
             )
 
-    needs_review = best_confidence < CONFIDENCE_THRESHOLD or best_video_id is None
+    needs_review = (
+        best_confidence < CONFIDENCE_THRESHOLD or best_video_id is None or best_wrong_album
+    )
     reason: str | None = None
     if best_video_id is None:
         reason = "No candidates found"
+    elif best_wrong_album:
+        reason = f"Wrong album match ({best_confidence:.2f})"
     elif best_confidence < CONFIDENCE_THRESHOLD:
         reason = f"Low confidence ({best_confidence:.2f})"
 

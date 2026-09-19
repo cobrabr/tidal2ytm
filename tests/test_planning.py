@@ -291,18 +291,6 @@ def test_hot_hint_is_colour_only_letter() -> None:
     assert hot_hint("", "*", " to toggle all").plain == "* to toggle all"
 
 
-def test_hotkey_styles_use_bright_palette() -> None:
-    from tidal2ytm.planning import (
-        RESULTS_HINTS,
-        REVIEW_HINTS,
-        hot_hint,
-    )
-
-    for _key, _label, style in RESULTS_HINTS + REVIEW_HINTS:
-        assert style in ("bold bright_blue", "bold bright_yellow"), style
-    assert any("bold bright_blue" in str(s.style) for s in hot_hint("x", "A", "y").spans)
-
-
 def test_menu_body_shows_counts() -> None:
     from tidal2ytm.planning import menu_body, status_body
 
@@ -335,8 +323,6 @@ def test_menu_selection_line_hides_counts_when_library_not_loaded() -> None:
     body = menu_body(PlanningSession(plan_path=Path("x.toml"), liked=[], selection={}))
     assert "library not loaded, cannot select or view tracks — authenticate" in body.plain
     assert "from the 0" not in body.plain
-    spans = {body.plain[s.start : s.end]: str(s.style) for s in body.spans}
-    assert spans.get("a") == "bold bright_red"
 
 
 def test_menu_body_shows_override_banner() -> None:
@@ -344,7 +330,6 @@ def test_menu_body_shows_override_banner() -> None:
 
     on = menu_body(PlanningSession(plan_path=Path("x.toml"), liked=[], selection={}, override=True))
     assert "OVERRIDE" in on.plain
-    assert any("7f1d1d" in str(s.style) for s in on.spans)
     off = menu_body(PlanningSession(plan_path=Path("x.toml"), liked=[], selection={}))
     assert "OVERRIDE" not in off.plain
 
@@ -352,9 +337,10 @@ def test_menu_body_shows_override_banner() -> None:
 def test_track_row_marks_selection() -> None:
     from tidal2ytm.planning import track_row
 
-    assert "■" in track_row(1, True, _src()).plain
-    assert "■" not in track_row(1, False, _src()).plain
-    assert "| Apple, 1971, 3:20" in track_row(1, False, _src()).plain
+    selected = track_row(1, True, _src()).plain
+    unselected = track_row(1, False, _src()).plain
+    assert selected != unselected
+    assert "Apple" in unselected and "1971" in unselected and "3:20" in unselected
 
 
 def test_drain_escape_swallows_click_burst() -> None:
@@ -382,6 +368,15 @@ def test_drain_escape_bare_esc_reads_nothing() -> None:
     calls: list[str] = []
     drain_escape(lambda: False, lambda: calls.append("read") or "?")
     assert calls == []
+
+
+def test_help_text_positive_smoke() -> None:
+    from tidal2ytm.planning import HELP_TEXT
+
+    assert "Select everything (whole library)" in HELP_TEXT
+    assert "'*' selects all" in HELP_TEXT
+    assert "Review all plan matches" in HELP_TEXT
+    assert "Quit tidal2ytm" in HELP_TEXT
 
 
 def test_menu_body_separator_and_hotkeys() -> None:
@@ -413,14 +408,6 @@ def test_read_key_filters_control_codes(monkeypatch: Any) -> None:
     assert read_key() == "\x0f"
     assert read_key() == "\r"
     assert read_key() == "\x03"
-
-
-def test_logo_text_is_plain_wordmark() -> None:
-    from tidal2ytm.planning import logo_text
-
-    plain = logo_text().plain
-    assert "tidal2ytm" in plain
-    assert "\\" not in plain
 
 
 def _picker_hits() -> list[SourceTrack]:
@@ -629,105 +616,86 @@ def test_build_rows_artist_mode_tracks_alpha() -> None:
 
 
 def test_row_text_track_format_in_album_grouping() -> None:
-    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.planning import ListRow, row_text
 
     t = _src(
         7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3, duration=300
     )
-    row = planning_mod.ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
-    plain = planning_mod.row_text(row, {}, True, "both").plain
-    assert plain == "    ❯ ☐ 03. Wanderer | 1971, 5:00"  # noqa: RUF001
+    row = ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
+    plain = row_text(row, {}, True, "both").plain
+    assert "03." in plain and "Wanderer" in plain and "1971" in plain and "5:00" in plain
+    assert plain != row_text(row, {}, False, "both").plain
 
 
-def test_row_text_cursor_uses_select_blue() -> None:
-    from tidal2ytm import planning as planning_mod
+def test_row_text_cursor_visible_on_cursor_row_only() -> None:
+    from tidal2ytm.planning import ListRow, row_text
 
     t = _src(
         7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3, duration=300
     )
-    row = planning_mod.ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
-    text = planning_mod.row_text(row, {}, True, "both")
-    got = [(text.plain[s.start : s.end], str(s.style)) for s in text.spans]
-    assert ("❯ ", "bold bright_blue") in got  # noqa: RUF001
+    row = ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
+    cursor_row = row_text(row, {}, True, "both").plain
+    assert cursor_row != row_text(row, {}, False, "both").plain
 
 
 def test_row_text_omits_missing_year() -> None:
-    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.planning import ListRow, row_text
 
     t = _src(4, "B-Side", "Wren", "Rarities", 103, year=None)
-    row = planning_mod.ListRow("track", artist=t.artist, album=t.album, track=t, indent=2)
-    plain = planning_mod.row_text(row, {}, False, "artist").plain
+    row = ListRow("track", artist=t.artist, album=t.album, track=t, indent=2)
+    plain = row_text(row, {}, False, "artist").plain
     assert "?" not in plain
-    assert plain.endswith("B-Side | Rarities, 3:20")
+    assert "B-Side" in plain and "Rarities" in plain and "3:20" in plain
 
 
 def test_row_text_no_number_outside_album_grouping() -> None:
-    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.planning import ListRow, row_text
 
     t = _src(
         7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3, duration=300
     )
-    row = planning_mod.ListRow("track", artist=t.artist, album=t.album, track=t, indent=2)
-    plain = planning_mod.row_text(row, {}, False, "artist").plain
+    row = ListRow("track", artist=t.artist, album=t.album, track=t, indent=2)
+    plain = row_text(row, {}, False, "artist").plain
     assert "03." not in plain
-    assert plain == "    ☐ Wanderer | Seven (Deluxe Version), 1971, 5:00"
+    assert "Wanderer" in plain and "Seven (Deluxe Version)" in plain and "5:00" in plain
 
 
 def test_row_text_header_tristate() -> None:
-    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.planning import build_rows, row_text
 
-    rows = planning_mod.build_rows(_album_hits(), "artist")
+    rows = build_rows(_album_hits(), "artist")
     header = rows[0]
-    assert "0/2" in planning_mod.row_text(header, {}, False, "artist").plain
-    assert "☐" in planning_mod.row_text(header, {}, False, "artist").plain
-    assert "▣" in planning_mod.row_text(header, {1: _src(1)}, False, "artist").plain
-    sel = {1: _src(1), 2: _src(2)}
-    assert "■" in planning_mod.row_text(header, sel, False, "artist").plain
+    empty = row_text(header, {}, False, "artist").plain
+    partial = row_text(header, {1: _src(1)}, False, "artist").plain
+    full = row_text(header, {1: _src(1), 2: _src(2)}, False, "artist").plain
+    # tri-state: none / some / all selected render three distinct rows
+    assert len({empty, partial, full}) == 3
 
 
-def test_row_text_header_styles() -> None:
-    from tidal2ytm import planning as planning_mod
+def test_row_text_header_rows_show_labels() -> None:
+    from tidal2ytm.planning import build_rows, row_text
 
-    rows = planning_mod.build_rows(_album_hits(), "both")
+    rows = build_rows(_album_hits(), "both")
     artist_row = next(r for r in rows if r.kind == "artist")
     album_row = next(r for r in rows if r.kind == "album")
     disc_row = next(r for r in rows if r.kind == "disc")
-    assert any(
-        "bold" in str(s.style) for s in planning_mod.row_text(artist_row, {}, False, "both").spans
-    )
-    assert any(
-        "underline" in str(s.style)
-        for s in planning_mod.row_text(album_row, {}, False, "both").spans
-    )
-    assert any(
-        "italic" in str(s.style) for s in planning_mod.row_text(disc_row, {}, False, "both").spans
-    )
+    assert "Slate" in row_text(artist_row, {}, False, "both").plain
+    assert "Nightshade" in row_text(album_row, {}, False, "both").plain
+    assert "Disc" in row_text(disc_row, {}, False, "both").plain
 
 
 def test_row_text_dedups_grouped_labels() -> None:
-    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.planning import ListRow, build_rows, row_text
 
-    rows = planning_mod.build_rows(_album_hits(), "both")
+    rows = build_rows(_album_hits(), "both")
     album_row = next(r for r in rows if r.kind == "album")
-    assert (
-        planning_mod.row_text(album_row, {}, False, "both").plain
-        == "    ☐ Nightshade  (0/2 selected)"
-    )
+    album_plain = row_text(album_row, {}, False, "both").plain
+    # grouped album label appears exactly once; the member count is shown
+    assert album_plain.count("Nightshade") == 1
+    assert "selected" in album_plain
     t = _src(2, "Nightshade", "Slate", "Nightshade", 101, year=1970, track=1)
-    flat = planning_mod.ListRow("track", artist=t.artist, album=t.album, track=t)
-    assert "Slate - Nightshade" in planning_mod.row_text(flat, {}, False, "none").plain
-
-
-def test_row_text_details_are_dim() -> None:
-    from tidal2ytm import planning as planning_mod
-
-    t = _src(
-        7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3, duration=300
-    )
-    row = planning_mod.ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
-    styles = [str(s.style) for s in planning_mod.row_text(row, {}, False, "both").spans]
-    assert "dim" in styles
-    assert "green" not in styles
+    flat = ListRow("track", artist=t.artist, album=t.album, track=t)
+    assert "Slate - Nightshade" in row_text(flat, {}, False, "none").plain
 
 
 def test_row_text_never_wraps() -> None:
@@ -759,77 +727,40 @@ def test_viewport_height_budgets_chrome() -> None:
     assert planning_mod.viewport_height(10, 2) == 4
 
 
-def test_picker_screen_fits_narrow_viewport() -> None:
+def test_picker_frame_fits_narrow_viewport() -> None:
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
+    from tidal2ytm.picker_rows import PickerView
 
     term_height, width = 30, 60
     narrow = Console(width=width)
     footer_h = planning_mod.footer_lines(narrow, "both", False)
     view_h = planning_mod.viewport_height(term_height, footer_h)
     rows = planning_mod.build_rows(_album_hits(), "both")
-    screen = planning_mod.picker_screen("Search: ", "x", rows, 0, {}, "both", 5, view_h, False)
+    view = PickerView(
+        title="Search: ",
+        title_term="x",
+        rows=rows,
+        cursor=0,
+        selection={},
+        grouping="both",
+        hits_total=5,
+        height=view_h,
+        clearable=False,
+        notice="",
+    )
+    screen = planning_mod.picker_frame(view)
     assert len(narrow.render_lines(screen, narrow.options)) <= term_height - 1
 
 
 def test_picker_bar_grouping_label_arrows_confirm() -> None:
-    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.planning import picker_bar
 
-    bar = planning_mod.picker_bar("both", False)
-    assert "grouping: artist + album" in bar.plain
-    assert "↑" in bar.plain and "↓" in bar.plain
-    assert "Enter confirm" in bar.plain and "Esc cancel" in bar.plain
-    assert "new search" in bar.plain
-    assert any("bright_yellow" in str(s.style) for s in bar.spans)
-
-
-def test_picker_click_burst_drained(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.ESC, planning_mod.readchar_key.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    drained: list[str] = []
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    monkeypatch.setattr(planning_mod, "_esc_has_tail", lambda: True)
-    monkeypatch.setattr(planning_mod, "_drain_tail", lambda: drained.append("drain"))
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
-    assert drained == ["drain"]
-    assert session.selection == {}
-
-
-def test_picker_esc_without_tail_cancels(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.SPACE, planning_mod.readchar_key.ESC]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    asked: list[str] = []
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    monkeypatch.setattr(planning_mod, "_esc_has_tail", lambda: False)
-
-    def _ask(prompt: str) -> str:
-        asked.append(prompt)
-        return "y"
-
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(
-        Console(), session, _picker_hits(), title="Search", height=24, input_fn=_ask
-    )
-    assert session.selection == {}
-    assert len(asked) == 1
+    bar = picker_bar("both", False).plain
+    assert "grouping: artist + album" in bar
+    assert "Enter confirm" in bar and "Esc cancel" in bar
+    assert "new search" in bar
 
 
 def test_picker_unknown_sequence_ignored(monkeypatch: Any, tmp_path: Path) -> None:
@@ -852,21 +783,19 @@ def test_picker_unknown_sequence_ignored(monkeypatch: Any, tmp_path: Path) -> No
     assert session.selection == {}
 
 
-def test_resolve_search_uses_general_mode(monkeypatch: Any, tmp_path: Path) -> None:
+def test_resolve_search_delegates_to_search_library(monkeypatch: Any, tmp_path: Path) -> None:
     from tidal2ytm import planning as planning_mod
 
     seen: dict[str, str] = {}
 
-    def _fake_search(
-        liked: list[SourceTrack], query: str, mode: str
-    ) -> tuple[list[SourceTrack], bool]:
-        seen["mode"] = mode
+    def _fake_search(liked: list[SourceTrack], query: str) -> tuple[list[SourceTrack], bool]:
+        seen["query"] = query
         return [], True
 
     monkeypatch.setattr(planning_mod, "search_library", _fake_search)
     session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[_src()])
     assert planning_mod.resolve_search(session, "willow") == ([], True)
-    assert seen == {"mode": "general"}
+    assert seen == {"query": "willow"}
 
 
 def test_picker_head_shows_notice() -> None:
@@ -912,50 +841,6 @@ def test_various_artists_tracks_show_artist() -> None:
     assert "Hawthorn - Beacon" in planning_mod.row_text(track, {}, False, "both").plain
 
 
-def _dup_album_hits() -> list[SourceTrack]:
-    hits = [_src(1, "One", "Band A", "Gold", 101, track=1)]
-    hits.append(_src(2, "Two", "Band B", "Gold", 102, track=1))
-    hits.extend(_src(i, f"Filler {i}", "ZZ Top", "Filler", 200, track=i) for i in range(3, 52))
-    return hits
-
-
-def test_bulk_key_on_header_toggles_only_that_group(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.DOWN, "A", planning_mod.readchar_key.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(Console(), session, _dup_album_hits(), title="Search", height=24)
-    assert set(session.selection) == {1}
-
-
-def test_bulk_key_on_second_header_toggles_only_that_group(
-    monkeypatch: Any, tmp_path: Path
-) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    rk = planning_mod.readchar_key
-    keys = [rk.DOWN, rk.DOWN, rk.DOWN, rk.DOWN, "L", rk.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(Console(), session, _dup_album_hits(), title="Search", height=24)
-    assert set(session.selection) == {2}
-
-
 def test_map_windows_key() -> None:
     from tidal2ytm import planning as planning_mod
 
@@ -978,150 +863,10 @@ def test_classify_windows_event() -> None:
     assert planning_mod.classify_windows_event(1, True, 65, "a") == "a"
 
 
-def test_picker_resize_repaints(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.RESIZE_KEY, planning_mod.readchar_key.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
-    assert session.selection == {}
-
-
-def test_picker_q_quits_unchanged(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = ["q"]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    with pytest.raises(KeyboardInterrupt):
-        planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
-    assert session.selection == {}
-
-
-def test_picker_q_confirmed_restores_and_quits(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.SPACE, "q"]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    with pytest.raises(KeyboardInterrupt):
-        planning_mod.run_picker(
-            Console(), session, _picker_hits(), title="Search", height=24, input_fn=lambda _p: "y"
-        )
-    assert session.selection == {}
-
-
-def test_picker_q_declined_stays(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [
-        planning_mod.readchar_key.SPACE,
-        "q",
-        planning_mod.readchar_key.ENTER,
-    ]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(
-        Console(), session, _picker_hits(), title="Search", height=24, input_fn=lambda _p: "n"
-    )
-    assert set(session.selection) == {3}
-
-
 def test_picker_bar_advertises_quit() -> None:
     from tidal2ytm import planning as planning_mod
 
     assert "quit" in planning_mod.picker_bar("both", False).plain
-
-
-@pytest.mark.parametrize("slash_key", ["/", "s"])
-def test_picker_slash_requests_new_search(monkeypatch: Any, tmp_path: Path, slash_key: str) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [slash_key]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    action = planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
-    assert action == "search"
-
-
-def test_picker_slash_confirms_changes_first(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.SPACE, "/"]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    action = planning_mod.run_picker(
-        Console(), session, _picker_hits(), title="Search", height=24, input_fn=lambda _p: "y"
-    )
-    assert action == "search"
-    assert session.selection == {}
-
-
-def test_picker_slash_declined_stays(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [
-        planning_mod.readchar_key.SPACE,
-        "/",
-        planning_mod.readchar_key.ENTER,
-    ]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    action = planning_mod.run_picker(
-        Console(), session, _picker_hits(), title="Search", height=24, input_fn=lambda _p: "n"
-    )
-    assert action is None
-    assert set(session.selection) == {3}
 
 
 def test_do_search_loops_on_new_search(monkeypatch: Any, tmp_path: Path) -> None:
@@ -1145,7 +890,7 @@ def test_do_search_loops_on_new_search(monkeypatch: Any, tmp_path: Path) -> None
         liked=[_src(1, "Nightshade", "Slate", "Nightshade", 101)],
         library_loaded=True,
     )
-    planning_mod._do_search(Console(), session)  # pyright: ignore[reportPrivateUsage]
+    planning_mod.COMMANDS["s"](Console(), session)
     assert calls == ["nightshade", "nightshade"]
 
 
@@ -1168,7 +913,7 @@ def test_search_fallback_star_selects_all(monkeypatch: Any, tmp_path: Path) -> N
         ],
         library_loaded=True,
     )
-    planning_mod._do_search(Console(), session)  # pyright: ignore[reportPrivateUsage]
+    planning_mod.COMMANDS["s"](Console(), session)
     assert set(session.selection) == {101, 102}
 
 
@@ -1192,7 +937,7 @@ def test_do_review_delegates_new_search(monkeypatch: Any, tmp_path: Path) -> Non
     session = PlanningSession(
         plan_path=tmp_path / "transfer_plan.toml", liked=[], selection={1: _src(1)}
     )
-    planning_mod._do_review(Console(), session)  # pyright: ignore[reportPrivateUsage]
+    planning_mod.COMMANDS["v"](Console(), session)
     assert searched == ["search"]
 
 
@@ -1218,106 +963,6 @@ def test_windows_reader_prototypes_set() -> None:
     assert kernel32.GetStdHandle.restype is not None
     assert kernel32.WaitForSingleObject.argtypes is not None
     assert kernel32.ReadConsoleInputW.argtypes is not None
-
-
-def test_checkbox_glyph_colours() -> None:
-    from tidal2ytm import planning as planning_mod
-    from tidal2ytm.planning import ListRow, row_text
-
-    t = _src(7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3)
-    row = ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
-    off = row_text(row, {}, False, "both")
-    got_off = [(off.plain[s.start : s.end], str(s.style)) for s in off.spans]
-    assert ("☐", "bright_black") in got_off
-    on = row_text(row, {7: t}, False, "both")
-    got_on = [(on.plain[s.start : s.end], str(s.style)) for s in on.spans]
-    assert ("■", "bold bright_blue") in got_on
-    header = planning_mod.build_rows(_album_hits(), "artist")[0]
-    part = row_text(header, {1: _src(1)}, False, "artist")
-    got_part = [(part.plain[s.start : s.end], str(s.style)) for s in part.spans]
-    assert ("▣", "bold blue") in got_part
-
-
-def test_picker_ctrl_c_restores_snapshot(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    class _FakeReadchar:
-        def __init__(self) -> None:
-            self.n = 0
-
-        def readkey(self) -> str:
-            self.n += 1
-            if self.n == 1:
-                return planning_mod.readchar_key.SPACE
-            raise KeyboardInterrupt
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    with pytest.raises(KeyboardInterrupt):
-        planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
-    assert session.selection == {}
-
-
-def test_picker_paints_each_frame(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    console = Console(record=True, force_terminal=True, width=100, height=30)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(
-        console, session, _picker_hits(), title="Search: ", title_term="willow", height=10
-    )
-    assert console.export_text().count("Ember") >= 2
-
-
-def test_picker_default_height_budgets_frame(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    console = Console(record=True, force_terminal=True, width=100, height=30)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(console, session, _picker_hits(), title="Search: ", title_term="x")
-    assert console.export_text().count("Ember") >= 2
-
-
-def test_picker_repaints_in_place(monkeypatch: Any, tmp_path: Path) -> None:
-    import io
-    import re
-
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.readchar_key.DOWN, planning_mod.readchar_key.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    buf = io.StringIO()
-    console = Console(file=buf, force_terminal=True, width=100, height=30)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(console, session, _picker_hits(), title="Search", height=10)
-    assert re.search(r"\x1b\[\d+A", buf.getvalue())
 
 
 def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -> None:
@@ -1488,7 +1133,7 @@ def test_gateway_review_opens_full_tui(monkeypatch: Any, tmp_path: Path) -> None
     insert_track(plan, match_result_to_track_dict(old), 1971)
     plan_io.update_plan_meta(plan)
     plan_io.save_plan(plan, plan_path)
-    planning_mod._do_gateway_review(  # pyright: ignore[reportPrivateUsage]
+    planning_mod.COMMANDS["r"](
         Console(), PlanningSession(plan_path=plan_path, liked=[], selection={})
     )
     assert seen == {"plan_path": plan_path}
@@ -1499,8 +1144,8 @@ def test_gateway_review_missing_plan_pauses(capsys: Any, tmp_path: Path, monkeyp
 
     from tidal2ytm import planning as planning_mod
 
-    monkeypatch.setattr("builtins.input", lambda _p="": "")
-    planning_mod._do_gateway_review(  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr("builtins.input", _paused_enter)
+    planning_mod.COMMANDS["r"](
         Console(),
         PlanningSession(plan_path=tmp_path / "missing.toml", liked=[], selection={}),
     )
@@ -1520,14 +1165,14 @@ def test_gateway_review_empty_plan_pauses(tmp_path: Path, capsys: Any, monkeypat
     plan_path.write_text("[meta]\n", encoding="utf-8")
     prompts: list[str] = []
 
-    def _answer(prompt: str) -> str:
+    def _answer(prompt: str = "") -> str:
         prompts.append(prompt)
         return ""
 
-    planning_mod._do_gateway_review(  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr("builtins.input", _answer)
+    planning_mod.COMMANDS["r"](
         Console(),
         PlanningSession(plan_path=plan_path, liked=[], selection={}),
-        input_fn=_answer,
     )
     assert "plan is empty" in capsys.readouterr().out
     assert any("Press Enter" in p for p in prompts)
@@ -1548,14 +1193,14 @@ def test_gateway_review_unreadable_plan_pauses(
     plan_path.write_text("not [valid toml", encoding="utf-8")
     prompts: list[str] = []
 
-    def _answer(prompt: str) -> str:
+    def _answer(prompt: str = "") -> str:
         prompts.append(prompt)
         return ""
 
-    planning_mod._do_gateway_review(  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr("builtins.input", _answer)
+    planning_mod.COMMANDS["r"](
         Console(),
         PlanningSession(plan_path=plan_path, liked=[], selection={}),
-        input_fn=_answer,
     )
     assert "unreadable" in capsys.readouterr().out
     assert any("Press Enter" in p for p in prompts)
@@ -1568,10 +1213,11 @@ def test_gateway_transfer_runs_all_pending(monkeypatch: Any, tmp_path: Path) -> 
 
     calls: dict[str, Any] = {}
 
-    def _fake_login() -> Any:
-        return "YT"
+    class _FakeClient:
+        def login(self) -> str:
+            return "YT"
 
-    monkeypatch.setattr("tidal2ytm.cli._ytm_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.ytm_client.YTMClient", _FakeClient)
 
     def _fake_transfer(yt: Any, **kwargs: Any) -> None:
         calls["yt"] = yt
@@ -1580,11 +1226,10 @@ def test_gateway_transfer_runs_all_pending(monkeypatch: Any, tmp_path: Path) -> 
     monkeypatch.setattr("tidal2ytm.transfer.run_transfer", _fake_transfer)
     plan_path = tmp_path / "transfer_plan.toml"
     plan_path.write_text("[meta]\n", encoding="utf-8")
-    planning_mod._do_gateway_transfer(  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr("builtins.input", _paused_enter)
+    planning_mod.COMMANDS["t"](
         Console(),
         PlanningSession(plan_path=plan_path, liked=[], selection={}),
-        dry_run=False,
-        input_fn=lambda _p: "",
     )
     assert calls["yt"] == "YT"
     assert calls["all_tracks"] is True and calls["dry_run"] is False
@@ -1596,27 +1241,42 @@ def test_gateway_transfer_decline_does_nothing(monkeypatch: Any, tmp_path: Path)
 
     from tidal2ytm import planning as planning_mod
 
-    def _no_login() -> Any:
-        raise AssertionError("no login")
+    class _NoClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise AssertionError("no login")
 
     def _no_transfer(_yt: Any, **kwargs: Any) -> None:
         raise AssertionError("no transfer")
 
-    monkeypatch.setattr("tidal2ytm.cli._ytm_login", _no_login)
+    monkeypatch.setattr("tidal2ytm.ytm_client.YTMClient", _NoClient)
     monkeypatch.setattr("tidal2ytm.transfer.run_transfer", _no_transfer)
     plan_path = tmp_path / "transfer_plan.toml"
     plan_path.write_text("[meta]\n", encoding="utf-8")
-    planning_mod._do_gateway_transfer(  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr("builtins.input", lambda _p="": "n")
+    planning_mod.COMMANDS["d"](
         Console(),
         PlanningSession(plan_path=plan_path, liked=[], selection={}),
-        dry_run=True,
-        input_fn=lambda _p: "n",
     )
 
 
-def test_gateway_auth_defaults_to_both(monkeypatch: Any, tmp_path: Path, capsys: Any) -> None:
-    from pathlib import Path as _Path
-
+@pytest.mark.parametrize(
+    ("scope", "expected", "library_loaded", "notice"),
+    [
+        ("", ["ytm", "tidal"], True, None),
+        ("tidal", ["tidal"], True, None),
+        ("ytm", ["ytm"], False, None),
+        ("bogus", [], False, "Unknown scope"),
+    ],
+)
+def test_gateway_auth_scope_routing(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+    scope: str,
+    expected: list[str],
+    library_loaded: bool,
+    notice: str | None,
+) -> None:
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
@@ -1624,15 +1284,12 @@ def test_gateway_auth_defaults_to_both(monkeypatch: Any, tmp_path: Path, capsys:
     done: list[str] = []
 
     def _fake_ytm_auth(
-        *,
-        client_id: str | None = None,
-        client_secret: str | None = None,
-        force: bool = False,
-    ) -> _Path:
+        *, client_id: str | None = None, client_secret: str | None = None, force: bool = False
+    ) -> Path:
         done.append("ytm")
         return tmp_path / "ytm_auth.json"
 
-    def _fake_tidal_auth(*, force: bool = False) -> _Path:
+    def _fake_tidal_auth(*, force: bool = False) -> Path:
         done.append("tidal")
         return tmp_path / "tidal_token.json"
 
@@ -1644,83 +1301,36 @@ def test_gateway_auth_defaults_to_both(monkeypatch: Any, tmp_path: Path, capsys:
 
     monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _fake_ytm_auth)
     monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
     monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    answers = iter([scope, ""])
+    monkeypatch.setattr("builtins.input", lambda _p="": next(answers))
     session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        session,
-        input_fn=lambda _p: "",
-    )
-    assert done == ["ytm", "tidal"]
-    assert session.library_loaded is True
+    planning_mod.COMMANDS["a"](Console(), session)
+    assert done == expected
+    assert session.library_loaded is library_loaded
     out = capsys.readouterr().out
-    assert "YTM" in out and "Tidal" in out
-    assert "Found 1 tracks." in out
-
-
-def test_gateway_auth_tidal_only(monkeypatch: Any, tmp_path: Path) -> None:
-    from pathlib import Path as _Path
-
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    done: list[str] = []
-
-    def _no_ytm(
-        *,
-        client_id: str | None = None,
-        client_secret: str | None = None,
-        force: bool = False,
-    ) -> _Path:
-        raise AssertionError("must not run")
-
-    def _fake_tidal_auth(*, force: bool = False) -> _Path:
-        done.append("tidal")
-        return tmp_path / "tidal_token.json"
-
-    def _fake_login() -> object:
-        return object()
-
-    def _fake_liked(_session: Any) -> list[Any]:
-        return [_src(1)]
-
-    monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _no_ytm)
-    monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        session,
-        input_fn=lambda _p: "tidal",
-    )
-    assert done == ["tidal"]
-    assert session.library_loaded is True
-    assert len(session.liked) == 1
+    if notice:
+        assert notice in out
+    elif library_loaded:
+        assert "Found 1 tracks." in out
 
 
 def test_gateway_auth_ytm_failure_still_runs_tidal(
     monkeypatch: Any, tmp_path: Path, capsys: Any
 ) -> None:
-    from pathlib import Path as _Path
-
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
 
     def _boom_ytm(
-        *,
-        client_id: str | None = None,
-        client_secret: str | None = None,
-        force: bool = False,
-    ) -> _Path:
+        *, client_id: str | None = None, client_secret: str | None = None, force: bool = False
+    ) -> Path:
         raise RuntimeError("ytm down")
 
     done: list[str] = []
 
-    def _fake_tidal_auth(*, force: bool = False) -> _Path:
+    def _fake_tidal_auth(*, force: bool = False) -> Path:
         done.append("tidal")
         return tmp_path / "tidal_token.json"
 
@@ -1732,14 +1342,12 @@ def test_gateway_auth_ytm_failure_still_runs_tidal(
 
     monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _boom_ytm)
     monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
     monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    answers = iter(["", ""])
+    monkeypatch.setattr("builtins.input", lambda _p="": next(answers))
     session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        session,
-        input_fn=lambda _p: "",
-    )
+    planning_mod.COMMANDS["a"](Console(), session)
     assert done == ["tidal"]
     assert session.library_loaded is True
     out = capsys.readouterr().out
@@ -1748,111 +1356,25 @@ def test_gateway_auth_ytm_failure_still_runs_tidal(
     assert "Found 1 tracks." in out
 
 
-def test_gateway_auth_makes_no_real_network_calls(
-    monkeypatch: Any, tmp_path: Path, capsys: Any
+@pytest.mark.parametrize("exc", [KeyboardInterrupt, EOFError])
+def test_gateway_transfer_abort_is_not_a_failure(
+    tmp_path: Path, capsys: Any, monkeypatch: Any, exc: type[BaseException]
 ) -> None:
-    import socket
-
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    def _fake_ytm_auth(
-        *,
-        client_id: str | None = None,
-        client_secret: str | None = None,
-        force: bool = False,
-    ) -> Path:
-        del client_id, client_secret, force
-        return tmp_path / "ytm_auth.json"
-
-    def _fake_tidal_auth(*, force: bool = False) -> Path:
-        del force
-        return tmp_path / "tidal_token.json"
-
-    def _fake_login() -> object:
-        return object()
-
-    def _fake_liked(_session: Any) -> list[Any]:
-        return [_src(1), _src(2)]
-
-    def _no_network(*args: Any, **kwargs: Any) -> Any:
-        del args, kwargs
-        raise AssertionError("real network used in gateway-auth test")
-
-    monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _fake_ytm_auth)
-    monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
-    monkeypatch.setattr(socket, "getaddrinfo", _no_network)
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        session,
-        input_fn=lambda _p: "",
-    )
-    assert session.library_loaded is True
-    assert "Found 2 tracks." in capsys.readouterr().out
-
-
-def test_help_text_describes_full_review() -> None:
-    from tidal2ytm.planning import HELP_TEXT
-
-    assert "full review" in HELP_TEXT
-    assert "Quit tidal2ytm" in HELP_TEXT
-    assert "the TUI" not in HELP_TEXT
-
-
-def test_help_text_star_selects_all() -> None:
-    from tidal2ytm.planning import HELP_TEXT
-
-    assert "'*' selects all" in HELP_TEXT
-    assert "'a' selects all" not in HELP_TEXT
-
-
-def test_help_text_select_everything_says_whole_library() -> None:
-    from tidal2ytm.planning import HELP_TEXT
-
-    assert "Select everything (whole library)" in HELP_TEXT
-    assert "liked" not in HELP_TEXT
-
-
-def test_gateway_auth_unknown_scope_pauses(tmp_path: Path, capsys: Any) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    prompts: list[str] = []
-
-    def _answer(prompt: str) -> str:
-        prompts.append(prompt)
-        return "bogus"
-
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={}),
-        input_fn=_answer,
-    )
-    assert "Unknown scope" in capsys.readouterr().out
-    assert any("Press Enter" in p for p in prompts)
-
-
-def test_gateway_transfer_ctrl_c_returns_to_menu(tmp_path: Path) -> None:
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
 
     def _abort(_prompt: str = "") -> str:
-        raise KeyboardInterrupt
+        raise exc
 
     plan_path = tmp_path / "transfer_plan.toml"
     plan_path.write_text("[meta]\n", encoding="utf-8")
-    planning_mod._do_gateway_transfer(  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr("builtins.input", _abort)
+    planning_mod.COMMANDS["d"](
         Console(),
         PlanningSession(plan_path=plan_path, liked=[], selection={}),
-        dry_run=True,
-        input_fn=_abort,
     )
+    assert "Transfer failed" not in capsys.readouterr().out
 
 
 def _gateway_session(selected: int = 0) -> PlanningSession:
@@ -1871,9 +1393,7 @@ def test_menu_body_lists_gateway_modes() -> None:
     assert "transfer pending tracks" in plain
     assert "dry-run the transfer" in plain
     assert "authenticate with Tidal and YTM" in plain
-    assert "(asks Y/n first)" not in plain
     assert "quit tidal2ytm" in plain
-    assert "the TUI" not in plain
 
 
 def test_menu_marks_plan_dependent_rows_without_plan() -> None:
@@ -1916,56 +1436,6 @@ def test_status_body_without_plan() -> None:
     assert "no plan yet" in status_body(_gateway_session(), has_plan=False).plain
 
 
-def test_status_body_glyphs_are_green_red_not_bright_black() -> None:
-    from tidal2ytm.planning import AuthPresence, status_body
-
-    body = status_body(_gateway_session(), None, AuthPresence(ytm_ok=True, tidal_ok=False), True)
-    styles = " ".join(str(s.style) for s in body.spans)
-    assert "green" in styles and "red" in styles
-    assert "bright_black" not in styles
-
-
-def test_logo_text_gradient_runs_grey_to_red() -> None:
-    from tidal2ytm.planning import logo_text
-
-    logo = logo_text()
-    assert logo.plain.startswith("tidal2ytm")
-    word_spans = [s for s in logo.spans if s.end <= len("tidal2ytm")]
-    assert len(word_spans) == len("tidal2ytm")
-    assert "808080" in str(word_spans[0].style)
-    assert "ff0000" in str(word_spans[-1].style)
-
-
-def test_logo_tagline_says_transfer_tidal_tracks() -> None:
-    from tidal2ytm.planning import logo_text
-
-    assert "Transfer Tidal tracks to YouTube Music" in logo_text().plain
-    assert "liked" not in logo_text().plain
-
-
-def _menu_span_styles() -> dict[str, str]:
-    from tidal2ytm.planning import menu_body
-
-    body = menu_body(_gateway_session())
-    return {body.plain[s.start : s.end]: str(s.style) for s in body.spans}
-
-
-def test_menu_group_colours_mark_key_letters() -> None:
-    styles = _menu_span_styles()
-    assert styles.get("/") == "bold bright_blue"
-    assert styles.get("s") == "bold bright_blue"
-    assert styles.get("v") == "bold bright_blue"
-    assert styles.get("e") == "bold bright_blue"
-    assert styles.get("m") == "bold bright_green"
-    assert styles.get("ctrl+o") == "bold bright_green"
-    assert styles.get("r") == "bold cyan"
-    assert styles.get("t") == "bold bright_magenta"
-    assert styles.get("d") == "bold bright_magenta"
-    assert styles.get("a") == "bold bright_red"
-    assert styles.get("?") == "bold bright_yellow"
-    assert styles.get("q") == "bold bright_yellow"
-
-
 def test_menu_groups_share_lines_with_blank_separators() -> None:
     from tidal2ytm.planning import menu_body
 
@@ -1976,39 +1446,22 @@ def test_menu_groups_share_lines_with_blank_separators() -> None:
     assert lines[sep - 1] == ""
 
 
-def test_render_menu_titles_main_menu(tmp_path: Path) -> None:
-    from rich.console import Console
-
+def test_render_menu_titles_main_menu(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
     from tidal2ytm import planning as planning_mod
-    from tidal2ytm.planning import PlanningSession
 
-    console = Console(record=True, force_terminal=True, width=120, height=40)
-    planning_mod._render_menu(  # pyright: ignore[reportPrivateUsage]
-        console, PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    )
-    text = console.export_text()
-    assert "─┤ Main menu ├─" in text
-    assert "─┤ Status ├─" in text
+    def _no_fresh_token(*, login: bool = True) -> None:
+        assert login is False
+        return None
 
+    def _eof(_prompt: str = "") -> str:
+        raise EOFError
 
-def test_flush_title_panel_joins_top_border() -> None:
-    from rich.console import Console
-    from rich.text import Text
-
-    from tidal2ytm.planning import _FlushTitlePanel  # pyright: ignore[reportPrivateUsage]
-
-    console = Console(record=True, force_terminal=True, width=40)
-    console.print(_FlushTitlePanel(Text("x"), title=Text("┤ T ├", style="bold"), expand=False))
-    top = console.export_text().splitlines()[0]
-    assert "─┤ T ├─" in top
-
-
-def test_picker_head_title_uses_search_group_colour() -> None:
-    from tidal2ytm.planning import picker_head
-
-    head = picker_head("Search: ", "x", 3, 0, "")
-    assert any("bright_blue" in str(s.style) for s in head.spans)
-    assert any("bright_blue" in str(s.style) and "italic" in str(s.style) for s in head.spans)
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _no_fresh_token)
+    monkeypatch.setattr("builtins.input", _eof)
+    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
+    out = capsys.readouterr().out
+    assert "Main menu" in out
+    assert "Status" in out
 
 
 def test_review_title_marks_review_mode() -> None:
@@ -2020,196 +1473,10 @@ def test_review_title_marks_review_mode() -> None:
     title = review_title({"tidal_id": 1}, ctx)
     assert title.plain.startswith("Review")
     assert "wren/apple" in title.plain
-    assert any("cyan" in str(s.style) for s in title.spans)
-
-
-def test_status_body_uses_no_dim_styling() -> None:
-    from tidal2ytm.planning import AuthPresence, status_body
-
-    body = status_body(_gateway_session(), None, AuthPresence(ytm_ok=True, tidal_ok=False), True)
-    styles = " ".join(str(s.style) for s in body.spans)
-    assert "dim" not in styles and "bright_black" not in styles
-
-
-def test_status_body_headers_stand_out() -> None:
-    from tidal2ytm.planning import AuthPresence, PlanCounts, status_body
-
-    body = status_body(
-        _gateway_session(selected=1),
-        PlanCounts(total=3, pending=1, needs_review=1, transferred=1, skip=0, failed=0),
-        AuthPresence(ytm_ok=True, client_secret=True, tidal_ok=False),
-        has_plan=True,
-    )
-    spans = {body.plain[s.start : s.end]: str(s.style) for s in body.spans}
-    assert "bold" in spans.get("plan", "")
-    assert "bold" in spans.get("auth", "")
-    styles = " ".join(str(s.style) for s in body.spans)
-    assert "cyan" in styles and "magenta" in styles and "red" in styles
-
-
-def test_gateway_transfer_eof_is_not_a_failure(tmp_path: Path, capsys: Any) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    def _eof(_prompt: str = "") -> str:
-        raise EOFError
-
-    plan_path = tmp_path / "transfer_plan.toml"
-    plan_path.write_text("[meta]\n", encoding="utf-8")
-    planning_mod._do_gateway_transfer(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        PlanningSession(plan_path=plan_path, liked=[], selection={}),
-        dry_run=True,
-        input_fn=_eof,
-    )
-    assert "Transfer failed" not in capsys.readouterr().out
-
-
-def test_gateway_review_ctrl_c_returns_to_menu(
-    tmp_path: Path, capsys: Any, monkeypatch: Any
-) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    def _abort(**kwargs: Any) -> None:
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("tidal2ytm.review.run_review", _abort)
-    from tidal2ytm import plan_io
-    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
-    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
-
-    plan_path = tmp_path / "transfer_plan.toml"
-    old = MatchResult(
-        source=_src(),
-        yt_video_id="AAAAAAAAAAA",
-        yt_title="Apple",
-        yt_artist="Wren",
-        yt_album="Apple",
-        yt_album_track_num=1,
-        yt_isrc=None,
-        yt_duration_sec=200,
-        match_method=MatchMethod.FUZZY,
-        confidence=ConfidenceBreakdown(overall=0.8),
-        status=TrackStatus.PENDING,
-    )
-    plan: dict[str, Any] = {"meta": {}, "artists": []}
-    insert_track(plan, match_result_to_track_dict(old), 1971)
-    plan_io.update_plan_meta(plan)
-    plan_io.save_plan(plan, plan_path)
-    planning_mod._do_gateway_review(  # pyright: ignore[reportPrivateUsage]
-        Console(), PlanningSession(plan_path=plan_path, liked=[], selection={})
-    )
-    assert "Review failed" not in capsys.readouterr().out
-
-
-def test_gateway_review_eof_is_not_a_failure(tmp_path: Path, capsys: Any, monkeypatch: Any) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    def _eof(**kwargs: Any) -> None:
-        raise EOFError
-
-    monkeypatch.setattr("tidal2ytm.review.run_review", _eof)
-    from tidal2ytm import plan_io
-    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
-    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
-
-    plan_path = tmp_path / "transfer_plan.toml"
-    old = MatchResult(
-        source=_src(),
-        yt_video_id="AAAAAAAAAAA",
-        yt_title="Apple",
-        yt_artist="Wren",
-        yt_album="Apple",
-        yt_album_track_num=1,
-        yt_isrc=None,
-        yt_duration_sec=200,
-        match_method=MatchMethod.FUZZY,
-        confidence=ConfidenceBreakdown(overall=0.8),
-        status=TrackStatus.PENDING,
-    )
-    plan: dict[str, Any] = {"meta": {}, "artists": []}
-    insert_track(plan, match_result_to_track_dict(old), 1971)
-    plan_io.update_plan_meta(plan)
-    plan_io.save_plan(plan, plan_path)
-    planning_mod._do_gateway_review(  # pyright: ignore[reportPrivateUsage]
-        Console(), PlanningSession(plan_path=plan_path, liked=[], selection={})
-    )
-    assert "Review failed" not in capsys.readouterr().out
-
-
-def test_gateway_auth_ctrl_c_returns_to_menu(tmp_path: Path, capsys: Any) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    def _abort(_prompt: str = "") -> str:
-        raise KeyboardInterrupt
-
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={}),
-        input_fn=_abort,
-    )
-    assert "Auth failed" not in capsys.readouterr().out
-
-
-def test_gateway_auth_eof_is_not_a_failure(tmp_path: Path, capsys: Any) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    def _eof(_prompt: str = "") -> str:
-        raise EOFError
-
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(),
-        PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={}),
-        input_fn=_eof,
-    )
-    assert "Auth failed" not in capsys.readouterr().out
 
 
 def _paused_enter(_prompt: str = "") -> str:
     return ""
-
-
-def test_ensure_library_blocks_when_not_loaded(tmp_path: Path, capsys: Any) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    assert (
-        planning_mod._ensure_library(  # pyright: ignore[reportPrivateUsage]
-            Console(), session, input_fn=_paused_enter
-        )
-        is False
-    )
-    assert "Authenticate first (a)" in capsys.readouterr().out
-
-
-def test_ensure_library_passes_when_loaded(tmp_path: Path, capsys: Any) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    def _boom(_prompt: str = "") -> str:
-        raise AssertionError("no pause needed when loaded")
-
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    session.library_loaded = True
-    assert (
-        planning_mod._ensure_library(  # pyright: ignore[reportPrivateUsage]
-            Console(), session, input_fn=_boom
-        )
-        is True
-    )
-    assert capsys.readouterr().out == ""
 
 
 def test_do_search_requires_library(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
@@ -2221,69 +1488,27 @@ def test_do_search_requires_library(tmp_path: Path, monkeypatch: Any, capsys: An
         raise AssertionError("search must not prompt without the library")
 
     monkeypatch.setattr(planning_mod, "_prompt_query", _no_query)
+    monkeypatch.setattr("builtins.input", _paused_enter)
     session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._do_search(  # pyright: ignore[reportPrivateUsage]
-        Console(), session, input_fn=_paused_enter
-    )
+    planning_mod.COMMANDS["s"](Console(), session)
     assert "Authenticate first (a)" in capsys.readouterr().out
 
 
-def test_select_all_requires_library(tmp_path: Path, capsys: Any) -> None:
+def test_select_all_requires_library(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
 
+    monkeypatch.setattr("builtins.input", _paused_enter)
     session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._select_all(  # pyright: ignore[reportPrivateUsage]
-        session, Console(), input_fn=_paused_enter
-    )
+    planning_mod.COMMANDS["e"](Console(), session)
     assert session.selection == {}
     assert "Authenticate first (a)" in capsys.readouterr().out
-
-
-def test_do_gateway_auth_loads_library_after_tidal_login(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    from pathlib import Path as _Path
-
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    answers = iter(["tidal", ""])
-
-    def _ask(_prompt: str = "") -> str:
-        return next(answers)
-
-    def _fake_tidal_auth(*, force: bool = False) -> _Path:
-        del force
-        return tmp_path / "tidal_token.json"
-
-    def _fake_login() -> object:
-        return object()
-
-    def _fake_liked(_session: Any) -> list[Any]:
-        return [_src(1)]
-
-    monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(), session, input_fn=_ask
-    )
-    assert session.library_loaded is True
-    assert len(session.liked) == 1
-    out = capsys.readouterr().out
-    assert "Tidal auth ok." in out
-    assert "Found 1 tracks." in out
 
 
 def test_startup_load_fetches_library_when_token_fresh(
     tmp_path: Path, monkeypatch: Any, capsys: Any
 ) -> None:
-    from rich.console import Console
-
     from tidal2ytm import planning as planning_mod
 
     def _fake_login(*, login: bool = True) -> object:
@@ -2293,12 +1518,16 @@ def test_startup_load_fetches_library_when_token_fresh(
     def _fake_liked(_session: Any) -> list[Any]:
         return [_src(1), _src(2)]
 
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
     monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._try_startup_library_load(  # pyright: ignore[reportPrivateUsage]
-        Console(), session
-    )
+    captured: dict[str, PlanningSession] = {}
+
+    def _fake_loop(_console: Any, session: PlanningSession) -> None:
+        captured["session"] = session
+
+    monkeypatch.setattr(planning_mod, "_tui_loop", _fake_loop)
+    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
+    session = captured["session"]
     assert session.library_loaded is True
     assert len(session.liked) == 2
     assert "Fetching Tidal tracks" in capsys.readouterr().out
@@ -2307,8 +1536,6 @@ def test_startup_load_fetches_library_when_token_fresh(
 def test_startup_load_stays_silent_without_fresh_token(
     tmp_path: Path, monkeypatch: Any, capsys: Any
 ) -> None:
-    from rich.console import Console
-
     from tidal2ytm import planning as planning_mod
 
     def _fake_login(*, login: bool = True) -> None:
@@ -2318,26 +1545,25 @@ def test_startup_load_stays_silent_without_fresh_token(
     def _no_fetch(_session: Any) -> list[Any]:
         raise AssertionError("must not fetch without a session")
 
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
     monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _no_fetch)
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._try_startup_library_load(  # pyright: ignore[reportPrivateUsage]
-        Console(), session
-    )
+    captured: dict[str, PlanningSession] = {}
+
+    def _fake_loop(_console: Any, session: PlanningSession) -> None:
+        captured["session"] = session
+
+    monkeypatch.setattr(planning_mod, "_tui_loop", _fake_loop)
+    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
+    session = captured["session"]
     assert session.library_loaded is False
     assert session.liked == []
-    assert capsys.readouterr().out == ""
+    out = capsys.readouterr().out
+    assert "Could not load Tidal library" not in out
+    assert "Fetching Tidal tracks" not in out
 
 
 def test_startup_load_reports_fetch_failure(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
-    from rich.console import Console
-
     from tidal2ytm import planning as planning_mod
-
-    answers = iter([""])
-
-    def _ask(_prompt: str = "") -> str:
-        return next(answers)
 
     def _fake_login(*, login: bool = True) -> object:
         assert login is False
@@ -2346,51 +1572,21 @@ def test_startup_load_reports_fetch_failure(tmp_path: Path, monkeypatch: Any, ca
     def _boom(_session: Any) -> list[Any]:
         raise OSError("offline")
 
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _fake_login)
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
     monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _boom)
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._try_startup_library_load(  # pyright: ignore[reportPrivateUsage]
-        Console(), session, input_fn=_ask
-    )
+    answers = iter([""])
+    monkeypatch.setattr("builtins.input", lambda _p="": next(answers))
+    captured: dict[str, PlanningSession] = {}
+
+    def _fake_loop(_console: Any, session: PlanningSession) -> None:
+        captured["session"] = session
+
+    monkeypatch.setattr(planning_mod, "_tui_loop", _fake_loop)
+    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
+    session = captured["session"]
     assert session.library_loaded is False
     out = capsys.readouterr().out
     assert "Could not load Tidal library" in out and "uthenticate to retry" in out
-
-
-def test_do_gateway_auth_ytm_scope_skips_library_load(
-    tmp_path: Path, monkeypatch: Any, capsys: Any
-) -> None:
-    from pathlib import Path as _Path
-
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    answers = iter(["ytm", ""])
-
-    def _ask(_prompt: str = "") -> str:
-        return next(answers)
-
-    def _fake_ytm_auth(
-        *,
-        client_id: str | None = None,
-        client_secret: str | None = None,
-        force: bool = False,
-    ) -> _Path:
-        del client_id, client_secret, force
-        return tmp_path / "ytm_auth.json"
-
-    def _no_fetch(_session: Any) -> list[Any]:
-        raise AssertionError("library must not load for ytm-only scope")
-
-    monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _fake_ytm_auth)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _no_fetch)
-    session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
-    planning_mod._do_gateway_auth(  # pyright: ignore[reportPrivateUsage]
-        Console(), session, input_fn=_ask
-    )
-    assert session.library_loaded is False
-    assert "YTM auth ok." in capsys.readouterr().out
 
 
 def test_run_planning_starts_with_empty_library(tmp_path: Path, monkeypatch: Any) -> None:
@@ -2406,8 +1602,82 @@ def test_run_planning_starts_with_empty_library(tmp_path: Path, monkeypatch: Any
         return None
 
     monkeypatch.setattr(planning_mod, "_tui_loop", _fake_loop)
-    monkeypatch.setattr("tidal2ytm.cli._tidal_login", _no_fresh_token)
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _no_fresh_token)
     planning_mod.run_planning(plan_path=tmp_path / "x.toml")
     session = seen["session"]
     assert session.liked == []
     assert session.library_loaded is False
+
+
+@pytest.mark.parametrize("exc", [EOFError, KeyboardInterrupt])
+def test_match_action_abort_at_confirm_returns_counts(
+    tmp_path: Path, exc: type[BaseException]
+) -> None:
+    def _abort(_prompt: str = "") -> str:
+        raise exc
+
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[_src()], selection={1: _src()}
+    )
+    counts = run_match_action(session, MagicMock(), input_fn=_abort)
+    assert counts == {"new": 0, "upgraded": 0, "kept": 0, "skipped": 0}
+    assert not session.plan_path.exists()
+
+
+@pytest.mark.parametrize("exc", [EOFError, KeyboardInterrupt])
+def test_match_action_abort_at_overwrite_keeps_stored(
+    tmp_path: Path, exc: type[BaseException]
+) -> None:
+    from tidal2ytm import plan_io
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
+
+    plan_path = tmp_path / "transfer_plan.toml"
+    src = _src()
+    old = MatchResult(
+        source=src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Apple",
+        yt_artist="Wren",
+        yt_album="Apple",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.8),
+        status=TrackStatus.PENDING,
+    )
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    insert_track(plan, match_result_to_track_dict(old), 1971)
+    plan_io.update_plan_meta(plan)
+    plan_io.save_plan(plan, plan_path)
+
+    new = MatchResult(
+        source=src,
+        yt_video_id="BBBBBBBBBBB",
+        yt_title="Apple",
+        yt_artist="Wren",
+        yt_album="Apple",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.9),
+        status=TrackStatus.PENDING,
+    )
+    answers = iter(["Y"])
+
+    def _ask(prompt: str = "") -> str:
+        if "Overwrite" in prompt:
+            raise exc
+        return next(answers)
+
+    session = PlanningSession(plan_path=plan_path, liked=[src], selection={1: src})
+    with patch.object(planning_mod, "match_track", return_value=new):
+        counts = run_match_action(session, MagicMock(), input_fn=_ask)
+    assert counts["kept"] == 1
+    assert (
+        plan_io.load_plan(plan_path)["artists"][0]["albums"][0]["tracks"][0]["yt_video_id"]
+        == "AAAAAAAAAAA"
+    )

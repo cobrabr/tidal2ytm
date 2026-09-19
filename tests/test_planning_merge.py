@@ -63,7 +63,7 @@ def test_classify_new_existing_same_transferred() -> None:
         classify_track({"status": "pending", "yt_video_id": "AAAAAAAAAAA"}, "AAAAAAAAAAA")
         == "keep-same"
     )
-    assert classify_track({"status": "pending", "yt_video_id": ""}, None) == "keep-same"
+    assert classify_track({"status": "pending", "yt_video_id": ""}, None) == "ask"
     assert (
         classify_track({"status": "transferred", "yt_video_id": "AAAAAAAAAAA"}, "BBBBBBBBBBB")
         == "skip-transferred"
@@ -99,3 +99,59 @@ def test_insert_preserves_insertion_order() -> None:
     insert_track(plan, d1, 1971)
     got = [t["tidal_id"] for t in plan["artists"][0]["albums"][0]["tracks"]]
     assert got == [2, 1]
+
+
+def test_merge_rehomes_track_on_artist_rename_case_insensitive() -> None:
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    insert_track(plan, match_result_to_track_dict(_result()), 1971)
+    renamed = dict(match_result_to_track_dict(_result()), tidal_id=2, artist="WREN")
+    insert_track(plan, renamed, 1971)
+    assert [a["name"] for a in plan["artists"]] == ["Wren"]  # no duplicate node
+
+
+def test_merge_rehomes_track_on_album_rename_case_insensitive() -> None:
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    insert_track(plan, match_result_to_track_dict(_result()), 1971)
+    renamed = dict(match_result_to_track_dict(_result()), tidal_id=2, tidal_album="APPLE")
+    insert_track(plan, renamed, 1971)
+    albums = plan["artists"][0]["albums"]
+    assert [a["name"] for a in albums] == ["Apple"]  # no duplicate node
+
+
+def test_classify_double_empty_video_id_asks_not_keeps() -> None:
+    assert classify_track({"status": "pending", "yt_video_id": ""}, "") == "ask"
+    assert classify_track({"status": "pending", "yt_video_id": ""}, None) == "ask"
+
+
+def test_classify_track_skip_and_needs_review_branches() -> None:
+    # skip is not sacred (unlike transferred); needs_review follows video-ID logic
+    assert classify_track({"status": "skip", "yt_video_id": "AAAAAAAAAAA"}, "BBBBBBBBBBB") == "ask"
+    assert (
+        classify_track({"status": "needs_review", "yt_video_id": "AAAAAAAAAAA"}, "AAAAAAAAAAA")
+        == "keep-same"
+    )
+    assert (
+        classify_track({"status": "needs_review", "yt_video_id": "AAAAAAAAAAA"}, "BBBBBBBBBBB")
+        == "ask"
+    )
+
+
+def test_insert_track_dedups_slugs_plan_level() -> None:
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    d1 = match_result_to_track_dict(_result())
+    artist1, album1 = insert_track(plan, d1, 1971)
+    assert (artist1, album1) == ("wren", "wren/apple")
+    # same album slug from a differently-spelled album name → -2, then -3
+    d2 = dict(match_result_to_track_dict(_result()), tidal_id=2, tidal_album="Apple!")
+    artist2, album2 = insert_track(plan, d2, 1971)
+    assert (artist2, album2) == ("wren", "wren/apple-2")
+    d3 = dict(match_result_to_track_dict(_result()), tidal_id=3, tidal_album="Apple?")
+    artist3, album3 = insert_track(plan, d3, 1971)
+    assert (artist3, album3) == ("wren", "wren/apple-3")
+    # same artist slug from a differently-spelled artist name → -2
+    d4 = dict(match_result_to_track_dict(_result()), tidal_id=4, artist="Wren?")
+    artist4, album4 = insert_track(plan, d4, 1971)
+    assert (artist4, album4) == ("wren-2", "wren-2/apple")
+    albums = plan["artists"][0]["albums"]
+    assert [a["match_id"] for a in albums] == ["wren/apple", "wren/apple-2", "wren/apple-3"]
+    assert [a["name"] for a in plan["artists"]] == ["Wren", "Wren?"]
