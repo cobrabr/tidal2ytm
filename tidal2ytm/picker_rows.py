@@ -17,6 +17,7 @@ __all__ = [
     "ListRow",
     "PickerView",
     "build_rows",
+    "scrollbar_thumb",
     "toggle_row",
     "toggle_scope",
     "toggle_select",
@@ -53,6 +54,7 @@ class PickerView:
     height: int
     clearable: bool
     notice: str = ""
+    committed: frozenset[int] = frozenset()
 
 
 def toggle_select(selection: dict[int, SourceTrack], track: SourceTrack) -> bool:
@@ -188,3 +190,14 @@ def visible_window(rows: list[ListRow], cursor: int, height: int) -> tuple[int, 
         return (0, n)
     start = min(max(cursor - height + 1, 0), n - height)
     return (start, start + height)
+
+
+def scrollbar_thumb(total: int, height: int, start: int) -> int | None:
+    """Thumb offset within a height-line rail for the window starting at start.
+
+    None when every row fits (no overflow, so no rail).
+    """
+    if total <= height or height <= 1:
+        return None
+    first = min(max(start, 0), total - height)
+    return round(first / (total - height) * (height - 1))
