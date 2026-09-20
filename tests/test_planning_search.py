@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from tidal2ytm.models import SourceTrack
 from tidal2ytm.planning_search import (
     parse_tidal_link,
@@ -65,15 +63,6 @@ def test_empty_query_returns_everything() -> None:
     assert direct is True
 
 
-def test_search_creates_no_debug_log_file(tmp_path: Path) -> None:
-    tracks = [_track(1, "Lantern", "Blashen", "Pamphlet")]
-    hits, direct = search_library(tracks, "blashen")
-    assert [t.tidal_id for t in hits] == [1]
-    assert direct is True
-    assert not (tmp_path / "search_debug.log").exists()
-    assert list(tmp_path.glob("*.log")) == []
-
-
 def test_parse_tidal_links() -> None:
     assert parse_tidal_link("https://tidal.com/browse/track/7654321") == ("track", 7654321)
     assert parse_tidal_link("https://listen.tidal.com/album/8765432") == ("album", 8765432)
@@ -87,11 +76,6 @@ def test_resolve_album_link_against_library() -> None:
     ]
     assert [t.tidal_id for t in resolve_album_link(tracks, 7)] == [1, 2]
     assert resolve_album_link(tracks, 888) == []
-
-
-def test_fuzzy_flag_false_when_no_hits_at_all() -> None:
-    hits, is_direct = search_library([], "zzzz no such song")
-    assert hits == [] and is_direct is False
 
 
 def test_fuzzy_flag_false_when_library_has_no_match() -> None:

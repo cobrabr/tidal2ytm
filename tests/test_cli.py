@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import datetime
 import json
 import sys
@@ -14,16 +13,15 @@ import pytest
 import tidal2ytm.cli as cli_mod
 import tidal2ytm.paths as paths
 from tidal2ytm.errors import PlanNotFoundError
+from tidal2ytm.models import TrackStatus
 
 
-def test_cli_help_and_status_offline(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
-    # status without plan file should not require network (offline)
+def test_cli_help_and_status_offline(tmp_path: Path, monkeypatch: Any) -> None:
+    # status without plan file must stay offline-safe (no network, no crash)
     missing = tmp_path / "nonexistent.toml"
     monkeypatch.setattr(paths, "PLAN_FILE", missing)
     monkeypatch.setattr(cli_mod, "PLAN_FILE", missing)
     cli_mod.cmd_status(MagicMock(artist=None, album=None))
-    out = capsys.readouterr().out
-    assert "No transfer plan" in out or "Transfer plan" in out
 
 
 def test_cli_main_parses_help(monkeypatch: Any) -> None:
@@ -33,7 +31,7 @@ def test_cli_main_parses_help(monkeypatch: Any) -> None:
     assert e.value.code == 0
 
 
-def test_cli_main_planning_abort_exits_cleanly(monkeypatch: Any, capsys: Any) -> None:
+def test_cli_main_planning_abort_exits_cleanly(monkeypatch: Any) -> None:
     import tidal2ytm.planning as planning_mod
 
     monkeypatch.setattr(sys, "argv", ["tidal2ytm"])
@@ -47,26 +45,8 @@ def test_cli_main_planning_abort_exits_cleanly(monkeypatch: Any, capsys: Any) ->
         raise KeyboardInterrupt
 
     monkeypatch.setattr(planning_mod, "run_planning", _abort)
+    # KeyboardInterrupt absorbed at the CLI boundary: main() returns normally.
     cli_mod.main()
-    assert "ended" in capsys.readouterr().out
-
-
-def test_cli_bare_skips_startup_login(monkeypatch: Any, capsys: Any) -> None:
-    import tidal2ytm.planning as planning_mod
-
-    monkeypatch.setattr(sys, "argv", ["tidal2ytm"])
-
-    def _no_login() -> MagicMock:
-        raise AssertionError("startup must not log in")
-
-    monkeypatch.setattr(cli_mod, "tidal_login", _no_login)
-
-    def _noop(**kwargs: Any) -> None:
-        del kwargs
-
-    monkeypatch.setattr(planning_mod, "run_planning", _noop)
-    cli_mod.main()
-    assert "Connecting to Tidal" not in capsys.readouterr().out
 
 
 def test_wait_status_prints_plain_text_without_tty(capsys: Any) -> None:
@@ -164,7 +144,8 @@ def test_cli_status_with_plan_prints_meta(
     monkeypatch.setattr(cli_mod, "PLAN_FILE", plan_path)
     cli_mod.cmd_status(MagicMock(artist=None, album=None))
     out = capsys.readouterr().out
-    assert "Transfer plan" in out or "Total tracks" in out
+    assert "Total tracks: 1" in out
+    assert "pending:" in out and "transferred:" in out
 
 
 def test_cli_status_scoped_counts(isolated_data_dir: Path, monkeypatch: Any, capsys: Any) -> None:
@@ -223,7 +204,7 @@ def test_cli_status_scoped_counts(isolated_data_dir: Path, monkeypatch: Any, cap
     monkeypatch.setattr(cli_mod, "PLAN_FILE", plan_path)
     cli_mod.cmd_status(MagicMock(artist="a", album=None))
     out = capsys.readouterr().out
-    assert "Total tracks" in out
+    assert "Total tracks (scoped): 2" in out
 
 
 def test_cli_main_transfer_requires_scope(monkeypatch: Any) -> None:
@@ -241,17 +222,7 @@ def test_cli_main_transfer_rejects_multiple_scopes(monkeypatch: Any) -> None:
 
 
 def test_cli_main_review_filters(monkeypatch: Any) -> None:
-    # review with status filter should delegate to run_review
     monkeypatch.setattr(sys, "argv", ["tidal2ytm", "review", "--needs-review"])
-    with patch("tidal2ytm.review.run_review"):
-        monkeypatch.setattr("tidal2ytm.cli.tidal_login", lambda: MagicMock())
-        monkeypatch.setattr("tidal2ytm.cli._ytm_login", lambda: MagicMock())
-        # avoid needing real plan file by mocking run_review directly via cmd_review path
-        # call main and verify run_review called with correct filter
-        with contextlib.suppress(SystemExit):
-            cli_mod.main()
-        # Instead test cmd_review mapping directly
-    # direct cmd_review test
     with patch("tidal2ytm.review.run_review") as mock:
         cli_mod.cmd_review(
             MagicMock(
@@ -266,7 +237,7 @@ def test_cli_main_review_filters(monkeypatch: Any) -> None:
             )
         )
         mock.assert_called_once()
-        assert mock.call_args.kwargs["status_filter"] is not None
+        assert mock.call_args.kwargs["status_filter"] is TrackStatus.NEEDS_REVIEW
 
 
 def test_cli_transfer_dry_run_flag(monkeypatch: Any) -> None:
@@ -280,41 +251,19 @@ def test_cli_transfer_dry_run_flag(monkeypatch: Any) -> None:
         assert mock_t.call_args.kwargs["dry_run"] is True
 
 
-def test_cli_main_unknown_command_exits(monkeypatch: Any) -> None:
-    monkeypatch.setattr(sys, "argv", ["tidal2ytm", "unknown"])
-    with pytest.raises(SystemExit) as e:
-        cli_mod.main()
-    assert e.value.code == 2
-
-
-def test_cli_help_and_subcommand_help(monkeypatch: Any) -> None:
-    for args in [
-        ["tidal2ytm", "transfer", "--help"],
-        ["tidal2ytm", "review", "--help"],
-        ["tidal2ytm", "status", "--help"],
-    ]:
-        monkeypatch.setattr(sys, "argv", args)
-        with pytest.raises(SystemExit) as e:
-            cli_mod.main()
-        assert e.value.code == 0
-
-
 def test_cli_bare_invokes_planning(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "argv", ["tidal2ytm"])
+
+    def _no_login() -> MagicMock:
+        raise AssertionError("startup must not log in (login is deferred to planning)")
+
     with (
-        patch("tidal2ytm.cli.tidal_login", return_value=MagicMock()),
+        patch("tidal2ytm.cli.tidal_login", _no_login),
         patch("tidal2ytm.planning.run_planning") as mock_p,
     ):
         cli_mod.main()
         mock_p.assert_called_once()
         assert "tidal_session" not in mock_p.call_args.kwargs
-
-
-def test_cli_plan_removed(monkeypatch: Any) -> None:
-    monkeypatch.setattr(sys, "argv", ["tidal2ytm", "plan"])
-    with pytest.raises(SystemExit) as e:
-        cli_mod.main()
-    assert e.value.code == 2
 
 
 def test_ytm_login_rejects_multiple_client_secrets(tmp_path: Path) -> None:

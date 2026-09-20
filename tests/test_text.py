@@ -2,7 +2,7 @@ from tidal2ytm.text import normalize, similarity
 
 
 def test_normalize_strips_accents_and_punctuation():
-    assert normalize("Beyoncé!") == "beyonce"
+    assert normalize("Skörvik!") == "skorvik"
 
 
 def test_similarity_empty_side_is_zero():

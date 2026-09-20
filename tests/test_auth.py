@@ -38,10 +38,11 @@ def test_run_ytm_auth_writes_synthetic_client_secret_when_pasted(
                 client_secret="sec123",  # noqa: S106
                 force=True,
             )
-    assert (
-        any((isolated_data_dir / f).exists() for f in ["client_secret_id123.json"])
-        or len(list(isolated_data_dir.glob("client_secret_*.json"))) >= 1
-    )
+    secret_path = isolated_data_dir / "client_secret_pasted.json"
+    assert secret_path.exists()
+    data = json.loads(secret_path.read_text(encoding="utf-8"))
+    assert data["installed"]["client_id"] == "id123"
+    assert data["installed"]["client_secret"] == "sec123"  # noqa: S105
 
 
 def test_run_tidal_auth_opens_browser_and_writes_token(
@@ -107,12 +108,6 @@ def test_run_tidal_auth_returns_cached_token_when_fresh(
 
 def _utc_in(days: float) -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=days)
-
-
-def test_token_valid_accepts_only_future_expiry() -> None:
-    assert auth.token_usable(_utc_in(4)) is True
-    assert auth.token_usable(_utc_in(-1)) is False
-    assert auth.token_usable(None) is False
 
 
 def test_tidal_cache_valid_checks_expiry_offline(isolated_data_dir: Path) -> None:

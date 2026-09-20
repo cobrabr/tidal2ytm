@@ -365,37 +365,21 @@ def test_transfer_missing_track_id_exits(isolated_data_dir: Path) -> None:
         )
 
 
-def test_transfer_no_plan_exits(isolated_data_dir: Path, tmp_path: Path) -> None:
-    # use a nonexistent plan path
+@pytest.mark.parametrize("scope", ["track", "all"])
+def test_transfer_no_plan_exits(isolated_data_dir: Path, tmp_path: Path, scope: str) -> None:
+    # A missing plan raises before any scope work, regardless of scope.
     missing = tmp_path / "missing.toml"
     yt = MagicMock()
     with pytest.raises(PlanNotFoundError):
         transfer_mod.run_transfer(
             yt,
-            track_id="AAAAAAAAAAA",
+            track_id="AAAAAAAAAAA" if scope == "track" else None,
             album_match_id=None,
             artist_match_id=None,
-            all_tracks=False,
+            all_tracks=scope == "all",
             dry_run=False,
             include_needs_review=False,
             plan_path=missing,
-        )
-
-
-def test_run_transfer_missing_plan_raises_not_exits(tmp_path: Path) -> None:
-    from tidal2ytm.errors import PlanNotFoundError
-
-    yt = MagicMock()
-    with pytest.raises(PlanNotFoundError):
-        transfer_mod.run_transfer(
-            yt,
-            track_id=None,
-            album_match_id=None,
-            artist_match_id=None,
-            all_tracks=True,
-            dry_run=False,
-            include_needs_review=False,
-            plan_path=tmp_path / "missing.toml",
         )
 
 

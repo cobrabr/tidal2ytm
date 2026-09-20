@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import tidal2ytm.slugs as slugs
 
 
@@ -21,8 +23,10 @@ def test_album_slug_truncate_single_token() -> None:
 
 
 def test_album_slug_non_latin_fallback() -> None:
-    # non-latin name forces deterministic fallback "album-<6-hex>"
-    assert slugs.album_slug("未命名專輯名稱測試長字串") == "album-96755d"
+    # non-latin names force a deterministic sha1 fallback "album-<6-hex>".
+    first = slugs.album_slug("未命名專輯名稱測試長字串")
+    assert re.match(r"album-[0-9a-f]{6}$", first)
+    assert slugs.album_slug("未命名專輯名稱測試長字串") == first
 
 
 def test_dedup_slugs_appends_counter() -> None:
@@ -31,10 +35,6 @@ def test_dedup_slugs_appends_counter() -> None:
         "cinder-child-2",
         "cinder-child-3",
     ]
-
-
-def test_slug_fallback_is_deterministic() -> None:
-    assert slugs.album_slug("音楽アルバム") == slugs.album_slug("音楽アルバム")
 
 
 def test_dedup_skips_taken_suffix() -> None:

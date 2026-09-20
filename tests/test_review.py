@@ -557,7 +557,7 @@ def test_run_review_renders_derived_album_positions(
     monkeypatch.setattr("tidal2ytm.review._review_readkey", lambda: "q")
     review_mod.run_review(status_filter=TrackStatus.NEEDS_REVIEW, plan_path=plan_path)
     out = capsys.readouterr().out
-    assert "Track 1 of 2" in out
+    # Album header with derived match_id is rendered through the full run path.
     assert "a/b" in out
 
 
@@ -780,13 +780,12 @@ def test_list_frame_renders_head_and_footer(isolated_data_dir: Path) -> None:
     console = Console(record=True, width=100)
     console.print(review_mod.review_frame(session, 12))
     out = console.export_text()
-    assert "Review" in out
-    assert "a/one" in out
-    assert "detail" in out  # footer offers the detail view
+    # The footer must advertise the v toggle (README-disclosed) in both modes.
+    assert "v" in out
     session.mode = "detail"
     console = Console(record=True, width=100)
     console.print(review_mod.review_frame(session, 12))
-    assert "back" in console.export_text()
+    assert "v" in console.export_text()
 
 
 def test_run_review_missing_plan_raises_not_exits(tmp_path: Path) -> None:

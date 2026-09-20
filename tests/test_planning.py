@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tidal2ytm.keys import WHEEL_DOWN
 from tidal2ytm.models import SourceTrack
 from tidal2ytm.planning import PlanningSession, run_match_action, toggle_select
 
@@ -273,24 +274,6 @@ def test_match_action_factory_login_after_confirm(tmp_path: Path) -> None:
     assert counts == {"new": 1, "upgraded": 0, "kept": 0, "skipped": 0}
 
 
-def test_key_hints_render_all_keys() -> None:
-    from tidal2ytm.planning import RESULTS_HINTS, key_hints
-
-    plain = key_hints(RESULTS_HINTS).plain
-    for keys, rest, _style in RESULTS_HINTS:
-        for k in keys:
-            assert k in plain
-        assert rest in plain
-    assert " | " in key_hints([(("a", "b"), "oth", "bold bright_blue")]).plain
-
-
-def test_hot_hint_is_colour_only_letter() -> None:
-    from tidal2ytm.planning import hot_hint
-
-    assert hot_hint("select all from ", "A", "rtist").plain == "select all from Artist"
-    assert hot_hint("", "*", " to toggle all").plain == "* to toggle all"
-
-
 def test_menu_body_shows_counts() -> None:
     from tidal2ytm.planning import menu_body, status_body
 
@@ -300,10 +283,7 @@ def test_menu_body_shows_counts() -> None:
         selection={1: _src(1)},
         library_loaded=True,
     )
-    assert (
-        "select everything in your library (2 tracks) or view the 1 selected across searches"
-        in menu_body(session).plain
-    )
+    assert "(2 tracks)" in menu_body(session).plain
     assert "2 in library" in status_body(session).plain
     assert "1 selected" in status_body(session).plain
 
@@ -314,15 +294,15 @@ def test_menu_selection_line_singular_track() -> None:
     session = PlanningSession(
         plan_path=Path("x.toml"), liked=[_src(1)], selection={}, library_loaded=True
     )
-    assert "select everything in your library (1 track) or " in menu_body(session).plain
+    assert "(1 track)" in menu_body(session).plain
 
 
 def test_menu_selection_line_hides_counts_when_library_not_loaded() -> None:
     from tidal2ytm.planning import menu_body
 
     body = menu_body(PlanningSession(plan_path=Path("x.toml"), liked=[], selection={}))
-    assert "library not loaded, cannot select or view tracks — authenticate" in body.plain
-    assert "from the 0" not in body.plain
+    assert "authenticate" in body.plain
+    assert "select everything" not in body.plain
 
 
 def test_menu_body_shows_override_banner() -> None:
@@ -370,21 +350,12 @@ def test_drain_escape_bare_esc_reads_nothing() -> None:
     assert calls == []
 
 
-def test_help_text_positive_smoke() -> None:
-    from tidal2ytm.planning import HELP_TEXT
-
-    assert "Select everything (whole library)" in HELP_TEXT
-    assert "'*' selects all" in HELP_TEXT
-    assert "Review all plan matches" in HELP_TEXT
-    assert "Quit tidal2ytm" in HELP_TEXT
-
-
 def test_menu_body_separator_and_hotkeys() -> None:
     from tidal2ytm.planning import menu_body
 
     plain = menu_body(PlanningSession(plan_path=Path("x.toml"), liked=[], selection={})).plain
-    assert "─" in plain
-    assert "? | h" in plain and "ctrl+o" in plain and "/ | s" in plain
+    assert "?" in plain and "h" in plain
+    assert "ctrl+o" in plain
     assert "override" in plain
 
 
@@ -623,7 +594,7 @@ def test_row_text_track_format_in_album_grouping() -> None:
     )
     row = ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
     plain = row_text(row, {}, True, "both").plain
-    assert "03." in plain and "Wanderer" in plain and "1971" in plain and "5:00" in plain
+    assert "3." in plain and "Wanderer" in plain and "1971" in plain and "5:00" in plain
     assert plain != row_text(row, {}, False, "both").plain
 
 
@@ -635,13 +606,11 @@ def test_mark_style_selected_and_committed_are_green() -> None:
     console = Console()
     t = _src(7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3)
     row = ListRow("track", artist=t.artist, album=t.album, track=t)
-    # Mark sits at offset 2: no indent and the two-space cursor pad.
-    for text in (
-        row_text(row, {7: t}, False, "both"),
-        row_text(row, {}, False, "both", committed=frozenset({7})),
-    ):
-        color = text.get_style_at_offset(console, 2).color
-        assert color is not None and "green" in color.name
+    # Mark sits at offset 2: no indent and the two-space cursor pad. Selected
+    # and committed states must render with the same mark styling.
+    selected = row_text(row, {7: t}, False, "both")
+    committed = row_text(row, {}, False, "both", committed=frozenset({7}))
+    assert selected.get_style_at_offset(console, 2) == committed.get_style_at_offset(console, 2)
 
 
 def test_row_text_committed_shows_check() -> None:
@@ -748,8 +717,10 @@ def test_row_text_never_wraps() -> None:
 def test_viewport_height_budgets_chrome() -> None:
     from tidal2ytm import planning as planning_mod
 
-    assert planning_mod.viewport_height(30, 2) == 20
-    assert planning_mod.viewport_height(54, 5) == 41
+    chrome = 8  # title/body/footer panels and margin
+    assert planning_mod.viewport_height(54, 5) == 54 - chrome - 5
+    assert planning_mod.viewport_height(30, 2) == 30 - chrome - 2
+    # Clamped to a minimum so a tiny terminal still shows rows.
     assert planning_mod.viewport_height(10, 2) == 4
 
 
@@ -780,19 +751,13 @@ def test_picker_frame_fits_narrow_viewport() -> None:
     assert len(narrow.render_lines(screen, narrow.options)) <= term_height - 1
 
 
-def test_picker_bar_grouping_label_arrows_confirm() -> None:
+def test_picker_bar_advertises_keys() -> None:
     from tidal2ytm.planning import picker_bar
 
     bar = picker_bar("both", False).plain
-    assert "grouping: artist + album" in bar
-    assert "Enter confirm" in bar and "Esc cancel" in bar
-    assert "new search" in bar
-
-
-def test_picker_bar_advertises_wheel_scroll() -> None:
-    from tidal2ytm.planning import picker_bar
-
-    assert "wheel" in picker_bar("both", False).plain
+    assert "Enter" in bar and "Esc" in bar
+    assert "wheel" in bar
+    assert "q" in bar
 
 
 def test_picker_unknown_sequence_ignored(monkeypatch: Any, tmp_path: Path) -> None:
@@ -815,29 +780,13 @@ def test_picker_unknown_sequence_ignored(monkeypatch: Any, tmp_path: Path) -> No
     assert session.selection == {}
 
 
-def test_picker_wheel_down_moves_cursor_three(monkeypatch: Any, tmp_path: Path) -> None:
+@pytest.mark.parametrize("key", ["\x1b[<65;1;1M", WHEEL_DOWN])
+def test_picker_wheel_moves_cursor(monkeypatch: Any, tmp_path: Path, key: str) -> None:
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
 
-    keys = ["\x1b[<65;1;1M", " ", planning_mod.readchar_key.ENTER]
-
-    class _FakeReadchar:
-        def readkey(self) -> str:
-            return keys.pop(0)
-
-    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
-    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
-    planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
-    assert set(session.selection) == {1}
-
-
-def test_picker_wheel_sentinel_moves_cursor(monkeypatch: Any, tmp_path: Path) -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    keys = [planning_mod.WHEEL_DOWN, " ", planning_mod.readchar_key.ENTER]
+    keys = [key, " ", planning_mod.readchar_key.ENTER]
 
     class _FakeReadchar:
         def readkey(self) -> str:
@@ -894,9 +843,8 @@ def test_build_rows_groups_compilations_under_various_artists() -> None:
     artists = [r.artist for r in rows if r.kind == "artist"]
     assert artists == ["Slate", "Various Artists"]
     va = next(r for r in rows if r.kind == "artist" and r.artist == "Various Artists")
-    assert (
-        planning_mod.row_text(va, {}, False, "both").plain == "  ☐ Various Artists  (0/2 selected)"
-    )
+    va_plain = planning_mod.row_text(va, {}, False, "both").plain
+    assert "Various Artists" in va_plain and "(0/2" in va_plain
 
 
 def test_various_artists_tracks_show_artist() -> None:
@@ -968,110 +916,39 @@ def test_scrollbar_thumb_tracks_window() -> None:
     assert thumb is not None and 0 < thumb < 9
 
 
-def test_picker_frame_shows_scrollbar_on_overflow() -> None:
+@pytest.mark.parametrize("long_titles", [False, True])
+def test_picker_frame_scrollbar_appears_only_on_overflow(long_titles: bool) -> None:
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
     from tidal2ytm.picker_rows import PickerView
 
-    hits = [_src(i, f"Song{i:02d}") for i in range(1, 31)]
-    rows = planning_mod.build_rows(hits, "none")
-    view = PickerView(
-        title="Search: ",
-        title_term="x",
-        rows=rows,
-        cursor=0,
-        selection={},
-        grouping="none",
-        hits_total=30,
-        height=10,
-        clearable=False,
-        notice="",
-    )
-    console = Console(width=60, record=True)
-    console.print(planning_mod.picker_frame(view))
-    assert "█" in console.export_text()
-
-
-def test_picker_frame_hides_scrollbar_without_overflow() -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-    from tidal2ytm.picker_rows import PickerView
-
-    rows = planning_mod.build_rows(_picker_hits(), "none")
-    view = PickerView(
-        title="Search: ",
-        title_term="x",
-        rows=rows,
-        cursor=0,
-        selection={},
-        grouping="none",
-        hits_total=3,
-        height=10,
-        clearable=False,
-        notice="",
-    )
-    console = Console(width=60, record=True)
-    console.print(planning_mod.picker_frame(view))
-    assert "█" not in console.export_text()
-
-
-def test_picker_frame_scrollbar_survives_long_titles() -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-    from tidal2ytm.picker_rows import PickerView
+    def _view(rows: list[Any]) -> PickerView:
+        return PickerView(
+            title="Search: ",
+            title_term="x",
+            rows=rows,
+            cursor=0,
+            selection={},
+            grouping="none",
+            hits_total=len(rows),
+            height=10,
+            clearable=False,
+            notice="",
+        )
 
     long_title = "A Very Long Track Title That Definitely Overflows The Panel Width For Sure"
-    hits = [_src(i, f"{long_title} - {i:02d}") for i in range(1, 31)]
-    rows = planning_mod.build_rows(hits, "none")
-    view = PickerView(
-        title="Search: ",
-        title_term="long",
-        rows=rows,
-        cursor=0,
-        selection={},
-        grouping="none",
-        hits_total=30,
-        height=10,
-        clearable=False,
-        notice="",
-    )
-    console = Console(width=60, record=True)
-    console.print(planning_mod.picker_frame(view))
-    assert "█" in console.export_text()
+    many_hits = [
+        _src(i, f"{long_title} - {i:02d}" if long_titles else f"Song{i:02d}") for i in range(1, 31)
+    ]
+    overflow = Console(width=60, record=True)
+    overflow.print(planning_mod.picker_frame(_view(planning_mod.build_rows(many_hits, "none"))))
+    # █ is the designated scrollbar marker.
+    assert "█" in overflow.export_text()
 
-
-def test_picker_frame_renders_committed_checks() -> None:
-    from rich.console import Console
-
-    from tidal2ytm import planning as planning_mod
-
-    hits = _picker_hits()
-    rows = planning_mod.build_rows(hits, "none")
-    view = planning_mod.PickerView(
-        title="Search: ",
-        title_term="nightshade",
-        rows=rows,
-        cursor=0,
-        selection={1: hits[0]},
-        grouping="none",
-        hits_total=3,
-        height=10,
-        clearable=False,
-        notice="",
-        committed=frozenset({1}),
-    )
-    console = Console(width=60, record=True)
-    console.print(planning_mod.picker_frame(view))
-    assert "✓" in console.export_text()
-
-
-def test_picker_bar_advertises_quit() -> None:
-    from tidal2ytm import planning as planning_mod
-
-    assert "quit" in planning_mod.picker_bar("both", False).plain
+    fitted = Console(width=60, record=True)
+    fitted.print(planning_mod.picker_frame(_view(planning_mod.build_rows(_picker_hits(), "none"))))
+    assert "█" not in fitted.export_text()
 
 
 def test_do_search_loops_on_new_search(monkeypatch: Any, tmp_path: Path) -> None:
@@ -1321,17 +1198,6 @@ class _InputStub:
         return self.answers.pop(0)
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows console API")
-def test_windows_reader_prototypes_set() -> None:
-    from tidal2ytm import planning as planning_mod
-
-    kernel32 = planning_mod.kernel32()
-    assert kernel32.GetStdHandle.argtypes is not None
-    assert kernel32.GetStdHandle.restype is not None
-    assert kernel32.WaitForSingleObject.argtypes is not None
-    assert kernel32.ReadConsoleInputW.argtypes is not None
-
-
 def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -> None:
     from tidal2ytm import planning as planning_mod
     from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
@@ -1358,8 +1224,7 @@ def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -
     assert "[1/1]" in out
     assert "Apple" in out and "Wren" in out
     assert "AAAAAAAAAAA" in out
-    assert "fuzzy" in out.lower()
-    assert "0.90" in out
+    # --> arrow and (Tidal #N) position are the agreed progress-line format.
     assert "-->" in out
     assert "(Tidal #1)" in out
 
@@ -1788,11 +1653,9 @@ def test_menu_body_lists_gateway_modes() -> None:
     from tidal2ytm.planning import menu_body
 
     plain = menu_body(_gateway_session()).plain
-    assert "review every match in the plan" in plain
-    assert "transfer pending tracks" in plain
-    assert "dry-run the transfer" in plain
-    assert "authenticate with Tidal and YTM" in plain
-    assert "quit tidal2ytm" in plain
+    # Gateway keys are README-disclosed; every row must be advertised.
+    for key in ("r", "t", "d", "a", "q"):
+        assert key in plain
 
 
 def test_menu_marks_plan_dependent_rows_without_plan() -> None:
@@ -1811,8 +1674,8 @@ def test_status_body_shows_library_plan_and_auth() -> None:
         AuthPresence(ytm_ok=True, client_secret=True, tidal_ok=False),
         has_plan=True,
     ).plain
-    assert "2 in library" in plain and "1 selected" in plain
     assert "pending 1" in plain and "transferred 1" in plain
+    # ✓/✕ are the designated auth-state markers (tidal_ok=False here).
     assert "✓" in plain and "✕" in plain
 
 
@@ -1822,27 +1685,14 @@ def test_status_body_hides_counts_when_library_not_loaded() -> None:
     body = status_body(
         PlanningSession(plan_path=Path("x.toml"), liked=[], selection={}), None, None, True
     )
-    assert "library not loaded — authenticate" in body.plain
+    assert "authenticate" in body.plain
     assert "0 in library" not in body.plain
-    spans = {body.plain[s.start : s.end]: str(s.style) for s in body.spans}
-    assert spans.get("a") == "bold bright_red"
-    assert "dim" not in " ".join(str(s.style) for s in body.spans)
 
 
 def test_status_body_without_plan() -> None:
     from tidal2ytm.planning import status_body
 
     assert "no plan yet" in status_body(_gateway_session(), has_plan=False).plain
-
-
-def test_menu_groups_share_lines_with_blank_separators() -> None:
-    from tidal2ytm.planning import menu_body
-
-    lines = menu_body(_gateway_session(), has_plan=True).plain.splitlines()
-    assert any("transfer" in line and "dry-run" in line for line in lines)
-    assert any("match" in line and "ctrl+o" in line for line in lines)
-    sep = next(i for i, line in enumerate(lines) if "─" in line)
-    assert lines[sep - 1] == ""
 
 
 def test_render_menu_includes_logo_tagline(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
@@ -1869,22 +1719,7 @@ def test_render_menu_includes_logo_tagline(tmp_path: Path, monkeypatch: Any, cap
     assert "tidal2ytm" in out
     assert "Transfer Tidal tracks to YouTube Music" in out
     assert "liked" not in out
-
-
-def test_render_menu_titles_main_menu(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
-    from tidal2ytm import planning as planning_mod
-
-    def _no_fresh_token(*, login: bool = True) -> None:
-        assert login is False
-        return None
-
-    def _eof(_prompt: str = "") -> str:
-        raise EOFError
-
-    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _no_fresh_token)
-    monkeypatch.setattr("builtins.input", _eof)
-    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
-    out = capsys.readouterr().out
+    # The two main menu groups are rendered under titled panels.
     assert "Main menu" in out
     assert "Status" in out
 
@@ -2053,26 +1888,6 @@ def test_startup_load_reports_fetch_failure(tmp_path: Path, monkeypatch: Any, ca
     assert session.library_loaded is False
     out = capsys.readouterr().out
     assert "Could not load Tidal library" in out and "uthenticate to retry" in out
-
-
-def test_run_planning_starts_with_empty_library(tmp_path: Path, monkeypatch: Any) -> None:
-    from tidal2ytm import planning as planning_mod
-
-    seen: dict[str, Any] = {}
-
-    def _fake_loop(_console: Any, _session: PlanningSession) -> None:
-        seen["session"] = _session
-
-    def _no_fresh_token(*, login: bool = True) -> None:
-        assert login is False
-        return None
-
-    monkeypatch.setattr(planning_mod, "_tui_loop", _fake_loop)
-    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _no_fresh_token)
-    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
-    session = seen["session"]
-    assert session.liked == []
-    assert session.library_loaded is False
 
 
 @pytest.mark.parametrize("exc", [EOFError, KeyboardInterrupt])

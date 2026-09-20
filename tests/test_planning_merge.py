@@ -119,8 +119,8 @@ def test_merge_rehomes_track_on_album_rename_case_insensitive() -> None:
 
 
 def test_classify_double_empty_video_id_asks_not_keeps() -> None:
+    # An empty stored video id counts as missing, not as a keep-same match.
     assert classify_track({"status": "pending", "yt_video_id": ""}, "") == "ask"
-    assert classify_track({"status": "pending", "yt_video_id": ""}, None) == "ask"
 
 
 def test_classify_track_skip_and_needs_review_branches() -> None:

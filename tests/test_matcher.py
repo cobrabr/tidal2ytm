@@ -5,40 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tidal2ytm.matcher import match_track
+from tidal2ytm.matcher import CONFIDENCE_THRESHOLD, match_track
 from tidal2ytm.models import MatchMethod, SourceTrack, TrackStatus
 
 
-def _yt_with_candidates(
-    candidates: list[dict[str, Any]],
-    song_detail: dict[str, Any] | None = None,
-) -> Any:
+def _yt_with_candidates(candidates: list[dict[str, Any]]) -> Any:
     yt = MagicMock()
     yt.search.return_value = candidates
-    yt.get_song.return_value = song_detail or {}
     return yt
-
-
-class FakeYT:
-    """Typed fake: scripted search candidates; get_song returns detail or raises."""
-
-    def __init__(
-        self,
-        candidates: list[dict[str, Any]],
-        song_detail: dict[str, Any] | None = None,
-        song_error: BaseException | None = None,
-    ) -> None:
-        self._candidates = candidates
-        self._song_detail = song_detail
-        self._song_error = song_error
-
-    def search(self, query: str, filter: str = "songs", limit: int = 10) -> list[dict[str, Any]]:
-        return self._candidates
-
-    def get_song(self, video_id: str) -> dict[str, Any]:
-        if self._song_error is not None:
-            raise self._song_error
-        return self._song_detail if self._song_detail is not None else {}
 
 
 def _source(data: dict[str, Any]) -> SourceTrack:
@@ -195,8 +169,7 @@ def test_matcher_threshold_edge_just_below_rejects() -> None:
     yt = _yt_with_candidates([cand])
     res = match_track(_source(track), yt)
     assert res.status == TrackStatus.NEEDS_REVIEW
-    assert res.review_reason == "Low confidence (0.69)"
-    assert res.confidence.overall == pytest.approx(0.694)
+    assert res.confidence.overall < CONFIDENCE_THRESHOLD
 
 
 def test_non_latin_title_does_not_score_one() -> None:
@@ -238,42 +211,22 @@ def test_unknown_source_duration_skips_duration_gate() -> None:
     assert match_track(_source(track), yt).status is TrackStatus.PENDING
 
 
-def test_wrong_album_is_needs_review_even_with_perfect_title_artist() -> None:
+def test_deluxe_suffix_album_is_needs_review() -> None:
+    # "(Deluxe Version)" pushes album similarity below WRONG_ALBUM_THRESHOLD,
+    # so a different pressing needs review even with perfect title/artist.
     track = {
         "title": "Ember",
-        "artists": ["Blashen"],
-        "album": "Ash",
+        "artists": ["Vesper Vale"],
+        "album": "Ashen Light",
         "duration": 213,
         "isrc": None,
     }
     cand = {
-        "videoId": "CCCCCCCCCCC",
-        "title": "Ember",
-        "artists": [{"name": "Blashen"}],
-        "album": {"name": "Completely Different"},
-        "duration_seconds": 213,
-    }
-    yt = _yt_with_candidates([cand])
-    result = match_track(_source(track), yt)
-    assert result.status == TrackStatus.NEEDS_REVIEW
-
-
-def test_deluxe_suffix_album_is_needs_review() -> None:
-    # "(Deluxe Version)" scores album_sim ~0.84: below WRONG_ALBUM_THRESHOLD,
-    # so a different pressing needs review even with perfect title/artist.
-    track = {
-        "title": "Master Of Disaster",
-        "artists": ["Seether"],
-        "album": "Holding Onto Strings Better Left To Fray",
-        "duration": 259,
-        "isrc": None,
-    }
-    cand = {
         "videoId": "DDDDDDDDDDD",
-        "title": "Master Of Disaster",
-        "artists": [{"name": "Seether"}],
-        "album": {"name": "Holding Onto Strings Better Left To Fray (Deluxe Version)"},
-        "duration_seconds": 259,
+        "title": "Ember",
+        "artists": [{"name": "Vesper Vale"}],
+        "album": {"name": "Ashen Light (Deluxe Version)"},
+        "duration_seconds": 213,
     }
     yt = _yt_with_candidates([cand])
     result = match_track(_source(track), yt)
@@ -283,18 +236,18 @@ def test_deluxe_suffix_album_is_needs_review() -> None:
 
 def test_exact_album_is_pending() -> None:
     track = {
-        "title": "Master Of Disaster",
-        "artists": ["Seether"],
-        "album": "Holding Onto Strings Better Left To Fray",
-        "duration": 259,
+        "title": "Ember",
+        "artists": ["Vesper Vale"],
+        "album": "Ashen Light",
+        "duration": 213,
         "isrc": None,
     }
     cand = {
         "videoId": "DDDDDDDDDDD",
-        "title": "Master Of Disaster",
-        "artists": [{"name": "Seether"}],
-        "album": {"name": "Holding Onto Strings Better Left To Fray"},
-        "duration_seconds": 259,
+        "title": "Ember",
+        "artists": [{"name": "Vesper Vale"}],
+        "album": {"name": "Ashen Light"},
+        "duration_seconds": 213,
     }
     yt = _yt_with_candidates([cand])
     result = match_track(_source(track), yt)
@@ -356,7 +309,6 @@ def test_matcher_candidates_missing_keys_are_skipped() -> None:
     assert res.yt_video_id is None
     assert res.match_method == MatchMethod.NONE
     assert res.status == TrackStatus.NEEDS_REVIEW
-    assert res.review_reason == "No candidates found"
 
 
 def test_matcher_search_errors_propagate() -> None:

@@ -81,7 +81,6 @@ def test_tidal_source_year_missing_and_artist_name_none() -> None:
     )
     result = get_liked_tracks(_session_with([[track]]))  # type: ignore[arg-type]
     assert result[0].tidal_id == 999 and result[0].album_year is None
-    assert result[0].album_year is None
     assert result[0].artist == ""
 
 
@@ -125,9 +124,16 @@ def test_tidal_source_handles_multiple_tracks() -> None:
         volume_num=1,
     )
     result = get_liked_tracks(_session_with([[t1, t2]]))  # type: ignore[arg-type]
-    assert len(result) == 2
-    assert result[0].tidal_id == 1
-    assert result[1].tidal_id == 2
+    assert [t.tidal_id for t in result] == [1, 2]
+    # Field mapping across multiple tracks, not just identity.
+    assert result[0].artist == "Vesper Vale"
+    assert result[0].album == "Ashen Light"
+    assert result[0].album_year == 2021
+    assert result[0].track_num == 1
+    assert result[1].artist == "Blashen Moor"
+    assert result[1].album == "Fen Hymns"
+    assert result[1].album_year is None
+    assert result[1].track_num == 2
 
 
 def test_tidal_source_propagates_attribute_error() -> None:

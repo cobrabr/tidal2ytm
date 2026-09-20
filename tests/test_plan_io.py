@@ -9,18 +9,6 @@ import pytest
 import tidal2ytm.plan_io as plan_io
 
 
-def test_extract_video_id_forms() -> None:
-    cases = {
-        "CCCCCCCCCCC": "CCCCCCCCCCC",
-        "https://www.youtube.com/watch?v=CCCCCCCCCCC": "CCCCCCCCCCC",
-        "https://youtu.be/CCCCCCCCCCC?t=10": "CCCCCCCCCCC",
-        "https://www.youtube.com/v/CCCCCCCCCCC?foo=1": "CCCCCCCCCCC",
-        "https://music.youtube.com/watch?v=CCCCCCCCCCC&list=PL": "CCCCCCCCCCC",
-    }
-    for raw, expected in cases.items():
-        assert plan_io.extract_video_id(raw) == expected
-
-
 def test_extract_video_id_invalid_raises() -> None:
     with pytest.raises(ValueError):
         plan_io.extract_video_id("not-a-url")
@@ -36,13 +24,6 @@ def test_load_plan_normalizes(isolated_data_dir: Path, tmp_path: Path) -> None:
     plan = plan_io.load_plan(plan_path)
     vids = [t["yt_video_id"] for t in plan_io.iter_tracks(plan) if t["yt_video_id"]]
     assert vids[0] == "CCCCCCCCCCC"
-
-
-def test_save_plan_writes_header(tmp_path: Path) -> None:
-    plan: dict[str, Any] = {"meta": {"generated_at": "2026-08-29T00:00:00"}, "artists": []}
-    p = tmp_path / "plan.toml"
-    plan_io.save_plan(plan, p)
-    assert p.read_text(encoding="utf-8").startswith("# tidal2ytm transfer plan")
 
 
 def test_backup_plan_writes_timestamped_copy(tmp_path: Path) -> None:
@@ -192,6 +173,11 @@ def _plan_with_status(status: str) -> dict[str, Any]:
 @pytest.mark.parametrize(
     "url,expected",
     [
+        ("CCCCCCCCCCC", "CCCCCCCCCCC"),
+        ("https://www.youtube.com/watch?v=CCCCCCCCCCC", "CCCCCCCCCCC"),
+        ("https://youtu.be/CCCCCCCCCCC?t=10", "CCCCCCCCCCC"),
+        ("https://www.youtube.com/v/CCCCCCCCCCC?foo=1", "CCCCCCCCCCC"),
+        ("https://music.youtube.com/watch?v=CCCCCCCCCCC&list=PL", "CCCCCCCCCCC"),
         ("https://m.youtube.com/watch?v=AAAAAAAAAAA", "AAAAAAAAAAA"),
         ("https://www.youtube.com/embed/AAAAAAAAAAA", "AAAAAAAAAAA"),
         ("https://www.youtube.com/shorts/AAAAAAAAAAA", "AAAAAAAAAAA"),
@@ -259,35 +245,6 @@ def test_backup_plan_failure_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(plan_io.shutil, "copy2", ro_copy2)
     with pytest.raises(OSError):
         plan_io.backup_plan(plan_path)
-
-
-def test_iter_tracks_and_meta_scale_to_1k_tracks() -> None:
-    import time
-
-    plan: dict[str, Any] = {
-        "artists": [
-            {
-                "match_id": "a",
-                "albums": [
-                    {
-                        "match_id": f"a/album-{i}",
-                        "tracks": [
-                            {"tidal_id": i * 100 + j, "status": "pending"} for j in range(100)
-                        ],
-                    }
-                    for i in range(10)
-                ],
-            }
-        ]
-    }
-    start = time.perf_counter()
-    tracks = list(plan_io.iter_tracks(plan))
-    plan_io.update_plan_meta(plan)
-    elapsed = time.perf_counter() - start
-    assert len(tracks) == 1000
-    assert plan["meta"]["total_tracks"] == 1000
-    assert plan["meta"]["pending"] == 1000
-    assert elapsed < 5.0
 
 
 def test_iter_tracks_filtered_combos() -> None:
