@@ -1394,21 +1394,40 @@ def read_key() -> str | None:
     return None
 
 
+def _ramp(t: float) -> str:
+    """Hex colour along the logo ramp: grey -> white -> red for t in [0, 1]."""
+    grey = (0x80, 0x80, 0x80)
+    white = (0xFF, 0xFF, 0xFF)
+    red = (0xFF, 0x00, 0x00)
+    low, high, span = (grey, white, t * 2) if t < 0.5 else (white, red, (t - 0.5) * 2)
+    mixed = tuple(round(a + (b - a) * span) for a, b in zip(low, high, strict=True))
+    return f"#{mixed[0]:02x}{mixed[1]:02x}{mixed[2]:02x}"
+
+
+def logo_text() -> Text:
+    word = "tidal2ytm"
+    logo = Text()
+    for i, ch in enumerate(word):
+        logo.append(ch, style=f"bold {_ramp(i / (len(word) - 1))}")
+    logo.append("   Transfer Tidal tracks to YouTube Music", style="dim")
+    return logo
+
+
 def _render_menu(console: Console, session: PlanningSession) -> None:
     console.clear()
-    console.print(Panel("tidal2ytm", border_style="dim", expand=True))
+    console.print(Panel(logo_text(), border_style="dim", expand=True))
     has_plan = session.plan_path.exists()
     counts = read_plan_counts(session.plan_path) if has_plan else None
     auth = read_auth_presence()
     menu = Panel(
         menu_body(session, has_plan),
-        title=Text("┤ Main menu ├", style="bold"),
+        title=Text("Main menu", style="bold"),
         expand=True,
     )
     status_text = status_body(session, counts, auth, has_plan)
     # Fixed content width: the menu takes everything else.
     width = max((len(line) for line in status_text.plain.splitlines()), default=0) + 4
-    status = Panel(status_text, title=Text("┤ Status ├", style="bold"), width=width, expand=False)
+    status = Panel(status_text, title=Text("Status", style="bold"), width=width, expand=False)
     # Columns stacks the panels vertically when the terminal is too narrow.
     console.print(Columns([menu, status], equal=False, expand=True))
 

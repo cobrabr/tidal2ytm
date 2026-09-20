@@ -1817,6 +1817,32 @@ def test_menu_groups_share_lines_with_blank_separators() -> None:
     assert lines[sep - 1] == ""
 
 
+def test_render_menu_includes_logo_tagline(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
+    """The logo wordmark must flow through the rendered main menu.
+
+    Guards the wiring regression where _render_menu printed a plain
+    'tidal2ytm' string instead of Panel(logo_text(), ...): only logo_text
+    carries the 'Transfer Tidal tracks' tagline, so a reverted wiring drops it.
+    """
+
+    def _no_fresh_token(*, login: bool = True) -> None:
+        assert login is False
+        return None
+
+    def _eof(_prompt: str = "") -> str:
+        raise EOFError
+
+    monkeypatch.setattr("tidal2ytm.cli.tidal_login", _no_fresh_token)
+    monkeypatch.setattr("builtins.input", _eof)
+    from tidal2ytm import planning as planning_mod
+
+    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
+    out = capsys.readouterr().out
+    assert "tidal2ytm" in out
+    assert "Transfer Tidal tracks to YouTube Music" in out
+    assert "liked" not in out
+
+
 def test_render_menu_titles_main_menu(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
     from tidal2ytm import planning as planning_mod
 
