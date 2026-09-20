@@ -366,12 +366,12 @@ def hot_hint(pre: str, hot: str, post: str = "", style: str = "bold bright_blue"
 
 
 def _mark_style(mark: str) -> str:
-    """Checkbox glyph style: grey empty, blue partial, bright-blue full (select family)."""
+    """Checkbox glyph style: grey empty, blue partial, green full/committed."""
     if mark == "☐":
         return "bright_black"
     if mark == "▣":
         return "bold blue"
-    return "bold bright_blue"
+    return "bold bright_green"
 
 
 def _check_state(members: tuple[SourceTrack, ...], selection: dict[int, SourceTrack]) -> str:
@@ -393,7 +393,13 @@ def _track_details(t: SourceTrack, show_album: bool) -> str:
     return "| " + ", ".join(parts)
 
 
-def row_text(row: ListRow, selection: dict[int, SourceTrack], cursor: bool, grouping: str) -> Text:
+def row_text(
+    row: ListRow,
+    selection: dict[int, SourceTrack],
+    cursor: bool,
+    grouping: str,
+    committed: frozenset[int] = frozenset(),
+) -> Text:
     """One picker row: cursor marker, tri-state checkbox, label, dim details."""
     text = Text(no_wrap=True, overflow="ellipsis")
     text.append(" " * row.indent)
@@ -404,7 +410,7 @@ def row_text(row: ListRow, selection: dict[int, SourceTrack], cursor: bool, grou
     if row.kind == "track":
         assert row.track is not None
         t = row.track
-        mark = "■" if t.tidal_id in selection else "☐"
+        mark = "✓" if t.tidal_id in committed else ("■" if t.tidal_id in selection else "☐")
         text.append(mark, style=_mark_style(mark))
         text.append(" ")
         if grouping == "both":
@@ -499,7 +505,7 @@ def picker_frame(view: PickerView) -> Group:
     )
     start, end = visible_window(view.rows, view.cursor, view.height)
     lines = [
-        row_text(view.rows[i], view.selection, i == view.cursor, view.grouping)
+        row_text(view.rows[i], view.selection, i == view.cursor, view.grouping, view.committed)
         for i in range(start, end)
     ]
     while len(lines) < view.height:

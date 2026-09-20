@@ -627,6 +627,32 @@ def test_row_text_track_format_in_album_grouping() -> None:
     assert plain != row_text(row, {}, False, "both").plain
 
 
+def test_mark_style_selected_and_committed_are_green() -> None:
+    from rich.console import Console
+
+    from tidal2ytm.planning import ListRow, row_text
+
+    console = Console()
+    t = _src(7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3)
+    row = ListRow("track", artist=t.artist, album=t.album, track=t)
+    # Mark sits at offset 2: no indent and the two-space cursor pad.
+    for text in (
+        row_text(row, {7: t}, False, "both"),
+        row_text(row, {}, False, "both", committed=frozenset({7})),
+    ):
+        color = text.get_style_at_offset(console, 2).color
+        assert color is not None and "green" in color.name
+
+
+def test_row_text_committed_shows_check() -> None:
+    from tidal2ytm.planning import ListRow, row_text
+
+    t = _src(7, "Wanderer", "Slate", "Seven (Deluxe Version)", 104, year=1971, track=3)
+    row = ListRow("track", artist=t.artist, album=t.album, track=t, indent=4)
+    plain = row_text(row, {7: t}, False, "both", committed=frozenset({7})).plain
+    assert "✓" in plain and "■" not in plain
+
+
 def test_row_text_cursor_visible_on_cursor_row_only() -> None:
     from tidal2ytm.planning import ListRow, row_text
 
@@ -861,6 +887,31 @@ def test_classify_windows_event() -> None:
     assert planning_mod.classify_windows_event(1, False, 38, "") is None
     assert planning_mod.classify_windows_event(1, True, 38, "\x00") == planning_mod.readchar_key.UP
     assert planning_mod.classify_windows_event(1, True, 65, "a") == "a"
+
+
+def test_picker_frame_renders_committed_checks() -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    hits = _picker_hits()
+    rows = planning_mod.build_rows(hits, "none")
+    view = planning_mod.PickerView(
+        title="Search: ",
+        title_term="nightshade",
+        rows=rows,
+        cursor=0,
+        selection={1: hits[0]},
+        grouping="none",
+        hits_total=3,
+        height=10,
+        clearable=False,
+        notice="",
+        committed=frozenset({1}),
+    )
+    console = Console(width=60, record=True)
+    console.print(planning_mod.picker_frame(view))
+    assert "✓" in console.export_text()
 
 
 def test_picker_bar_advertises_quit() -> None:
