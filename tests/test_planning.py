@@ -952,6 +952,97 @@ def test_classify_windows_event_wheel() -> None:
     assert keys_mod.classify_windows_event(2, False, 0, "", button_state=0, event_flags=0) is None
 
 
+def test_scrollbar_thumb_hidden_without_overflow() -> None:
+    from tidal2ytm.picker_rows import scrollbar_thumb
+
+    assert scrollbar_thumb(5, 10, 0) is None
+    assert scrollbar_thumb(10, 10, 0) is None
+
+
+def test_scrollbar_thumb_tracks_window() -> None:
+    from tidal2ytm.picker_rows import scrollbar_thumb
+
+    assert scrollbar_thumb(100, 10, 0) == 0
+    assert scrollbar_thumb(100, 10, 90) == 9
+    thumb = scrollbar_thumb(100, 10, 45)
+    assert thumb is not None and 0 < thumb < 9
+
+
+def test_picker_frame_shows_scrollbar_on_overflow() -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.picker_rows import PickerView
+
+    hits = [_src(i, f"Song{i:02d}") for i in range(1, 31)]
+    rows = planning_mod.build_rows(hits, "none")
+    view = PickerView(
+        title="Search: ",
+        title_term="x",
+        rows=rows,
+        cursor=0,
+        selection={},
+        grouping="none",
+        hits_total=30,
+        height=10,
+        clearable=False,
+        notice="",
+    )
+    console = Console(width=60, record=True)
+    console.print(planning_mod.picker_frame(view))
+    assert "█" in console.export_text()
+
+
+def test_picker_frame_hides_scrollbar_without_overflow() -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.picker_rows import PickerView
+
+    rows = planning_mod.build_rows(_picker_hits(), "none")
+    view = PickerView(
+        title="Search: ",
+        title_term="x",
+        rows=rows,
+        cursor=0,
+        selection={},
+        grouping="none",
+        hits_total=3,
+        height=10,
+        clearable=False,
+        notice="",
+    )
+    console = Console(width=60, record=True)
+    console.print(planning_mod.picker_frame(view))
+    assert "█" not in console.export_text()
+
+
+def test_picker_frame_scrollbar_survives_long_titles() -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.picker_rows import PickerView
+
+    long_title = "A Very Long Track Title That Definitely Overflows The Panel Width For Sure"
+    hits = [_src(i, f"{long_title} - {i:02d}") for i in range(1, 31)]
+    rows = planning_mod.build_rows(hits, "none")
+    view = PickerView(
+        title="Search: ",
+        title_term="long",
+        rows=rows,
+        cursor=0,
+        selection={},
+        grouping="none",
+        hits_total=30,
+        height=10,
+        clearable=False,
+        notice="",
+    )
+    console = Console(width=60, record=True)
+    console.print(planning_mod.picker_frame(view))
+    assert "█" in console.export_text()
+
+
 def test_picker_frame_renders_committed_checks() -> None:
     from rich.console import Console
 

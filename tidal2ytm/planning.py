@@ -18,6 +18,7 @@ from rich.columns import Columns
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 try:
@@ -57,6 +58,7 @@ from .picker_rows import (  # noqa: E402
     ListRow,
     PickerView,
     build_rows,
+    scrollbar_thumb,
     toggle_row,
     toggle_scope,
     toggle_select,
@@ -516,11 +518,20 @@ def picker_frame(view: PickerView) -> Group:
     ]
     while len(lines) < view.height:
         lines.append(Text(""))
-    body = Text(no_wrap=True, overflow="ellipsis")
-    for i, line in enumerate(lines):
-        if i:
-            body.append("\n")
-        body.append_text(line)
+    thumb = scrollbar_thumb(len(view.rows), view.height, start)
+    if thumb is not None:
+        grid = Table.grid(expand=True)
+        grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
+        grid.add_column(width=1)
+        for i, line in enumerate(lines):
+            grid.add_row(line, "█" if i == thumb else "│")
+        body = grid
+    else:
+        body = Text(no_wrap=True, overflow="ellipsis")
+        for i, line in enumerate(lines):
+            if i:
+                body.append("\n")
+            body.append_text(line)
     return Group(
         Panel(head, border_style="dim", expand=True),
         Panel(body, expand=True),
