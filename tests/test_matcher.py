@@ -51,20 +51,16 @@ def test_from_dict_rejects_bad_identity() -> None:
         SourceTrack.from_dict({"tidal_id": "not-a-number", "title": "Ember Fall"})
 
 
-def test_matcher_get_song_errors_propagate() -> None:
-    track = SourceTrack(
-        tidal_id=31,
-        title="Ember Fall",
-        artist="Vesper Vale",
-        artists=["Vesper Vale"],
-        album="Ashen Light",
-        album_id=7,
-        album_year=2021,
-        duration_sec=209,
-        isrc="USABC1234567",
-        track_num=1,
-        disc_num=1,
-        version=None,
+def test_matcher_makes_no_detail_lookups() -> None:
+    """One search call per track; no per-candidate get_song detail lookups."""
+    track = _source(
+        {
+            "title": "Ember Fall",
+            "artists": ["Vesper Vale"],
+            "album": "Ashen Light",
+            "duration": 209,
+            "isrc": "USABC1234567",
+        }
     )
     cand = {
         "videoId": "AAAAAAAAAAA",
@@ -73,9 +69,10 @@ def test_matcher_get_song_errors_propagate() -> None:
         "album": {"name": "Ashen Light"},
         "duration_seconds": 209,
     }
-    yt = FakeYT([cand], song_error=RuntimeError("auth expired"))
-    with pytest.raises(RuntimeError):
-        match_track(track, yt)  # type: ignore[arg-type]
+    yt = _yt_with_candidates([cand])
+    match_track(track, yt)
+    yt.search.assert_called_once()
+    yt.get_song.assert_not_called()
 
 
 def test_matcher_isrc_via_candidate() -> None:
@@ -97,28 +94,6 @@ def test_matcher_isrc_via_candidate() -> None:
     yt = _yt_with_candidates([cand])
     res = match_track(_source(track), yt)
     assert res.match_method == MatchMethod.ISRC and res.confidence.overall == 1.0
-
-
-def test_matcher_isrc_via_get_song_fallback() -> None:
-    track = {
-        "title": "Muddle",
-        "artists": ["Wren"],
-        "album": "Cinder Child",
-        "duration": 221,
-        "isrc": "USABC1234567",
-    }
-    cand = {
-        "videoId": "CCCCCCCCCCC",
-        "title": "Muddle",
-        "artists": [{"name": "Wren"}],
-        "album": {"name": "Cinder Child"},
-        "duration_seconds": 221,
-    }
-    yt = _yt_with_candidates(
-        [cand], song_detail={"microformat": {"microformatDataRenderer": {"isrc": "USABC1234567"}}}
-    )
-    res = match_track(_source(track), yt)
-    assert res.match_method == MatchMethod.ISRC
 
 
 def test_matcher_duration_boundary_4s_pass_5s_fail() -> None:
@@ -283,11 +258,54 @@ def test_wrong_album_is_needs_review_even_with_perfect_title_artist() -> None:
     assert result.status == TrackStatus.NEEDS_REVIEW
 
 
+def test_deluxe_suffix_album_is_needs_review() -> None:
+    # "(Deluxe Version)" scores album_sim ~0.84: below WRONG_ALBUM_THRESHOLD,
+    # so a different pressing needs review even with perfect title/artist.
+    track = {
+        "title": "Master Of Disaster",
+        "artists": ["Seether"],
+        "album": "Holding Onto Strings Better Left To Fray",
+        "duration": 259,
+        "isrc": None,
+    }
+    cand = {
+        "videoId": "DDDDDDDDDDD",
+        "title": "Master Of Disaster",
+        "artists": [{"name": "Seether"}],
+        "album": {"name": "Holding Onto Strings Better Left To Fray (Deluxe Version)"},
+        "duration_seconds": 259,
+    }
+    yt = _yt_with_candidates([cand])
+    result = match_track(_source(track), yt)
+    assert result.status == TrackStatus.NEEDS_REVIEW
+    assert result.review_reason is not None and result.review_reason.startswith("Wrong album match")
+
+
+def test_exact_album_is_pending() -> None:
+    track = {
+        "title": "Master Of Disaster",
+        "artists": ["Seether"],
+        "album": "Holding Onto Strings Better Left To Fray",
+        "duration": 259,
+        "isrc": None,
+    }
+    cand = {
+        "videoId": "DDDDDDDDDDD",
+        "title": "Master Of Disaster",
+        "artists": [{"name": "Seether"}],
+        "album": {"name": "Holding Onto Strings Better Left To Fray"},
+        "duration_seconds": 259,
+    }
+    yt = _yt_with_candidates([cand])
+    result = match_track(_source(track), yt)
+    assert result.status == TrackStatus.PENDING
+
+
 def test_isrc_miss_falls_back_to_duration_over_fuzzy_title() -> None:
     # Candidate B: exact title/artist/album but wrong duration (fails the gate).
     # Candidate A: candidate-metadata ISRC mismatch + right duration — the ISRC
-    # miss (including the bounded get_song fallback) must fall through to the
-    # duration strategy instead of letting the fuzzy-title candidate win.
+    # miss must fall through to the duration strategy instead of letting the
+    # fuzzy-title candidate win.
     track = {
         "title": "Ember Fall",
         "artists": ["Vesper Vale"],

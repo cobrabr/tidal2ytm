@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from ytmusicapi import YTMusic
 
@@ -9,7 +9,10 @@ from .text import similarity
 
 DURATION_TOLERANCE_SEC = 4
 CONFIDENCE_THRESHOLD = 0.70
-_MAX_ISRC_LOOKUPS = 5
+# Album similarity below this flags a wrong-album needs_review: a
+# "(Deluxe Version)"-style suffix scores ~0.84, an exact album scores 1.0.
+WRONG_ALBUM_THRESHOLD = 0.85
+_SEARCH_LIMIT = 20
 
 
 def _build_query(track: SourceTrack) -> str:
@@ -17,20 +20,6 @@ def _build_query(track: SourceTrack) -> str:
     if track.version:
         parts.append(track.version)
     return " ".join(parts)
-
-
-def _isrc_from_song_detail(detail: dict[str, Any]) -> str | None:
-    if "isrc" in detail:
-        return detail["isrc"]
-    vd = detail.get("videoDetails", {})
-    if "isrc" in vd:
-        return vd["isrc"]
-    mf = detail.get("microformat", {})
-    if isinstance(mf, dict):
-        renderer: Any = cast(Any, mf).get("microformatDataRenderer", {})
-        if isinstance(renderer, dict) and "isrc" in renderer:
-            return cast(str, renderer["isrc"])
-    return None
 
 
 def _isrc_from_candidate(candidate: dict[str, Any]) -> str | None:
@@ -60,7 +49,7 @@ def _build_fuzzy_summary(
 
 def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
     query = _build_query(track)
-    candidates: list[dict[str, Any]] = yt.search(query, filter="songs", limit=10)  # type: ignore[no-untyped-call]
+    candidates: list[dict[str, Any]] = yt.search(query, filter="songs", limit=_SEARCH_LIMIT)  # type: ignore[no-untyped-call]
 
     best_video_id: str | None = None
     best_meta: dict[str, Any] = {}
@@ -68,7 +57,6 @@ def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
     best_confidence = 0.0
     best_breakdown: ConfidenceBreakdown | None = None
     best_wrong_album = False
-    isrc_lookups = 0
 
     for candidate in candidates:
         vid = candidate.get("videoId")
@@ -85,48 +73,25 @@ def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
         c_isrc: str | None = _isrc_from_candidate(candidate)
         c_track_num: int | None = _album_track_num_from_candidate(candidate)
 
-        # Strategy 1: ISRC
-        if track.isrc:
-            # First try candidate metadata (no extra API call)
-            if c_isrc and c_isrc.upper() == track.isrc.upper():
-                breakdown = ConfidenceBreakdown(overall=1.0, summary="Exact ISRC match")
-                return MatchResult(
-                    source=track,
-                    yt_video_id=vid,
-                    yt_title=c_title,
-                    yt_artist=c_artist,  # pyright: ignore[reportUnknownArgumentType]
-                    yt_album=c_album,  # pyright: ignore[reportUnknownArgumentType]
-                    yt_album_track_num=c_track_num,
-                    yt_isrc=c_isrc,
-                    yt_duration_sec=c_dur,
-                    match_method=MatchMethod.ISRC,
-                    confidence=breakdown,
-                    status=TrackStatus.PENDING,
-                )
-            # Fallback: fetch detail (bounded; a lookup miss falls through to
-            # fuzzy, while transport/auth errors propagate).
-            if isrc_lookups < _MAX_ISRC_LOOKUPS:
-                isrc_lookups += 1
-                try:
-                    detail: dict[str, Any] = yt.get_song(vid)  # type: ignore[no-untyped-call]
-                except KeyError:
-                    detail = {}
-                fetched_isrc = _isrc_from_song_detail(detail)
-                if fetched_isrc and fetched_isrc.upper() == track.isrc.upper():
-                    breakdown = ConfidenceBreakdown(overall=1.0, summary="Exact ISRC match")
-                    return MatchResult(
-                        source=track,
-                        yt_video_id=vid,
-                        yt_title=c_title,
-                        yt_artist=c_artist,  # pyright: ignore[reportUnknownArgumentType]
-                        yt_album=c_album,  # pyright: ignore[reportUnknownArgumentType]
-                        yt_album_track_num=c_track_num,
-                        yt_isrc=fetched_isrc,
-                        yt_duration_sec=c_dur,
-                        match_method=MatchMethod.ISRC,
-                        confidence=breakdown,
-                        status=TrackStatus.PENDING,
-                    )
+        # Strategy 1: ISRC via candidate metadata only (no extra API call;
+        # ytmusicapi search results carry no ISRC, so a bounded get_song
+        # fallback would only burn player requests — a miss falls through to
+        # duration/fuzzy below, while transport/auth errors propagate).
+        if track.isrc and c_isrc and c_isrc.upper() == track.isrc.upper():
+            breakdown = ConfidenceBreakdown(overall=1.0, summary="Exact ISRC match")
+            return MatchResult(
+                source=track,
+                yt_video_id=vid,
+                yt_title=c_title,
+                yt_artist=c_artist,  # pyright: ignore[reportUnknownArgumentType]
+                yt_album=c_album,  # pyright: ignore[reportUnknownArgumentType]
+                yt_album_track_num=c_track_num,
+                yt_isrc=c_isrc,
+                yt_duration_sec=c_dur,
+                match_method=MatchMethod.ISRC,
+                confidence=breakdown,
+                status=TrackStatus.PENDING,
+            )
 
         # Strategy 2+3: Duration + fuzzy
         if c_dur is None:
@@ -153,7 +118,7 @@ def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
                 "isrc": c_isrc,
                 "track_num": c_track_num,
             }
-            wrong_album = album_sim < 0.5
+            wrong_album = album_sim < WRONG_ALBUM_THRESHOLD
             best_method = MatchMethod.DURATION if album_sim < 0.3 else MatchMethod.FUZZY
             best_wrong_album = wrong_album
             best_breakdown = ConfidenceBreakdown(

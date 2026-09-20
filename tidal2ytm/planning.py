@@ -53,7 +53,7 @@ from .keys import (  # noqa: E402
     windows_mouse,
 )
 from .matcher import match_track  # noqa: E402
-from .models import SourceTrack  # noqa: E402
+from .models import MatchMethod, SourceTrack  # noqa: E402
 from .paths import PLAN_FILE  # noqa: E402
 from .picker_rows import (  # noqa: E402
     ListRow,
@@ -190,10 +190,10 @@ def _match_one(
         if existing is None:
             insert_track(plan, unmatched_track_dict(src, f"Match error: {exc}"), src.album_year)
             counts["new"] += 1
-            console.print(f"  -> match failed: {exc} [recorded as needs_review]")
+            console.print(Text(f"  --> match failed: {exc} [recorded as needs_review]"))
         else:
             counts["kept"] += 1
-            console.print(f"  -> match failed: {exc} [kept stored match]")
+            console.print(Text(f"  --> match failed: {exc} [kept stored match]"))
         return None
     return match_result_to_track_dict(result)
 
@@ -232,33 +232,34 @@ def _apply_match_action(
     console: Console,
 ) -> None:
     """Apply one successful match to the plan per its merge action."""
-    conf = new_dict["confidence"]["overall"]
-    summary = new_dict["confidence"].get("summary", "")
-    method = new_dict["match_method"]
-    yt_desc = _yt_desc(new_dict)
+    line = _result_line(new_dict, src.track_num)
     action = classify_track(existing, new_dict["yt_video_id"])
     if action == "skip-transferred":
         counts["skipped"] += 1
-        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [skipped, already transferred]")
+        line.append(" [skipped, already transferred]")
+        console.print(line)
     elif action == "add-new":
         insert_track(plan, new_dict, src.album_year)
         counts["new"] += 1
-        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [new]{_summary_suffix(summary)}")
+        line.append(" [new]")
+        console.print(line)
     elif action == "keep-same":
         counts["kept"] += 1
-        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [kept, same as stored]")
+        line.append(" [kept, same as stored]")
+        console.print(line)
     elif override:
         assert existing is not None
         update_track_in_plan(plan, src.tidal_id, new_dict)
         counts["upgraded"] += 1
-        console.print(f"  -> {method} {yt_desc} @ {conf:.2f} [upgraded, override on]")
+        line.append(" [upgraded, override on]")
+        console.print(line)
     elif _resolve_conflict(existing, new_dict, ask):
         update_track_in_plan(plan, src.tidal_id, new_dict)
         counts["upgraded"] += 1
-        console.print(f"  -> upgraded to {new_dict.get('yt_video_id')}")
+        console.print(f"  --> upgraded to {new_dict.get('yt_video_id')}")
     else:
         counts["kept"] += 1
-        console.print("  -> kept stored match")
+        console.print("  --> kept stored match")
 
 
 def run_match_action(
@@ -294,8 +295,9 @@ def run_match_action(
         plan = {"meta": {}, "artists": []}
     ordered = iter_selection_ordered(session.selection)
     for i, src in enumerate(ordered, 1):
-        tag = Text(f"[{i}/{n}] ", style=_STYLE_MATCH)
-        tag.append(f"Matching '{src.title}' by {src.artist} {_src_detail(src)} …")
+        tag = Text(f"[{i}/{n}] Matching '{src.title}' by {src.artist} ", style="bright_green")
+        tag.append(_src_detail(src))
+        tag.append(" …")
         console.print(tag)
         existing = find_existing_match(plan, src.tidal_id)
         new_dict = _match_one(src, plan, yt, console, counts)
@@ -343,10 +345,12 @@ def _select_all(
 
 
 def _src_detail(src: SourceTrack) -> str:
-    """One-line Tidal source detail: album, year, duration, ISRC when known."""
+    """One-line Tidal source detail: album, year, track number, duration, ISRC."""
     parts = [src.album] if src.album else []
     if src.album_year is not None:
         parts.append(str(src.album_year))
+    if src.track_num > 0:
+        parts.append(f"#{src.track_num}")
     parts.append(fmt_duration(src.duration_sec))
     if src.isrc:
         parts.append(f"ISRC {src.isrc}")
@@ -354,11 +358,37 @@ def _src_detail(src: SourceTrack) -> str:
 
 
 def _yt_desc(track: dict[str, Any]) -> str:
-    """One-line YTM hit from a track dict: video id plus title/artist when known."""
+    """One-line YTM hit: video id, YTM track number when known, title/artist."""
     vid = track.get("yt_video_id") or "(no match)"
     title = track.get("yt_title") or "?"
     artist = track.get("yt_artist") or "?"
-    return f"{vid} '{title}' by {artist}"
+    num = track.get("yt_album_track_num") or 0
+    prefix = f"{vid} #{num}" if num else vid
+    return f"{prefix} '{title}' by {artist}"
+
+
+def _conf_token(conf: float, method: str) -> Text:
+    """Confidence token: blue 'exact match' for ISRC, numeric otherwise."""
+    if method == MatchMethod.ISRC.value:
+        return Text("exact match", style="blue")
+    return Text(f"@ {conf:.2f}")
+
+
+def _result_line(track: dict[str, Any], src_num: int) -> Text:
+    """Markup-safe result line: '-->' prefix, both track numbers, conf token, summary."""
+    conf = track["confidence"]["overall"]
+    summary = track["confidence"].get("summary", "")
+    method = track["match_method"]
+    line = Text("  --> ")
+    line.append(method)
+    line.append(" ")
+    line.append(_yt_desc(track))
+    if src_num > 0:
+        line.append(f" (Tidal #{src_num})")
+    line.append(" ")
+    line.append_text(_conf_token(conf, method))
+    line.append(_summary_suffix(summary))
+    return line
 
 
 def _summary_suffix(summary: str) -> str:
@@ -808,7 +838,7 @@ def resolve_search(session: PlanningSession, query: str) -> tuple[list[SourceTra
 def _prompt_query() -> str | None:
     """One search prompt; None on abort, "" on empty input."""
     try:
-        return input("Search (or paste a Tidal link): ").strip()
+        return input("Search or paste a Tidal link (Enter to go back): ").strip()
     except (KeyboardInterrupt, EOFError):
         return None
 

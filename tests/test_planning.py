@@ -1360,6 +1360,8 @@ def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -
     assert "AAAAAAAAAAA" in out
     assert "fuzzy" in out.lower()
     assert "0.90" in out
+    assert "-->" in out
+    assert "(Tidal #1)" in out
 
 
 def test_read_plan_counts_missing_file_returns_zeros(tmp_path: Path) -> None:
