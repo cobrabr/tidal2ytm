@@ -67,6 +67,12 @@ The pre-commit, pre-push, and GitHub Actions workflows exercise these tools. Rep
 
 Tests use fictional artist/track names and synthetic IDs only, never real catalogue data.
 
+## CI parity (CI is Linux-only; dev is usually Windows)
+
+- CI (`.github/workflows/ci.yml`, ubuntu-latest) runs `check-toml`, `ruff check`, `ruff format --check`, `pyright`, then the full suite as `uv run pytest --cov --cov-report=xml --cov-report=term-missing` (no `-x`, no `-q`). Run that exact sequence before pushing — the pre-push hook's `pytest -q -x` can hide order-dependent and coverage-path failures.
+- Platform-branched code (`os.name`, `termios`/`msvcrt` guards) has a path CI exercises that Windows never does: force both branches in tests (monkeypatch `os.name`, stub the guarded import), because a green local run proves nothing about the Linux path.
+- Test doubles must implement the full interface production code touches (a stdin stand-in needs `fileno()` when the reader calls it); never stub narrower than the real collaborator. When production branches on a capability (`termios` import, `isatty`), the double must drive the same branch CI will take.
+
 ## Versioning
 
 - `pyproject.toml:version` is the release number (bare `X.Y.Z`, no prefix). The feature branch sets the upcoming version once its scope is known (patch for bug fixes with no behaviour change, minor for new features and CLI surface changes, major for breaking `transfer_plan.toml` format or token/auth changes); no repeated bumps per change on the branch. Tags are created on `main` only, at release time.
