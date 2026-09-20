@@ -368,9 +368,9 @@ def _summary_suffix(summary: str) -> str:
 def hot_hint(pre: str, hot: str, post: str = "", style: str = "bold bright_blue") -> Text:
     """Colour-only hotkey: the action letter coloured inside its word."""
     part = Text()
-    part.append(pre, style="dim")
+    part.append(pre)
     part.append(hot, style=style)
-    part.append(post, style="dim")
+    part.append(post)
     return part
 
 
@@ -428,7 +428,7 @@ def row_text(
             text.append(f"{t.artist} - {t.title} ")
         else:
             text.append(f"{t.title} ")
-        text.append(_track_details(t, show_album=grouping != "both"), style="dim")
+        text.append(_track_details(t, show_album=grouping != "both"))
         return text
     mark = _check_state(row.members, selection)
     text.append(mark, style=_mark_style(mark))
@@ -441,7 +441,7 @@ def row_text(
         disc = row.members[0].disc_num if row.members else 0
         text.append(f"Disc {disc}", style="italic")
     n_sel = sum(1 for t in row.members if t.tidal_id in selection)
-    text.append(f"  ({n_sel}/{len(row.members)} selected)", style="dim")
+    text.append(f"  ({n_sel}/{len(row.members)} selected)")
     return text
 
 
@@ -468,12 +468,12 @@ def picker_bar(grouping: str, clearable: bool) -> Text:
         if i:
             move.append(" | ", style="dim")
         move.append(k, style=blue)
-    move.append(" move", style="dim")
+    move.append(" move")
     new_search = Text()
     new_search.append("/", style=blue)
     new_search.append(" | ", style="dim")
     new_search.append("s", style=blue)
-    new_search.append(" new search", style="dim")
+    new_search.append(" new search")
     parts = [
         move,
         new_search,
@@ -501,7 +501,7 @@ def picker_head(title: str, title_term: str, hits_total: int, n_selected: int, n
     head.append(title, style="bold bright_blue")
     if title_term:
         head.append(title_term, style="bold italic bright_blue")
-    head.append(f"  {hits_total} hit(s)  {n_selected} selected", style="dim")
+    head.append(f"  {hits_total} hit(s)  {n_selected} selected")
     if notice:
         head.append(f"\n{notice}", style="yellow")
     return head
@@ -1110,7 +1110,7 @@ def _do_gateway_auth(
     try:
         scope = ask("Authenticate [both/tidal/ytm] (default both): ").strip().lower() or "both"
         if scope not in ("both", "tidal", "ytm"):
-            console.print("[dim]Unknown scope (press ? for help)[/dim]")
+            console.print("Unknown scope (press ? for help)")
             ask("Press Enter to continue…")
             return
         from . import auth as auth_mod
@@ -1171,7 +1171,7 @@ def key_hints(hints: list[tuple[tuple[str, ...], str, str]]) -> Text:
             if j:
                 bar.append(" | ", style="dim")
             bar.append(k, style=style)
-        bar.append(rest, style="dim")
+        bar.append(rest)
     return bar
 
 
@@ -1205,47 +1205,47 @@ def menu_body(session: PlanningSession, has_plan: bool = True) -> Text:
         ("/", blue),
         (" | ", "dim"),
         ("s", blue),
-        ("earch for tracks (query or Tidal link)", "dim"),
+        ("earch for tracks (query or Tidal link)", ""),
     )
     if session.library_loaded:
         track_word = "track" if len(session.liked) == 1 else "tracks"
         selection = Text.assemble(
-            ("select ", "dim"),
+            ("select ", ""),
             ("e", blue),
-            (f"verything in your library ({len(session.liked)} {track_word}) or ", "dim"),
+            (f"verything in your library ({len(session.liked)} {track_word}) or ", ""),
             ("v", blue),
-            (f"iew the {len(session.selection)} selected across searches", "dim"),
+            (f"iew the {len(session.selection)} selected across searches", ""),
         )
     else:
         selection = Text.assemble(
-            ("library not loaded, cannot select or view tracks — ", "dim"),
+            ("library not loaded, cannot select or view tracks — ", ""),
             ("a", _STYLE_AUTH),
-            ("uthenticate", "dim"),
+            ("uthenticate", ""),
         )
     match = Text.assemble(
         ("m", green),
-        ("atch your selection to YTM, ", "dim"),
+        ("atch your selection to YTM, ", ""),
         ("ctrl+o", green),
-        ("verride existing matches", "dim"),
+        ("verride existing matches", ""),
     )
-    review = Text.assemble(("r", _STYLE_REVIEW), ("eview every match in the plan", "dim"))
+    review = Text.assemble(("r", _STYLE_REVIEW), ("eview every match in the plan", ""))
     transfer = Text.assemble(
         ("t", _STYLE_TRANSFER),
-        ("ransfer pending tracks to YTM or ", "dim"),
+        ("ransfer pending tracks to YTM or ", ""),
         ("d", _STYLE_TRANSFER),
-        ("ry-run the transfer", "dim"),
+        ("ry-run the transfer", ""),
     )
-    auth = Text.assemble(("a", _STYLE_AUTH), ("uthenticate with Tidal and YTM", "dim"))
+    auth = Text.assemble(("a", _STYLE_AUTH), ("uthenticate with Tidal and YTM", ""))
     if not has_plan:
-        review.append("  (needs plan)", style="dim")
-        transfer.append("  (needs plan)", style="dim")
+        review.append("  (needs plan)")
+        transfer.append("  (needs plan)")
     meta = Text.assemble(
         ("?", _STYLE_HELP),
         (" | ", "dim"),
         ("h", _STYLE_HELP),
-        ("elp", "dim"),
+        ("elp", ""),
     )
-    quit_line = Text.assemble(("q", _STYLE_HELP), ("uit tidal2ytm", "dim"))
+    quit_line = Text.assemble(("q", _STYLE_HELP), ("uit tidal2ytm", ""))
     blocks: list[list[Text]] = [
         [select, selection],
         [match],
@@ -1333,7 +1333,7 @@ def track_row(n: int, selected: bool, t: SourceTrack) -> Text:
     mark = "■" if selected else "☐"
     row.append(mark, style=_mark_style(mark))
     row.append(f" {t.artist} - {t.title} ")
-    row.append(_track_details(t, show_album=True), style="dim")
+    row.append(_track_details(t, show_album=True))
     return row
 
 
@@ -1429,13 +1429,13 @@ COMMANDS: dict[str, Callable[[Console, PlanningSession], None]] = {
 
 # Per-mode messages for keys that look like the override key but are not.
 _OVERRIDE_HINTS: dict[bool, str] = {
-    True: "[dim]Override needs ctrl+o (plain 'o' does nothing).[/dim]",
-    False: "[dim]Override needs capital O here (ctrl+o on a TTY).[/dim]",
+    True: "Override needs ctrl+o (plain 'o' does nothing).",
+    False: "Override needs capital O here (ctrl+o on a TTY).",
 }
 
 _UNKNOWN_MESSAGES: dict[bool, str] = {
-    True: "[dim]Unknown key  (press ? for help)[/dim]",
-    False: "[dim]Unknown command  (press ? for help)[/dim]",
+    True: "Unknown key  (press ? for help)",
+    False: "Unknown command  (press ? for help)",
 }
 
 
