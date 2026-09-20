@@ -460,7 +460,7 @@ def footer_lines(console: Console, grouping: str, clearable: bool) -> int:
 
 
 def picker_bar(grouping: str, clearable: bool) -> Text:
-    """Picker footer: bold-blue keys joined by grey pipes, Enter/Esc yellow."""
+    """Picker footer: bold-blue keys joined by grey pipes, Enter/Esc/quit yellow."""
     blue = "bold bright_blue"
     bar = Text()
     move = Text()
@@ -485,9 +485,9 @@ def picker_bar(grouping: str, clearable: bool) -> Text:
     ]
     if clearable:
         parts.append(hot_hint("", "c", "lear all"))
-    parts.append(hot_hint("", "q", "uit", style="bold bright_yellow"))
     parts.append(hot_hint("", "Enter", " confirm", style="bold bright_yellow"))
     parts.append(hot_hint("", "Esc", " cancel", style="bold bright_yellow"))
+    parts.append(hot_hint("", "q", "uit", style="bold bright_yellow"))
     for i, part in enumerate(parts):
         if i:
             bar.append("   ", style="dim")
