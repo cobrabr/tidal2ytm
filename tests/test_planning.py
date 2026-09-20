@@ -1252,17 +1252,30 @@ class _WritesStub:
 
 
 def test_sgr_mouse_writes_enable_disable(monkeypatch: Any, tmp_path: Path) -> None:
+    import contextlib
+    from collections.abc import Generator
+
     from rich.console import Console
 
     from tidal2ytm import planning as planning_mod
 
     writes: list[str] = []
+    raw_calls: list[str] = []
+
+    @contextlib.contextmanager
+    def _fake_posix_raw() -> Generator[None, None, None]:
+        raw_calls.append("enter")
+        yield
+        raw_calls.append("exit")
+
     monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setattr(sys, "stdin", _TtyStub())
     monkeypatch.setattr(sys, "stdout", _WritesStub(writes))
+    monkeypatch.setattr(planning_mod, "posix_raw", _fake_posix_raw)
     monkeypatch.setattr(planning_mod, "_picker_readkey", lambda: planning_mod.readchar_key.ENTER)
     session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
     planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
+    assert raw_calls == ["enter", "exit"]
     assert "\x1b[?1000h\x1b[?1006h" in writes
     assert "\x1b[?1000l" in writes
 
@@ -1285,6 +1298,19 @@ def test_sgr_mouse_noop_without_tty(monkeypatch: Any, tmp_path: Path) -> None:
     planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
     assert "\x1b[?1000h\x1b[?1006h" not in writes
     assert "\x1b[?1000l" not in writes
+
+
+def test_posix_raw_yields_without_termios_when_not_a_tty(monkeypatch: Any) -> None:
+    from tidal2ytm import keys as keys_mod
+
+    class _NoTtyStub:
+        def isatty(self) -> bool:
+            return False
+
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(sys, "stdin", _NoTtyStub())
+    with keys_mod.posix_raw():
+        pass
 
 
 class _InputStub:
