@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sys
+import time
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from functools import partial
@@ -867,6 +868,52 @@ def _present_search_fallback(
     _apply_search_toggle(console, session, hits, raw.strip())
 
 
+# Seconds the committed-✓ frame stays on screen after a confirmed search round.
+_COMMIT_FLASH_SEC = 1.0
+
+
+def _flash_committed(console: Console, session: PlanningSession, hits: list[SourceTrack]) -> None:
+    """Static ✓ frame over the committed staging, then a clean screen so the next
+    prompt never scrolls below a stale picker frame."""
+    grouping = default_grouping(len(hits))
+    view = PickerView(
+        title="Search: ",
+        title_term="",
+        rows=build_rows(hits, grouping, find_compilations(session.liked)),
+        cursor=0,
+        selection=session.selection,
+        grouping=grouping,
+        hits_total=len(hits),
+        height=viewport_height(console.size.height or 24, footer_lines(console, grouping, False)),
+        clearable=False,
+        notice="Kept — search again",
+        committed=frozenset(session.selection),
+    )
+    console.clear()
+    console.print(picker_frame(view))
+    time.sleep(_COMMIT_FLASH_SEC)
+    console.clear()
+
+
+def _picker_round(
+    console: Console,
+    session: PlanningSession,
+    hits: list[SourceTrack],
+    query: str,
+    notice: str,
+) -> bool:
+    """One picker round over these hits; True prompts the next query, False exits to the menu."""
+    if (
+        run_picker(console, session, hits, title="Search: ", title_term=query, notice=notice)
+        == "search"
+    ):
+        return True
+    if not session.selection:
+        return False
+    _flash_committed(console, session, hits)
+    return True
+
+
 def _do_search(
     console: Console,
     session: PlanningSession,
@@ -884,15 +931,12 @@ def _do_search(
         hits, direct = resolve_search(session, query)
         if not hits:
             console.print("[yellow]No hits.[/yellow]")
-            return
+            continue
         notice = "" if direct else f'No matches for "{query}" — closest:'
         if not (HAS_READCHAR and sys.stdin.isatty()):
             _present_search_fallback(console, session, hits, query, notice)
             return
-        if (
-            run_picker(console, session, hits, title="Search: ", title_term=query, notice=notice)
-            != "search"
-        ):
+        if not _picker_round(console, session, hits, query, notice):
             return
 
 

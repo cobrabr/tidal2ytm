@@ -1099,6 +1099,94 @@ def test_do_search_loops_on_new_search(monkeypatch: Any, tmp_path: Path) -> None
     assert calls == ["nightshade", "nightshade"]
 
 
+def test_do_search_confirmed_selection_flashes_and_searches_again(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    import io
+
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    monkeypatch.setattr(sys, "stdin", _TtyStub())
+    monkeypatch.setattr("builtins.input", _InputStub(["nightshade", ""]))
+    monkeypatch.setattr(planning_mod, "_COMMIT_FLASH_SEC", 0)
+    calls: list[str] = []
+
+    def _fake_picker(
+        console: Console, session: PlanningSession, hits: list[SourceTrack], **kwargs: Any
+    ) -> str | None:
+        calls.append(kwargs.get("title_term", ""))
+        session.selection[hits[0].tidal_id] = hits[0]
+        return None
+
+    monkeypatch.setattr(planning_mod, "run_picker", _fake_picker)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml",
+        liked=[_src(1, "Nightshade", "Slate", "Nightshade", 101)],
+        library_loaded=True,
+    )
+    buf = io.StringIO()
+    planning_mod.COMMANDS["s"](Console(file=buf, width=60, force_terminal=True), session)
+    assert calls == ["nightshade"]
+    assert "✓" in buf.getvalue()
+    assert set(session.selection) == {1}
+
+
+def test_do_search_second_round_keeps_staging(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    monkeypatch.setattr(sys, "stdin", _TtyStub())
+    monkeypatch.setattr("builtins.input", _InputStub(["nightshade", "nightshade", ""]))
+    monkeypatch.setattr(planning_mod, "_COMMIT_FLASH_SEC", 0)
+    calls: list[str] = []
+
+    def _fake_picker(
+        console: Console, session: PlanningSession, hits: list[SourceTrack], **kwargs: Any
+    ) -> str | None:
+        calls.append(kwargs.get("title_term", ""))
+        if len(calls) == 1:
+            session.selection[hits[0].tidal_id] = hits[0]
+        return None
+
+    monkeypatch.setattr(planning_mod, "run_picker", _fake_picker)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml",
+        liked=[_src(1, "Nightshade", "Slate", "Nightshade", 101)],
+        library_loaded=True,
+    )
+    planning_mod.COMMANDS["s"](Console(), session)
+    assert calls == ["nightshade", "nightshade"]
+    assert set(session.selection) == {1}
+
+
+def test_do_search_no_hits_prompts_again(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    monkeypatch.setattr(sys, "stdin", _TtyStub())
+    monkeypatch.setattr("builtins.input", _InputStub(["zzz-no-match", "nightshade", ""]))
+    calls: list[str] = []
+
+    def _fake_picker(
+        console: Console, session: PlanningSession, hits: list[SourceTrack], **kwargs: Any
+    ) -> str | None:
+        calls.append(kwargs.get("title_term", ""))
+        return None
+
+    monkeypatch.setattr(planning_mod, "run_picker", _fake_picker)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml",
+        liked=[_src(1, "Nightshade", "Slate", "Nightshade", 101)],
+        library_loaded=True,
+    )
+    planning_mod.COMMANDS["s"](Console(), session)
+    assert calls == ["nightshade"]
+
+
 def test_search_fallback_star_selects_all(monkeypatch: Any, tmp_path: Path) -> None:
     from rich.console import Console
 
