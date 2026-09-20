@@ -1697,6 +1697,36 @@ def test_gateway_auth_ytm_failure_still_runs_tidal(
     assert "Found 1 tracks." in out
 
 
+def test_gateway_auth_shows_wait_spinner(monkeypatch: Any, tmp_path: Path) -> None:
+    import contextlib
+    from collections.abc import Generator
+
+    from rich.console import Console
+
+    import tidal2ytm.cli as cli_mod
+    from tidal2ytm import planning as planning_mod
+
+    seen: list[str] = []
+
+    @contextlib.contextmanager
+    def _fake_wait_status(thing: str) -> Generator[None, None, None]:
+        seen.append(thing)
+        yield
+
+    monkeypatch.setattr(cli_mod, "wait_status", _fake_wait_status)
+
+    def _fake_ytm_auth(*, force: bool = False) -> None:
+        return None
+
+    monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _fake_ytm_auth)
+    monkeypatch.setattr("builtins.input", _InputStub(["ytm", ""]))
+    session = PlanningSession(
+        plan_path=tmp_path / "x.toml", liked=[], selection={}, library_loaded=True
+    )
+    planning_mod.COMMANDS["a"](Console(), session)
+    assert seen == ["Authenticating with YTM"]
+
+
 @pytest.mark.parametrize("exc", [KeyboardInterrupt, EOFError])
 def test_gateway_transfer_abort_is_not_a_failure(
     tmp_path: Path, capsys: Any, monkeypatch: Any, exc: type[BaseException]

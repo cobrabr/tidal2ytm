@@ -1087,8 +1087,11 @@ def _do_gateway_transfer(
 
 def _attempt_auth(console: Console, label: str, run: Callable[[], object]) -> bool:
     """Run one provider auth; its failure is reported, never skips the other provider."""
+    from .cli import wait_status
+
     try:
-        run()
+        with wait_status(f"Authenticating with {label}"):
+            run()
     except Exception as exc:
         console.print(f"[red]{label} auth failed: {exc}[/red]")
         return False
