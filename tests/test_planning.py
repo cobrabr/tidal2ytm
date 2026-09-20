@@ -789,6 +789,12 @@ def test_picker_bar_grouping_label_arrows_confirm() -> None:
     assert "new search" in bar
 
 
+def test_picker_bar_advertises_wheel_scroll() -> None:
+    from tidal2ytm.planning import picker_bar
+
+    assert "wheel" in picker_bar("both", False).plain
+
+
 def test_picker_unknown_sequence_ignored(monkeypatch: Any, tmp_path: Path) -> None:
     from rich.console import Console
 
@@ -807,6 +813,40 @@ def test_picker_unknown_sequence_ignored(monkeypatch: Any, tmp_path: Path) -> No
     planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
     assert drained == ["drain"]
     assert session.selection == {}
+
+
+def test_picker_wheel_down_moves_cursor_three(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    keys = ["\x1b[<65;1;1M", " ", planning_mod.readchar_key.ENTER]
+
+    class _FakeReadchar:
+        def readkey(self) -> str:
+            return keys.pop(0)
+
+    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
+    assert set(session.selection) == {1}
+
+
+def test_picker_wheel_sentinel_moves_cursor(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    keys = [planning_mod.WHEEL_DOWN, " ", planning_mod.readchar_key.ENTER]
+
+    class _FakeReadchar:
+        def readkey(self) -> str:
+            return keys.pop(0)
+
+    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
+    assert set(session.selection) == {1}
 
 
 def test_resolve_search_delegates_to_search_library(monkeypatch: Any, tmp_path: Path) -> None:
@@ -887,6 +927,29 @@ def test_classify_windows_event() -> None:
     assert planning_mod.classify_windows_event(1, False, 38, "") is None
     assert planning_mod.classify_windows_event(1, True, 38, "\x00") == planning_mod.readchar_key.UP
     assert planning_mod.classify_windows_event(1, True, 65, "a") == "a"
+
+
+def test_parse_sgr_mouse_wheel() -> None:
+    from tidal2ytm import keys as keys_mod
+
+    assert keys_mod.parse_sgr_mouse("\x1b[<64;10;5M") == keys_mod.WHEEL_UP
+    assert keys_mod.parse_sgr_mouse("\x1b[<65;10;5M") == keys_mod.WHEEL_DOWN
+    assert keys_mod.parse_sgr_mouse("\x1b[<0;10;5M") is None
+    assert keys_mod.parse_sgr_mouse("\x1b[Z") is None
+
+
+def test_classify_windows_event_wheel() -> None:
+    from tidal2ytm import keys as keys_mod
+
+    up = keys_mod.classify_windows_event(
+        2, False, 0, "", button_state=0x00780000, event_flags=0x0004
+    )
+    assert up == keys_mod.WHEEL_UP
+    down = keys_mod.classify_windows_event(
+        2, False, 0, "", button_state=0xFF880000, event_flags=0x0004
+    )
+    assert down == keys_mod.WHEEL_DOWN
+    assert keys_mod.classify_windows_event(2, False, 0, "", button_state=0, event_flags=0) is None
 
 
 def test_picker_frame_renders_committed_checks() -> None:
@@ -995,6 +1058,54 @@ def test_do_review_delegates_new_search(monkeypatch: Any, tmp_path: Path) -> Non
 class _TtyStub:
     def isatty(self) -> bool:
         return True
+
+
+class _WritesStub:
+    def __init__(self, writes: list[str]) -> None:
+        self.writes = writes
+
+    def write(self, text: str) -> int:
+        self.writes.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        return None
+
+
+def test_sgr_mouse_writes_enable_disable(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    writes: list[str] = []
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(sys, "stdin", _TtyStub())
+    monkeypatch.setattr(sys, "stdout", _WritesStub(writes))
+    monkeypatch.setattr(planning_mod, "_picker_readkey", lambda: planning_mod.readchar_key.ENTER)
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
+    assert "\x1b[?1000h\x1b[?1006h" in writes
+    assert "\x1b[?1000l" in writes
+
+
+def test_sgr_mouse_noop_without_tty(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    class _NoTtyStub:
+        def isatty(self) -> bool:
+            return False
+
+    writes: list[str] = []
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(sys, "stdin", _NoTtyStub())
+    monkeypatch.setattr(sys, "stdout", _WritesStub(writes))
+    monkeypatch.setattr(planning_mod, "_picker_readkey", lambda: planning_mod.readchar_key.ENTER)
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    planning_mod.run_picker(Console(), session, _picker_hits(), title="Search", height=24)
+    assert "\x1b[?1000h\x1b[?1006h" not in writes
+    assert "\x1b[?1000l" not in writes
 
 
 class _InputStub:

@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -35,6 +35,8 @@ HAS_READCHAR = _has_readchar
 from .format import fmt_duration  # noqa: E402
 from .keys import (  # noqa: E402
     RESIZE_KEY,
+    WHEEL_DOWN,
+    WHEEL_UP,
     classify_windows_event,
     clear_screen,
     drain_escape,
@@ -42,7 +44,11 @@ from .keys import (  # noqa: E402
     esc_has_tail,
     kernel32,
     map_windows_key,
+    parse_sgr_mouse,
+    posix_raw,
+    read_ansi_key,
     read_windows_console_key,
+    windows_mouse,
 )
 from .matcher import match_track  # noqa: E402
 from .models import SourceTrack  # noqa: E402
@@ -455,7 +461,7 @@ def picker_bar(grouping: str, clearable: bool) -> Text:
     blue = "bold bright_blue"
     bar = Text()
     move = Text()
-    for i, k in enumerate(("↑", "↓", "j", "k")):
+    for i, k in enumerate(("↑", "↓", "j", "k", "wheel")):
         if i:
             move.append(" | ", style="dim")
         move.append(k, style=blue)
@@ -520,6 +526,10 @@ def picker_frame(view: PickerView) -> Group:
         Panel(body, expand=True),
         Panel(picker_bar(view.grouping, view.clearable), border_style="dim", expand=True),
     )
+
+
+# Cursor lines moved per mouse-wheel notch.
+_WHEEL_STEP = 3
 
 
 class _PickerDriver:
@@ -615,6 +625,10 @@ class _PickerDriver:
             self.cursor -= 1
         elif key in (readchar_key.DOWN, "j"):  # type: ignore[union-attr]
             self.cursor += 1
+        elif key == WHEEL_UP:
+            self.cursor -= _WHEEL_STEP
+        elif key == WHEEL_DOWN:
+            self.cursor += _WHEEL_STEP
         elif key == readchar_key.PAGE_UP:  # type: ignore[union-attr]
             self.cursor -= self.view_h
         elif key == readchar_key.PAGE_DOWN:  # type: ignore[union-attr]
@@ -641,6 +655,16 @@ class _PickerDriver:
         elif self.clearable and key == "c":
             self.session.selection.clear()
 
+    def _wheel(self, key: str) -> bool:
+        """SGR mouse sequences move the cursor; True when the key was handled."""
+        if not key.startswith("\x1b["):
+            return False
+        wheel = parse_sgr_mouse(key)
+        if wheel is None:
+            return False
+        self._move(wheel)
+        return True
+
     def dispatch(self, key: str, rows: list[ListRow]) -> str:
         """Apply one keypress; returns "search", "confirm", "quit", or "" to continue."""
         if key == RESIZE_KEY:
@@ -658,6 +682,8 @@ class _PickerDriver:
             return "confirm"
         if key == readchar_key.ESC or key == "\x03":  # type: ignore[union-attr]
             return self._cancel(key)
+        if self._wheel(key):
+            return ""
         if key.startswith("\x1b") and key not in (
             readchar_key.UP,  # type: ignore[union-attr]
             readchar_key.DOWN,  # type: ignore[union-attr]
@@ -731,27 +757,28 @@ def run_picker(
     live.start()
     rows: list[ListRow] = []
     built_grouping: str | None = None
-    try:
-        while True:
-            driver.refresh_height(height)
-            if driver.grouping != built_grouping:
-                rows = driver.rows()
-                built_grouping = driver.grouping
-            driver.clamp_cursor(rows)
-            live.update(picker_frame(driver.view(rows)), refresh=True)
-            action = driver.dispatch(_picker_readkey(), rows)
-            if action == "search":
-                return "search"
-            if action == "quit":
-                raise KeyboardInterrupt
-            if action == "confirm":
-                return None
-    except (KeyboardInterrupt, EOFError):
-        session.selection.clear()
-        session.selection.update(driver.snapshot)
-        raise
-    finally:
-        live.stop()
+    with _sgr_mouse():
+        try:
+            while True:
+                driver.refresh_height(height)
+                if driver.grouping != built_grouping:
+                    rows = driver.rows()
+                    built_grouping = driver.grouping
+                driver.clamp_cursor(rows)
+                live.update(picker_frame(driver.view(rows)), refresh=True)
+                action = driver.dispatch(_picker_readkey(), rows)
+                if action == "search":
+                    return "search"
+                if action == "quit":
+                    raise KeyboardInterrupt
+                if action == "confirm":
+                    return None
+        except (KeyboardInterrupt, EOFError):
+            session.selection.clear()
+            session.selection.update(driver.snapshot)
+            raise
+        finally:
+            live.stop()
 
 
 def resolve_search(session: PlanningSession, query: str) -> tuple[list[SourceTrack], bool]:
@@ -1267,11 +1294,35 @@ def _clear_screen() -> None:
     clear_screen()
 
 
+@contextlib.contextmanager
+def _sgr_mouse() -> Generator[None, None, None]:
+    """Mouse-wheel input scope: SGR codes for posix TTYs, raw mode on both.
+
+    Windows gets console mouse flags via `windows_mouse`; posix additionally
+    needs SGR 1000/1006 reports plus raw reads so the picker sees wheel events.
+    """
+    if os.name == "nt":
+        with windows_mouse():
+            yield
+        return
+    if not sys.stdin.isatty():
+        yield
+        return
+    sys.stdout.write("\x1b[?1000h\x1b[?1006h")
+    sys.stdout.flush()
+    try:
+        with posix_raw():
+            yield
+    finally:
+        sys.stdout.write("\x1b[?1000l")
+        sys.stdout.flush()
+
+
 def _picker_readkey() -> str:
-    """One picker keypress: console-event-filtered on Windows, readchar elsewhere."""
+    """One picker keypress: console-event-filtered on Windows, raw posix reads elsewhere."""
     if os.name == "nt":
         return read_windows_console_key()
-    return readchar.readkey()  # type: ignore[attr-defined]
+    return read_ansi_key()
 
 
 def read_key() -> str | None:
