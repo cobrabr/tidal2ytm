@@ -1861,6 +1861,47 @@ def test_render_menu_titles_main_menu(tmp_path: Path, monkeypatch: Any, capsys: 
     assert "Status" in out
 
 
+def test_run_planning_uses_alt_screen_and_ends_after(tmp_path: Path, monkeypatch: Any) -> None:
+    from tidal2ytm import planning as planning_mod
+
+    events: list[str] = []
+    screens: list[str] = []
+
+    class _FakeConsole:
+        def clear(self) -> None:
+            events.append("clear")
+
+        def print(self, *args: Any, **kwargs: Any) -> None:
+            events.append("print:" + str(args[0]))
+
+        def screen(self) -> Any:
+            class _Ctx:
+                def __enter__(self) -> None:
+                    screens.append("enter")
+
+                def __exit__(self, *exc: Any) -> bool:
+                    screens.append("exit")
+                    return False
+
+            return _Ctx()
+
+    seen: list[str] = []
+
+    def _fake_startup(console: Any, session: Any) -> None:
+        seen.append("startup")
+
+    def _fake_tui(console: Any, session: Any) -> None:
+        seen.append("tui")
+
+    monkeypatch.setattr(planning_mod, "Console", _FakeConsole)
+    monkeypatch.setattr(planning_mod, "_try_startup_library_load", _fake_startup)
+    monkeypatch.setattr(planning_mod, "_tui_loop", _fake_tui)
+    planning_mod.run_planning(plan_path=tmp_path / "x.toml")
+    assert seen == ["startup", "tui"]
+    assert screens == ["enter", "exit"]
+    assert events[-1] == "print:\nPlanning session ended."
+
+
 def test_review_title_marks_review_mode() -> None:
     from tidal2ytm.review import review_title
 

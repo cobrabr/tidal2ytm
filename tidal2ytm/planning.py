@@ -1510,8 +1510,6 @@ def _tui_loop(console: Console, session: PlanningSession) -> None:
 
         _render_menu(console, session)
 
-    console.print("\nPlanning session ended.")
-
 
 def _try_startup_library_load(
     console: Console,
@@ -1546,5 +1544,7 @@ def run_planning(*, plan_path: Path = PLAN_FILE) -> None:
     Tidal token is fresh, otherwise on demand via auth (a)."""
     console = Console()
     session = PlanningSession(plan_path=plan_path)
-    _try_startup_library_load(console, session)
-    _tui_loop(console, session)
+    with console.screen():
+        _try_startup_library_load(console, session)
+        _tui_loop(console, session)
+    console.print("\nPlanning session ended.")
