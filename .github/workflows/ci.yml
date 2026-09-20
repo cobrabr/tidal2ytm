@@ -19,7 +19,7 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright
-      - run: uv run pytest --cov --cov-report=xml --cov-report=term-missing
+      - run: uv run pytest --cov --cov-fail-under=80 --cov-report=xml --cov-report=term-missing
       - run: uv run coverage report --format=markdown --show-missing --skip-covered >> "$GITHUB_STEP_SUMMARY"
       - run: uvx vulture tidal2ytm --min-confidence 80
         continue-on-error: true

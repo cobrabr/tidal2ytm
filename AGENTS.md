@@ -55,7 +55,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 
 ## Quality gates
 
-`pyproject.toml` defines `tool.ruff`, `tool.pyright` (`typeCheckingMode = "strict"`, `reportMissingImports = false`), `tool.pytest`, and `tool.coverage` (report-only until sustained ≥80% coverage, at which point uncomment `fail_under` and add `--cov-fail-under` to the pre-push hook and CI).
+`pyproject.toml` defines `tool.ruff`, `tool.pyright` (`typeCheckingMode = "strict"`, `reportMissingImports = false`), `tool.pytest`, and `tool.coverage` with an enforced `fail_under = 80` gate (pre-push hook runs `pytest -q -x --cov --cov-fail-under=80`; CI runs `pytest --cov --cov-fail-under=80 ...`).
 
 The pre-commit, pre-push, and GitHub Actions workflows exercise these tools. Reproduce them locally with:
 
@@ -69,7 +69,7 @@ Tests use fictional artist/track names and synthetic IDs only, never real catalo
 
 ## CI parity (CI is Linux-only; dev is usually Windows)
 
-- CI (`.github/workflows/ci.yml`, ubuntu-latest) runs `check-toml`, `ruff check`, `ruff format --check`, `pyright`, then the full suite as `uv run pytest --cov --cov-report=xml --cov-report=term-missing` (no `-x`, no `-q`). Run that exact sequence before pushing — the pre-push hook's `pytest -q -x` can hide order-dependent and coverage-path failures.
+- CI (`.github/workflows/ci.yml`, ubuntu-latest) runs `check-toml`, `ruff check`, `ruff format --check`, `pyright`, then the full suite as `uv run pytest --cov --cov-fail-under=80 --cov-report=xml --cov-report=term-missing` (no `-x`, no `-q`). Run that exact sequence before pushing — the pre-push hook's `pytest -q -x` can hide order-dependent and coverage-path failures.
 - Platform-branched code (`os.name`, `termios`/`msvcrt` guards) has a path CI exercises that Windows never does: force both branches in tests (monkeypatch `os.name`, stub the guarded import), because a green local run proves nothing about the Linux path.
 - Test doubles must implement the full interface production code touches (a stdin stand-in needs `fileno()` when the reader calls it); never stub narrower than the real collaborator. When production branches on a capability (`termios` import, `isatty`), the double must drive the same branch CI will take.
 

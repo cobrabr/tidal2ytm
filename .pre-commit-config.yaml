@@ -20,7 +20,7 @@ repos:
         pass_filenames: false
       - id: pytest-push
         name: pytest
-        entry: uv run pytest -q -x
+        entry: uv run pytest -q -x --cov --cov-fail-under=80
         language: system
         types: [python]
         stages: [pre-push]
