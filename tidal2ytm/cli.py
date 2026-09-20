@@ -61,12 +61,25 @@ def _save_tidal_token(session: Session) -> None:
 
 @contextlib.contextmanager
 def wait_status(thing: str) -> Generator[None, None, None]:
-    """Show a yellow `dots`-spinner '<thing>…' wait indicator on TTY, plain print otherwise."""
+    """Show a '<thing>…' wait spinner on TTY, plain print otherwise."""
+    from .style import (
+        SPINNER_NAME,
+        SPINNER_REFRESH_PER_SECOND,
+        SPINNER_SPEED,
+        SPINNER_STYLE,
+    )
+
     text = f"{thing}…"
     if sys.stdout.isatty():
         from rich.console import Console
 
-        with Console().status(text, spinner="dots", spinner_style="yellow"):
+        with Console().status(
+            text,
+            spinner=SPINNER_NAME,
+            spinner_style=SPINNER_STYLE,
+            speed=SPINNER_SPEED,
+            refresh_per_second=SPINNER_REFRESH_PER_SECOND,
+        ):
             yield
     else:
         print(text)

@@ -77,6 +77,51 @@ def test_wait_status_prints_plain_text_without_tty(capsys: Any) -> None:
     assert "Reticulating splines…" in capsys.readouterr().out
 
 
+def test_wait_status_uses_centralized_spinner(monkeypatch: Any) -> None:
+    from tidal2ytm import style as style_mod
+
+    seen: dict[str, str] = {}
+
+    class _FakeStatus:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            seen.update(
+                {
+                    k: v
+                    for k, v in kwargs.items()
+                    if k in ("spinner", "spinner_style", "speed", "refresh_per_second")
+                }
+            )
+
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *args: Any) -> bool:
+            return False
+
+    class _FakeConsole:
+        def status(self, *args: Any, **kwargs: Any) -> _FakeStatus:
+            return _FakeStatus(*args, **kwargs)
+
+    monkeypatch.setattr(sys, "stdout", _TtyStdout())
+    monkeypatch.setattr("rich.console.Console", _FakeConsole)
+    with cli_mod.wait_status("Reticulating splines"):
+        pass
+    assert seen["spinner"] == style_mod.SPINNER_NAME
+    assert seen["speed"] == style_mod.SPINNER_SPEED
+    assert seen["refresh_per_second"] == style_mod.SPINNER_REFRESH_PER_SECOND
+
+
+class _TtyStdout:
+    def isatty(self) -> bool:
+        return True
+
+    def write(self, _s: str) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
+
 def test_cli_status_with_plan_prints_meta(
     isolated_data_dir: Path, monkeypatch: Any, capsys: Any
 ) -> None:
