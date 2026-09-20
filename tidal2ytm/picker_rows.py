@@ -7,7 +7,7 @@ consume the resulting ListRow table.
 
 from __future__ import annotations
 
-from collections.abc import Container
+from collections.abc import Container, Sequence
 from dataclasses import dataclass
 
 from .models import SourceTrack
@@ -183,7 +183,7 @@ def toggle_scope(
     _toggle_members(selection, members)
 
 
-def visible_window(rows: list[ListRow], cursor: int, height: int) -> tuple[int, int]:
+def visible_window(rows: Sequence[object], cursor: int, height: int) -> tuple[int, int]:
     """Viewport [start, end) of row indexes keeping the cursor visible."""
     n = len(rows)
     if n <= height:

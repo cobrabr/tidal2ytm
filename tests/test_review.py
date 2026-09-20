@@ -155,7 +155,7 @@ def _nav_ctx() -> dict[int, dict[str, Any]]:
     [
         (0.9, "green"),
         (0.3, "red"),
-        (1.0, "blue"),
+        (1.0, "green"),
         (0.86, "green"),
         (0.851, "green"),
         (0.85, "yellow"),
@@ -173,7 +173,7 @@ def test_unknown_duration_renders_dash_without_warning(
     isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any, field: str
 ) -> None:
     plan_path, _ = _write_plan_with_tracks(isolated_data_dir, [_review_track(**{field: 0})])
-    monkeypatch.setattr("tidal2ytm.review.read_key", lambda _prompt="": "q")
+    monkeypatch.setattr("tidal2ytm.review._review_readkey", lambda: "q")
     review_mod.run_review(status_filter=TrackStatus.NEEDS_REVIEW, plan_path=plan_path)
     out = capsys.readouterr().out
     assert "—" in out
@@ -554,7 +554,7 @@ def test_run_review_renders_derived_album_positions(
             _review_track(tidal_id=2, title="Other", yt_video_id="BBBBBBBBBBB"),
         ],
     )
-    monkeypatch.setattr("tidal2ytm.review.read_key", lambda _prompt="": "q")
+    monkeypatch.setattr("tidal2ytm.review._review_readkey", lambda: "q")
     review_mod.run_review(status_filter=TrackStatus.NEEDS_REVIEW, plan_path=plan_path)
     out = capsys.readouterr().out
     assert "Track 1 of 2" in out
@@ -627,6 +627,166 @@ def test_failing_backup_leaves_decision_unpersisted(
 # ---------------------------------------------------------------------------
 # run_review entry points
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Review list: album grouping, stacked diff rows, modes
+# ---------------------------------------------------------------------------
+
+
+def _list_ctx() -> dict[int, dict[str, Any]]:
+    return {
+        1: {
+            "album_match_id": "a/one",
+            "artist_match_id": "a",
+            "album_name": "One",
+            "pos_in_album": 1,
+            "total_in_album": 2,
+        },
+        2: {
+            "album_match_id": "a/one",
+            "artist_match_id": "a",
+            "album_name": "One",
+            "pos_in_album": 2,
+            "total_in_album": 2,
+        },
+        3: {
+            "album_match_id": "a/two",
+            "artist_match_id": "a",
+            "album_name": "Two",
+            "pos_in_album": 1,
+            "total_in_album": 1,
+        },
+    }
+
+
+def _list_session(isolated_data_dir: Path) -> review_mod.ReviewSession:
+    filtered = [
+        _review_track(tidal_id=1, title="Song"),
+        _review_track(tidal_id=2, title="Other"),
+        _review_track(tidal_id=3, title="Third"),
+    ]
+    return _make_session(
+        {"artists": []},
+        filtered,
+        isolated_data_dir / "transfer_plan.toml",
+        backup_done=True,
+        track_context=_list_ctx(),
+    )
+
+
+def test_build_review_rows_groups_albums_in_plan_order(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    rows = review_mod.build_review_rows(session.filtered_tracks, session.track_context)
+    assert [(r.kind, r.index) for r in rows] == [
+        ("album", -1),
+        ("track", 0),
+        ("track", 1),
+        ("album", -1),
+        ("track", 2),
+    ]
+    assert rows[0].album_match_id == "a/one"
+    assert rows[0].album_size == 2
+    assert rows[3].album_match_id == "a/two"
+    assert rows[3].album_size == 1
+
+
+def test_review_lines_stack_three_lines_per_track(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    rows = review_mod.build_review_rows(session.filtered_tracks, session.track_context)
+    lines, first_line = review_mod.review_lines(session, rows)
+    # 2 album headers + 3 tracks x 3 stacked lines
+    assert len(lines) == 2 + 3 * 3
+    assert first_line == {0: 1, 1: 4, 2: 8}
+    # cursor marker only on the cursor track's head line
+    assert not lines[1].plain.startswith("  ")
+    assert lines[4].plain.startswith("  ")
+    # diff markers on the stacked source/match lines
+    assert lines[2].plain.strip().startswith("- Tidal")
+    assert lines[3].plain.strip().startswith("+ YTM")
+
+
+def test_review_lines_flag_album_mismatch(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    session.filtered_tracks[0]["yt_album"] = "One (Deluxe Version)"
+    rows = review_mod.build_review_rows(session.filtered_tracks, session.track_context)
+    lines, _ = review_mod.review_lines(session, rows)
+    assert "⚠" in lines[1].plain
+
+
+def test_detail_body_stacks_source_and_match(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    body = review_mod.detail_body(session.filtered_tracks[0])
+    plain = body.plain
+    assert "Tidal source" in plain
+    assert "YTM match" in plain
+    assert "fuzzy" in plain
+    assert "needs_review" in plain
+    assert "music.youtube.com/watch?v=AAAAAAAAAAA" in plain
+
+
+def test_detail_body_shows_exact_match_label_for_isrc(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    track = session.filtered_tracks[0]
+    track["match_method"] = "isrc"
+    track["confidence"] = {"overall": 1.0}
+    assert "exact match" in review_mod.detail_body(track).plain
+
+
+def test_view_toggle_keys_switch_modes(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    router = review_mod.KeyRouter(console=Console(), session=session)
+    assert router.dispatch("v") is True
+    assert session.mode == "detail"
+    assert router.dispatch("v") is True
+    assert session.mode == "list"
+    assert router.dispatch("\r") is True
+    assert session.mode == "detail"
+    # Esc backs out of detail, quits from the list
+    assert router.dispatch("\x1b") is True
+    assert session.mode == "list"
+    assert router.dispatch("\x1b") is False
+
+
+def test_decisions_apply_in_detail_mode_without_leaving(isolated_data_dir: Path) -> None:
+    plan_path, loaded = _write_plan_with_tracks(
+        isolated_data_dir,
+        [_review_track(tidal_id=1, status="needs_review", yt_video_id="AAAAAAAAAAA")],
+    )
+    filtered = list(plan_io.iter_tracks_filtered(loaded))
+    session = _make_session(loaded, filtered, plan_path, backup_done=True)
+    session.mode = "detail"
+    router = review_mod.KeyRouter(console=Console(), session=session)
+    assert router.dispatch("a") is True
+    assert filtered[0]["status"] == "pending"
+    assert session.mode == "detail"
+    assert session.flash != ""
+
+
+def test_wheel_moves_cursor_click_is_swallowed(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    router = review_mod.KeyRouter(console=Console(), session=session)
+    assert router.dispatch("\x1b[<65;1;1M") is True  # wheel down
+    assert session.cursor == 1
+    assert router.dispatch("\x1b[<64;1;1M") is True  # wheel up
+    assert session.cursor == 0
+    assert router.dispatch("\x1b[<0;1;1M") is True  # click: no move, no noise
+    assert session.cursor == 0
+    assert session.flash == ""
+
+
+def test_list_frame_renders_head_and_footer(isolated_data_dir: Path) -> None:
+    session = _list_session(isolated_data_dir)
+    console = Console(record=True, width=100)
+    console.print(review_mod.review_frame(session, 12))
+    out = console.export_text()
+    assert "Review" in out
+    assert "a/one" in out
+    assert "detail" in out  # footer offers the detail view
+    session.mode = "detail"
+    console = Console(record=True, width=100)
+    console.print(review_mod.review_frame(session, 12))
+    assert "back" in console.export_text()
 
 
 def test_run_review_missing_plan_raises_not_exits(tmp_path: Path) -> None:

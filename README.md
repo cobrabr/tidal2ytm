@@ -146,22 +146,26 @@ uv run tidal2ytm review [--needs-review | --pending | --failed | --skip | --tran
 
 #### TUI Keys:
 
-- **Navigation**:
-   - `k` / `]` / `↓` / `Enter`: Next track
-   - `j` / `[` / `↑` / `Shift+Enter`: Previous track
+- **Navigation (list view)**:
+   - `j` / `↓`: Next track
+   - `k` / `↑`: Previous track
    - `n` / `→` / `Tab`: Next album
-   - `p` / `←` / `Shift+Tab`: Previous album
+   - `p` / `←`: Previous album
    - `N` / `P`: Next/Prev artist
-   - `g <id>`: Jump to artist/album `match_id` or YouTube video ID
-- **Decisions**:
+   - Mouse wheel: Scroll
+   - `PgUp` / `PgDn`: Page
+   - `v` / `Enter`: Open detail view for the cursor track
+- **Detail view**: stacked Tidal/YTM comparison for the cursor track; `v` / `Enter` / `Esc` return to the list
+- **Decisions** (`a`/`s`/`r`/`o`/`t` work in both views):
    - `a`: Accept match (sets status to `pending`)
    - `s`: Skip track (sets status to `skip`)
    - `r`: Reject match (sets status to `needs_review`)
    - `o`: Override (prompts for YouTube video ID or URL, sets status to `pending`)
    - `t`: Mark as transferred manually
+- **Jump**: `g <id>`: Jump to artist/album `match_id` or YouTube video ID
 - **Other**:
    - `?` / `h`: Show help overlay
-   - `q`: Quit TUI
+   - `q` / `Esc`: Quit TUI (`Esc` backs out of the detail view first)
 
 ### 3. Transfer (`transfer`)
 
