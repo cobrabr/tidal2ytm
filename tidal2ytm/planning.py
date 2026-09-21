@@ -49,6 +49,7 @@ from .keys import (  # noqa: E402
     parse_sgr_mouse,
     posix_raw,
     read_ansi_key,
+    read_line,
     read_windows_console_key,
     windows_mouse,
 )
@@ -273,7 +274,7 @@ def run_match_action(
 ) -> dict[str, int]:
     """Match the session selection into the plan file; returns new/upgraded/kept/skipped counts."""
     console = Console()
-    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     counts = {"new": 0, "upgraded": 0, "kept": 0, "skipped": 0}
     if not session.selection:
         console.print("Nothing selected.")
@@ -331,7 +332,7 @@ def _ensure_library(
     """True when the Tidal library is loaded; otherwise guidance plus pause."""
     if session.library_loaded:
         return True
-    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     console.print("Tidal library not loaded. Authenticate first (a).")
     with contextlib.suppress(KeyboardInterrupt, EOFError):
         ask("Press Enter to continue…")
@@ -757,7 +758,7 @@ def run_picker(
 
     Returns "search" when the user asks for a new search, else None.
     """
-    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     grouping = default_grouping(len(hits))
     if height is None:
         view_h = viewport_height(
@@ -840,7 +841,7 @@ def resolve_search(session: PlanningSession, query: str) -> tuple[list[SourceTra
 def _prompt_query() -> str | None:
     """One search prompt; None on abort, "" on empty input."""
     try:
-        return input("Search or paste a Tidal link (Enter to go back): ").strip()
+        return read_line("Search or paste a Tidal link (Enter to go back): ").strip()
     except (KeyboardInterrupt, EOFError):
         return None
 
@@ -894,7 +895,7 @@ def _present_search_fallback(
     console.print(Panel(listing, title=Text(f"Search: {query}"), expand=True))
     console.print(Panel(key_hints(RESULTS_HINTS), border_style="dim", expand=True))
     try:
-        raw = input("Toggle numbers, '*' for all, Enter to go back: ")
+        raw = read_line("Toggle numbers, '*' for all, Enter to go back: ")
     except (KeyboardInterrupt, EOFError):
         return
     _apply_search_toggle(console, session, hits, raw.strip())
@@ -1003,7 +1004,7 @@ def _do_review(console: Console, session: PlanningSession) -> None:
     console.print(Panel(listing, title="Selection", expand=True))
     console.print(Panel(key_hints(REVIEW_HINTS), border_style="dim", expand=True))
     try:
-        raw = input("Remove numbers (space-separated), 'c' to clear all, Enter to go back: ")
+        raw = read_line("Remove numbers (space-separated), 'c' to clear all, Enter to go back: ")
     except (KeyboardInterrupt, EOFError):
         return
     raw = raw.strip()
@@ -1039,7 +1040,7 @@ def _do_match(console: Console, session: PlanningSession) -> None:
     except Exception as exc:
         console.print(f"[red]Match failed: {exc}[/red]")
     with contextlib.suppress(KeyboardInterrupt, EOFError):
-        input("Press Enter to continue…")
+        read_line("Press Enter to continue…")
 
 
 def _do_gateway_review(
@@ -1048,7 +1049,7 @@ def _do_gateway_review(
     input_fn: Callable[[str], str] | None = None,
 ) -> None:
     """Open the full review TUI in-process; guidance plus pause when no plan exists."""
-    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     try:
         if not session.plan_path.exists():
             console.print("No transfer plan found. Run a match first (m) to build one.")
@@ -1085,7 +1086,7 @@ def _do_gateway_transfer(
     input_fn: Callable[[str], str] | None = None,
 ) -> None:
     """Transfer all pending tracks in-process; pending-only, never needs_review."""
-    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     try:
         if not session.plan_path.exists():
             console.print("No transfer plan found. Run a match first (m) to build one.")
@@ -1138,7 +1139,7 @@ def _do_gateway_auth(
     input_fn: Callable[[str], str] | None = None,
 ) -> None:
     """Run the auth flows in-process; cached valid tokens are skipped via force=False."""
-    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     try:
         scope = ask("Authenticate [both/tidal/ytm] (default both): ").strip().lower() or "both"
         if scope not in ("both", "tidal", "ytm"):
@@ -1512,7 +1513,7 @@ def _dispatch_menu(
         console.print(HELP_TEXT)
         if use_readchar:
             with contextlib.suppress(KeyboardInterrupt, EOFError):
-                input("Press Enter to continue…")
+                read_line("Press Enter to continue…")
     elif key == "q":
         return True
     else:
@@ -1557,7 +1558,7 @@ def _try_startup_library_load(
     from .cli import tidal_login, wait_status
     from .tidal_source import get_liked_tracks
 
-    ask: Callable[[str], str] = input if input_fn is None else input_fn
+    ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     try:
         tidal_session = tidal_login(login=False)
         if tidal_session is None:

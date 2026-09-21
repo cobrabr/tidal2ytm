@@ -96,9 +96,70 @@ def read_key(prompt: str = "") -> str:
     return input(prompt).strip()
 
 
+@contextlib.contextmanager
+def _cooked_console() -> Generator[None, None, None]:
+    """Temporarily restore line mode so input() can see a terminated line.
+
+    The review/planning loops run under windows_mouse()/posix_raw(), which
+    leave the console without LINE/ECHO/PROCESSED (or termios ICANON/ECHO).
+    A bare input() inside those scopes receives Enter as '\\r' with no '\\n'
+    and blocks forever. Re-enabling cooked mode for the duration of the
+    prompt (restoring raw afterwards) makes every prompt responsive.
+    No-op when the console mode cannot be read or set.
+    """
+    if os.name == "nt":
+        if not sys.stdin.isatty():
+            yield
+            return
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = kernel32()
+        stdin = kernel.GetStdHandle(wintypes.DWORD(-10))
+        mode = wintypes.DWORD(0)
+        if not kernel.GetConsoleMode(stdin, ctypes.byref(mode)):
+            yield
+            return
+        old_mode = mode.value
+        cooked = old_mode | 0x0001 | 0x0002 | 0x0004  # PROCESSED | LINE | ECHO
+        cooked &= ~0x0010  # MOUSE_INPUT off: wheel records must not feed input()
+        kernel.SetConsoleMode(stdin, cooked)
+        try:
+            yield
+        finally:
+            kernel.SetConsoleMode(stdin, old_mode)
+        return
+    if not sys.stdin.isatty():
+        yield
+        return
+    try:
+        import termios
+    except ImportError:
+        yield
+        return
+    try:
+        fileno = sys.stdin.fileno()
+    except OSError:
+        yield
+        return
+    old = termios.tcgetattr(fileno)
+    new = termios.tcgetattr(fileno)
+    new[3] |= termios.ICANON | termios.ECHO | termios.ISIG
+    termios.tcsetattr(fileno, termios.TCSANOW, new)
+    try:
+        yield
+    finally:
+        termios.tcsetattr(fileno, termios.TCSANOW, old)
+
+
 def read_line(prompt: str = "") -> str:
-    """Read one line of input with an echoed prompt."""
-    return input(prompt)
+    """Read one line of input with an echoed prompt.
+
+    Cooked mode is forced for the call so prompts stay responsive even when
+    the caller sits inside a mouse-mode TUI scope.
+    """
+    with _cooked_console():
+        return input(prompt)
 
 
 _ANSI_READY_APPEND = ("~", "~")
