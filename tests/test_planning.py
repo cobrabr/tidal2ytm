@@ -1224,8 +1224,8 @@ def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -
     assert "[1/1]" in out
     assert "Apple" in out and "Wren" in out
     assert "AAAAAAAAAAA" in out
-    # --> arrow and (Tidal #N) position are the agreed progress-line format.
-    assert "-->" in out
+    # ↳ aligns with the first char after the [i/n] counter; (Tidal #N) position.
+    assert "      ↳ fuzzy" in out
     assert "(Tidal #1)" in out
 
 

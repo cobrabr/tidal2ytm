@@ -177,6 +177,7 @@ def _match_one(
     yt: Any,
     console: Console,
     counts: dict[str, int],
+    indent: str = "  ",
 ) -> dict[str, Any] | None:
     """Match one selected track into the plan; None when matching failed.
 
@@ -190,10 +191,11 @@ def _match_one(
         if existing is None:
             insert_track(plan, unmatched_track_dict(src, f"Match error: {exc}"), src.album_year)
             counts["new"] += 1
-            console.print(Text(f"  --> match failed: {exc} [recorded as needs_review]"))
+            note = Text(f"{indent}↳ match failed: {exc} [recorded as needs_review]", style="red")
+            console.print(note)
         else:
             counts["kept"] += 1
-            console.print(Text(f"  --> match failed: {exc} [kept stored match]"))
+            console.print(Text(f"{indent}↳ match failed: {exc} [kept stored match]", style="red"))
         return None
     return match_result_to_track_dict(result)
 
@@ -230,9 +232,10 @@ def _apply_match_action(
     override: bool,
     ask: Callable[[str], str],
     console: Console,
+    indent: str = "  ",
 ) -> None:
     """Apply one successful match to the plan per its merge action."""
-    line = _result_line(new_dict, src.track_num)
+    line = _result_line(new_dict, src.track_num, indent)
     action = classify_track(existing, new_dict["yt_video_id"])
     if action == "skip-transferred":
         counts["skipped"] += 1
@@ -256,10 +259,10 @@ def _apply_match_action(
     elif _resolve_conflict(existing, new_dict, ask):
         update_track_in_plan(plan, src.tidal_id, new_dict)
         counts["upgraded"] += 1
-        console.print(f"  --> upgraded to {new_dict.get('yt_video_id')}")
+        console.print(Text(f"{indent}↳ upgraded to {new_dict.get('yt_video_id')}"))
     else:
         counts["kept"] += 1
-        console.print("  --> kept stored match")
+        console.print(Text(f"{indent}↳ kept stored match", style="dim"))
 
 
 def run_match_action(
@@ -295,15 +298,18 @@ def run_match_action(
         plan = {"meta": {}, "artists": []}
     ordered = iter_selection_ordered(session.selection)
     for i, src in enumerate(ordered, 1):
+        indent = " " * (len(f"[{i}/{n}]") + 1)
         tag = Text(f"[{i}/{n}] Matching '{src.title}' by {src.artist} ", style="bright_green")
         tag.append(_src_detail(src))
         tag.append(" …")
         console.print(tag)
         existing = find_existing_match(plan, src.tidal_id)
-        new_dict = _match_one(src, plan, yt, console, counts)
+        new_dict = _match_one(src, plan, yt, console, counts, indent)
         if new_dict is None:
             continue
-        _apply_match_action(plan, src, existing, new_dict, counts, session.override, ask, console)
+        _apply_match_action(
+            plan, src, existing, new_dict, counts, session.override, ask, console, indent
+        )
     if not session.backup_done and session.plan_path.exists():
         bpath = backup_plan(session.plan_path)
         console.print(f"Backup -> {bpath.name}")
@@ -357,37 +363,33 @@ def _src_detail(src: SourceTrack) -> str:
     return f"({', '.join(parts)})" if parts else ""
 
 
-def _yt_desc(track: dict[str, Any]) -> str:
-    """One-line YTM hit: video id, YTM track number when known, title/artist."""
-    vid = track.get("yt_video_id") or "(no match)"
-    title = track.get("yt_title") or "?"
-    artist = track.get("yt_artist") or "?"
-    num = track.get("yt_album_track_num") or 0
-    prefix = f"{vid} #{num}" if num else vid
-    return f"{prefix} '{title}' by {artist}"
-
-
 def _conf_token(conf: float, method: str) -> Text:
-    """Confidence token: blue 'exact match' for ISRC, numeric otherwise."""
+    """Confidence token: blue 'exact match' for ISRC, green number otherwise."""
     if method == MatchMethod.ISRC.value:
         return Text("exact match", style="blue")
-    return Text(f"@ {conf:.2f}")
+    return Text(f"@ {conf:.2f}", style="green")
 
 
-def _result_line(track: dict[str, Any], src_num: int) -> Text:
-    """Markup-safe result line: '-->' prefix, both track numbers, conf token, summary."""
+def _result_line(track: dict[str, Any], src_num: int, indent: str = "  ") -> Text:
+    """Markup-safe result line: ↳ aligned under the [i/n] counter, colours, summary."""
     conf = track["confidence"]["overall"]
     summary = track["confidence"].get("summary", "")
     method = track["match_method"]
-    line = Text("  --> ")
-    line.append(method)
+    line = Text(indent + "↳ ", style="dim")
+    line.append(method, style="bright_cyan")
     line.append(" ")
-    line.append(_yt_desc(track))
+    line.append(str(track.get("yt_video_id") or "(no match)"), style="bright_blue")
+    num = track.get("yt_album_track_num") or 0
+    if num:
+        line.append(f" #{num}", style="dim")
+    line.append(f" '{track.get('yt_title') or '?'}' by {track.get('yt_artist') or '?'}")
     if src_num > 0:
-        line.append(f" (Tidal #{src_num})")
+        line.append(f" (Tidal #{src_num})", style="dim")
     line.append(" ")
     line.append_text(_conf_token(conf, method))
-    line.append(_summary_suffix(summary))
+    suffix = _summary_suffix(summary)
+    if suffix:
+        line.append(suffix, style="dim")
     return line
 
 
