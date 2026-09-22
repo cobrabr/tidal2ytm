@@ -533,6 +533,86 @@ def test_picker_esc_confirmed_restores_snapshot(monkeypatch: Any, tmp_path: Path
     assert session.selection == {}
 
 
+def test_picker_b_confirmed_restores_snapshot(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    keys = [planning_mod.readchar_key.SPACE, "b"]
+
+    class _FakeReadchar:
+        def readkey(self) -> str:
+            return keys.pop(0)
+
+    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    planning_mod.run_picker(
+        Console(),
+        session,
+        _picker_hits(),
+        title="Search",
+        height=24,
+        input_fn=lambda _p: "y",
+    )
+    assert session.selection == {}
+
+
+def test_picker_q_confirmed_quits(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    keys = ["q"]
+
+    class _FakeReadchar:
+        def readkey(self) -> str:
+            return keys.pop(0)
+
+    seen: list[str] = []
+
+    def _ask(prompt: str) -> str:
+        seen.append(prompt)
+        return "y"
+
+    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    with pytest.raises(KeyboardInterrupt):
+        planning_mod.run_picker(
+            Console(),
+            session,
+            _picker_hits(),
+            title="Search",
+            height=24,
+            input_fn=_ask,
+        )
+    assert session.selection == {}
+    assert any("Quit" in prompt for prompt in seen)
+
+
+def test_picker_q_declined_stays_in_picker(monkeypatch: Any, tmp_path: Path) -> None:
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    keys = ["q", planning_mod.readchar_key.ENTER]
+
+    class _FakeReadchar:
+        def readkey(self) -> str:
+            return keys.pop(0)
+
+    monkeypatch.setattr(planning_mod, "_picker_readkey", _FakeReadchar().readkey)
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    planning_mod.run_picker(
+        Console(),
+        session,
+        _picker_hits(),
+        title="Search",
+        height=24,
+        input_fn=lambda _p: "n",
+    )
+    assert session.selection == {}
+
+
 def _album_hits() -> list[SourceTrack]:
     return [
         _src(1, "Ember", "Slate", "Nightshade", 101, year=1970, track=2),
@@ -758,6 +838,11 @@ def test_picker_bar_advertises_keys() -> None:
     assert "Enter" in bar and "Esc" in bar
     assert "wheel" in bar
     assert "q" in bar
+    assert "new search" in bar
+    assert "cancel and go back" in bar
+    # Picker actions and navigation/confirm hints live on separate lines.
+    assert "\n" in bar
+    assert "quit" in bar.split("\n")[1]
 
 
 def test_picker_unknown_sequence_ignored(monkeypatch: Any, tmp_path: Path) -> None:
@@ -1224,9 +1309,63 @@ def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -
     assert "[1/1]" in out
     assert "Apple" in out and "Wren" in out
     assert "AAAAAAAAAAA" in out
-    # ↳ aligns with the first char after the [i/n] counter; (Tidal #N) position.
-    assert "      ↳ fuzzy" in out
-    assert "(Tidal #1)" in out
+    # Result line: ↳ [method] id — title by artist (album, Track NN) — conf. X (detail).
+    assert "↳ [fuzzy]" in out
+    assert "Track 01" in out
+    assert "conf." in out
+    # No structured similarities on this result, so the raw summary renders
+    # (asserted in halves: the console wraps the long line at 80 columns).
+    assert "(title=0.95," in out
+    assert "artist=1.00)" in out
+
+
+def test_result_line_renders_structured_breakdown() -> None:
+    from tidal2ytm import planning as planning_mod
+
+    track = {
+        "yt_video_id": "AAAAAAAAAAA",
+        "yt_title": "Apple",
+        "yt_artist": "Wren",
+        "yt_album": "Apple",
+        "yt_album_track_num": 1,
+        "match_method": "fuzzy",
+        "confidence": {
+            "overall": 1.0,
+            "title_similarity": 1.0,
+            "artist_similarity": 1.0,
+            "album_similarity": 1.0,
+            "duration_delta_sec": 0,
+        },
+    }
+    plain = planning_mod._result_line(track, "      ").plain  # pyright: ignore[reportPrivateUsage]
+    assert plain.startswith("      ↳ [fuzzy] AAAAAAAAAAA")
+    assert "(Apple, Track 01)" in plain
+    assert "conf. 1.00" in plain
+    assert "(title 1.00, artist 1.00, album 1.00, Δdur 0s)" in plain
+
+
+def test_result_line_missing_track_number_renders_na() -> None:
+    from tidal2ytm import planning as planning_mod
+
+    track = {
+        "yt_video_id": "AAAAAAAAAAA",
+        "yt_title": "Apple",
+        "yt_artist": "Wren",
+        "yt_album": "Apple",
+        "yt_album_track_num": 0,
+        "match_method": "fuzzy",
+        "confidence": {"overall": 0.9},
+    }
+    line = planning_mod._result_line(track)  # pyright: ignore[reportPrivateUsage]
+    assert "Track N/A" in line.plain
+    assert "Track —" not in line.plain
+    # The video id renders italic magenta.
+    for span in line.spans:
+        if line.plain[span.start : span.end] == "AAAAAAAAAAA":
+            assert str(span.style) == "italic magenta"
+            break
+    else:
+        raise AssertionError("video id span missing")
 
 
 def test_read_plan_counts_missing_file_returns_zeros(tmp_path: Path) -> None:

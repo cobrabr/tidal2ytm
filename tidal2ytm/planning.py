@@ -34,6 +34,7 @@ except ImportError:  # pragma: no cover
 
 HAS_READCHAR = _has_readchar
 
+from .confidence import color_for  # noqa: E402
 from .format import fmt_duration  # noqa: E402
 from .keys import (  # noqa: E402
     RESIZE_KEY,
@@ -236,34 +237,36 @@ def _apply_match_action(
     indent: str = "  ",
 ) -> None:
     """Apply one successful match to the plan per its merge action."""
-    line = _result_line(new_dict, src.track_num, indent)
+    line = _result_line(new_dict, indent)
     action = classify_track(existing, new_dict["yt_video_id"])
     if action == "skip-transferred":
         counts["skipped"] += 1
-        line.append(" [skipped, already transferred]")
+        line.append_text(_status_tag("skipped, already transferred"))
         console.print(line)
     elif action == "add-new":
         insert_track(plan, new_dict, src.album_year)
         counts["new"] += 1
-        line.append(" [new]")
+        line.append_text(_status_tag("new"))
         console.print(line)
     elif action == "keep-same":
         counts["kept"] += 1
-        line.append(" [kept, same as stored]")
+        line.append_text(_status_tag("kept, same as stored"))
         console.print(line)
     elif override:
         assert existing is not None
         update_track_in_plan(plan, src.tidal_id, new_dict)
         counts["upgraded"] += 1
-        line.append(" [upgraded, override on]")
+        line.append_text(_status_tag("upgraded, override on"))
         console.print(line)
     elif _resolve_conflict(existing, new_dict, ask):
         update_track_in_plan(plan, src.tidal_id, new_dict)
         counts["upgraded"] += 1
-        console.print(Text(f"{indent}↳ upgraded to {new_dict.get('yt_video_id')}"))
+        upgraded = Text(f"{indent}↳ upgraded to ")
+        upgraded.append(str(new_dict.get("yt_video_id")), style="italic magenta")
+        console.print(upgraded)
     else:
         counts["kept"] += 1
-        console.print(Text(f"{indent}↳ kept stored match", style="dim"))
+        console.print(Text(f"{indent}↳ kept stored match"))
 
 
 def run_match_action(
@@ -300,10 +303,7 @@ def run_match_action(
     ordered = iter_selection_ordered(session.selection)
     for i, src in enumerate(ordered, 1):
         indent = " " * (len(f"[{i}/{n}]") + 1)
-        tag = Text(f"[{i}/{n}] Matching '{src.title}' by {src.artist} ", style="bright_green")
-        tag.append(_src_detail(src))
-        tag.append(" …")
-        console.print(tag)
+        console.print(_match_tag(i, n, src))
         existing = find_existing_match(plan, src.tidal_id)
         new_dict = _match_one(src, plan, yt, console, counts, indent)
         if new_dict is None:
@@ -351,51 +351,121 @@ def _select_all(
     console.print(f"Selected everything: {len(session.selection)} track(s).")
 
 
-def _src_detail(src: SourceTrack) -> str:
-    """One-line Tidal source detail: album, year, track number, duration, ISRC."""
-    parts = [src.album] if src.album else []
-    if src.album_year is not None:
-        parts.append(str(src.album_year))
+def _match_tag(i: int, n: int, src: SourceTrack) -> Text:
+    """First progress line: `[i/n] Matching Title by Artist (Album, Track NN, m:ss, ISRC xxx)…`.
+
+    Names (title/artist/album/track number) render cyan, the counter and the
+    ISRC value green, the duration cyan; everything else is default white.
+    """
+    tag = Text()
+    tag.append("[")
+    tag.append(f"{i}/{n}", style="green")
+    tag.append("] Matching ")
+    tag.append(src.title, style="cyan")
+    tag.append(" by ")
+    tag.append(src.artist, style="cyan")
+    segments: list[Text] = []
+    if src.album:
+        album_seg = Text()
+        album_seg.append(src.album, style="cyan")
+        segments.append(album_seg)
     if src.track_num > 0:
-        parts.append(f"#{src.track_num}")
-    parts.append(fmt_duration(src.duration_sec))
+        num_seg = Text("Track ")
+        num_seg.append(f"{src.track_num:02d}", style="cyan")
+        segments.append(num_seg)
+    dur_seg = Text()
+    dur_seg.append(fmt_duration(src.duration_sec), style="cyan")
+    segments.append(dur_seg)
     if src.isrc:
-        parts.append(f"ISRC {src.isrc}")
-    return f"({', '.join(parts)})" if parts else ""
+        isrc_seg = Text("ISRC ")
+        isrc_seg.append(src.isrc, style="green")
+        segments.append(isrc_seg)
+    tag.append(" (")
+    for j, seg in enumerate(segments):
+        if j:
+            tag.append(", ")
+        tag.append_text(seg)
+    tag.append(")…")
+    return tag
 
 
-def _conf_token(conf: float, method: str) -> Text:
-    """Confidence token: blue 'exact match' for ISRC, green number otherwise."""
+def _breakdown_token(conf: dict[str, Any]) -> Text:
+    """Parenthesised confidence detail after `conf. X`.
+
+    Structured `(title a, artist b, album c, Δdur Ns)` when the match carried
+    similarities; otherwise the raw summary string, or nothing when neither.
+    Similarity numbers follow the confidence threshold colours; the duration
+    delta is white at zero, red above.
+    """
+    title_sim = conf.get("title_similarity")
+    artist_sim = conf.get("artist_similarity")
+    album_sim = conf.get("album_similarity")
+    delta = conf.get("duration_delta_sec")
+    token = Text()
+    if (
+        isinstance(title_sim, int | float)
+        and isinstance(artist_sim, int | float)
+        and isinstance(album_sim, int | float)
+        and isinstance(delta, int)
+    ):
+        token.append(" (title ")
+        token.append(f"{title_sim:.2f}", style=color_for(title_sim))
+        token.append(", artist ")
+        token.append(f"{artist_sim:.2f}", style=color_for(artist_sim))
+        token.append(", album ")
+        token.append(f"{album_sim:.2f}", style=color_for(album_sim))
+        token.append(", Δdur ")
+        token.append(f"{delta}s", style="white" if delta == 0 else "red")
+        token.append(")")
+        return token
+    summary = conf.get("summary", "")
+    if summary:
+        token.append(f" ({summary})")
+    return token
+
+
+def _result_line(track: dict[str, Any], indent: str = "") -> Text:
+    """Markup-safe result line: `↳ [method] id — Title by Artist (Album, Track NN) — conf. X (…)`.
+
+    The arrow prefix aligns under the `[i/n]` counter; names render cyan, the
+    method bold yellow, the video id italic magenta. Only the arrow carries a
+    style on its own span — a base style would leak onto every default-white
+    append below.
+    """
+    conf: dict[str, Any] = track.get("confidence", {}) or {}
+    overall = conf.get("overall", 0.0)
+    method = track.get("match_method", "none")
+    line = Text()
+    line.append(f"{indent}↳ ", style="dim")
+    line.append("[")
+    line.append(str(method), style="bold yellow")
+    line.append("] ")
+    line.append(str(track.get("yt_video_id") or "(no match)"), style="italic magenta")
+    line.append(" — ")
+    line.append(str(track.get("yt_title") or "—"), style="cyan")
+    line.append(" by ")
+    line.append(str(track.get("yt_artist") or "—"), style="cyan")
+    line.append(" (")
+    line.append(str(track.get("yt_album") or "—"), style="cyan")
+    line.append(", Track ")
+    num = track.get("yt_album_track_num")
+    line.append(f"{num:02d}" if isinstance(num, int) and num > 0 else "N/A", style="cyan")
+    line.append(") — conf. ")
     if method == MatchMethod.ISRC.value:
-        return Text("exact match", style="blue")
-    return Text(f"@ {conf:.2f}", style="green")
-
-
-def _result_line(track: dict[str, Any], src_num: int, indent: str = "  ") -> Text:
-    """Markup-safe result line: ↳ aligned under the [i/n] counter, colours, summary."""
-    conf = track["confidence"]["overall"]
-    summary = track["confidence"].get("summary", "")
-    method = track["match_method"]
-    line = Text(indent + "↳ ", style="dim")
-    line.append(method, style="bright_cyan")
-    line.append(" ")
-    line.append(str(track.get("yt_video_id") or "(no match)"), style="bright_blue")
-    num = track.get("yt_album_track_num") or 0
-    if num:
-        line.append(f" #{num}", style="dim")
-    line.append(f" '{track.get('yt_title') or '?'}' by {track.get('yt_artist') or '?'}")
-    if src_num > 0:
-        line.append(f" (Tidal #{src_num})", style="dim")
-    line.append(" ")
-    line.append_text(_conf_token(conf, method))
-    suffix = _summary_suffix(summary)
-    if suffix:
-        line.append(suffix, style="dim")
+        line.append("exact match", style="blue")
+    else:
+        line.append(f"{overall:.2f}", style=color_for(overall))
+    line.append_text(_breakdown_token(conf))
     return line
 
 
-def _summary_suffix(summary: str) -> str:
-    return f" — {summary}" if summary else ""
+def _status_tag(text: str) -> Text:
+    """Trailing result tag: green text inside regular-white brackets."""
+    tag = Text()
+    tag.append(" [")
+    tag.append(text, style="green")
+    tag.append("]")
+    return tag
 
 
 def hot_hint(pre: str, hot: str, post: str = "", style: str = "bold bright_blue") -> Text:
@@ -493,9 +563,9 @@ def footer_lines(console: Console, grouping: str, clearable: bool) -> int:
 
 
 def picker_bar(grouping: str, clearable: bool) -> Text:
-    """Picker footer: bold-blue keys joined by grey pipes, Enter/Esc/quit yellow."""
+    """Picker footer on two lines: blue picker actions, yellow navigation/confirm."""
     blue = "bold bright_blue"
-    bar = Text()
+    yellow = "bold bright_yellow"
     move = Text()
     for i, k in enumerate(("↑", "↓", "j", "k", "wheel")):
         if i:
@@ -504,10 +574,11 @@ def picker_bar(grouping: str, clearable: bool) -> Text:
     move.append(" move")
     new_search = Text()
     new_search.append("/", style=blue)
-    new_search.append(" | ", style="dim")
+    new_search.append(" | new ")
     new_search.append("s", style=blue)
-    new_search.append(" new search")
-    parts = [
+    new_search.append("earch")
+    top = Text()
+    top_parts = [
         move,
         new_search,
         hot_hint("", "space", " to toggle"),
@@ -517,14 +588,30 @@ def picker_bar(grouping: str, clearable: bool) -> Text:
         hot_hint("", "g", f"rouping: {_GROUPING_LABELS[grouping]}"),
     ]
     if clearable:
-        parts.append(hot_hint("", "c", "lear all"))
-    parts.append(hot_hint("", "Enter", " confirm", style="bold bright_yellow"))
-    parts.append(hot_hint("", "Esc", " cancel", style="bold bright_yellow"))
-    parts.append(hot_hint("", "q", "uit", style="bold bright_yellow"))
-    for i, part in enumerate(parts):
+        top_parts.append(hot_hint("", "c", "lear all"))
+    for i, part in enumerate(top_parts):
         if i:
-            bar.append("   ", style="dim")
-        bar.append_text(part)
+            top.append("   ", style="dim")
+        top.append_text(part)
+    esc_back = Text()
+    esc_back.append("Esc", style=yellow)
+    esc_back.append(" | cancel and go ")
+    esc_back.append("b", style=yellow)
+    esc_back.append("ack")
+    bottom = Text()
+    bottom_parts = [
+        hot_hint("", "Enter", " confirm", style=yellow),
+        esc_back,
+        hot_hint("", "q", "uit", style=yellow),
+    ]
+    for i, part in enumerate(bottom_parts):
+        if i:
+            bottom.append("   ", style="dim")
+        bottom.append_text(part)
+    bar = Text()
+    bar.append_text(top)
+    bar.append("\n")
+    bar.append_text(bottom)
     return bar
 
 
@@ -655,8 +742,29 @@ class _PickerDriver:
         self.live.start(refresh=True)
         return False
 
+    def confirm_quit(self) -> bool:
+        """Quit-confirmation prompt with Live stopped; True means confirmed."""
+        self.live.stop()
+        try:
+            answer = self.ask("Quit tidal2ytm? [y/N] ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            self.live.start(refresh=True)
+            return False
+        if answer in ("y", "yes"):
+            return True
+        self.live.start(refresh=True)
+        return False
+
+    def _quit(self) -> str:
+        """q: confirm the quit when the selection is clean, else offer a discard first."""
+        if self.session.selection == self.snapshot:
+            return "quit" if self.confirm_quit() else ""
+        if self.confirm_cancel():
+            return "quit"
+        return ""
+
     def _cancel(self, key: str) -> str:
-        """Esc / Ctrl+C: drain a click burst, else cancel back to the snapshot."""
+        """Esc / b / Ctrl+C: drain a click burst, else cancel back to the snapshot."""
         if key == readchar_key.ESC and _esc_has_tail():  # type: ignore[union-attr]
             _drain_tail()
             return ""
@@ -720,12 +828,10 @@ class _PickerDriver:
                 return "search"
             return ""
         if key == "q":
-            if self.session.selection == self.snapshot or self.confirm_cancel():
-                return "quit"
-            return ""
+            return self._quit()
         if key in (readchar_key.ENTER, "\r", "\n"):  # type: ignore[union-attr]
             return "confirm"
-        if key == readchar_key.ESC or key == "\x03":  # type: ignore[union-attr]
+        if key == readchar_key.ESC or key == "\x03" or key == "b":  # type: ignore[union-attr]
             return self._cancel(key)
         if self._wheel(key):
             return ""
@@ -1047,14 +1153,17 @@ def _do_gateway_review(
     console: Console,
     session: PlanningSession,
     input_fn: Callable[[str], str] | None = None,
-) -> None:
-    """Open the full review TUI in-process; guidance plus pause when no plan exists."""
+) -> bool:
+    """Open the full review TUI in-process; True when the user quit the app.
+
+    Guidance plus pause when no plan exists.
+    """
     ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     try:
         if not session.plan_path.exists():
             console.print("No transfer plan found. Run a match first (m) to build one.")
             ask("Press Enter to continue…")
-            return
+            return False
         from .review import run_review
 
         counts = read_plan_counts(session.plan_path)
@@ -1063,19 +1172,21 @@ def _do_gateway_review(
                 "The transfer plan is unreadable. Fix or delete it, then match (m) to rebuild."
             )
             ask("Press Enter to continue…")
-            return
+            return False
         if counts.total == 0:
             console.print("The transfer plan is empty. Run a match first (m) to add tracks.")
             ask("Press Enter to continue…")
-            return
-        run_review(plan_path=session.plan_path)
+            return False
+        return run_review(plan_path=session.plan_path)
     except (KeyboardInterrupt, EOFError):
-        return
+        return False
     except SystemExit:
         ask("Press Enter to continue…")
+        return False
     except Exception as exc:
         console.print(f"[red]Review failed: {exc}[/red]")
         ask("Press Enter to continue…")
+        return False
 
 
 def _do_gateway_transfer(
@@ -1188,7 +1299,7 @@ HELP_TEXT = """\
 
 In search results: ↑/↓ or j/k moves, space toggles, '*' all, 'A' artist,
 'L' album, 'g' grouping, '/'|'s' new search, 'q' quits, Enter confirms,
-Esc cancels (asks) to go back.
+Esc|'b' cancels (asks) to go back.
 In review: same, plus 'c' clears the selection.
 Without a TTY: numbers toggle, '*' selects all, Enter goes back.
 """
@@ -1467,7 +1578,7 @@ def _render_menu(console: Console, session: PlanningSession) -> None:
 
 # Menu dispatch table: key → handler. The override and unknown-key paths are
 # mode-dependent (ctrl+o vs capital O) and live in _dispatch_menu.
-COMMANDS: dict[str, Callable[[Console, PlanningSession], None]] = {
+COMMANDS: dict[str, Callable[[Console, PlanningSession], Any]] = {
     "e": lambda console, session: _select_all(session, console),
     "/": _do_search,
     "s": _do_search,
@@ -1501,8 +1612,8 @@ def _dispatch_menu(
     """Run one menu command; True when the session should end."""
     command = COMMANDS.get(key)
     if command is not None:
-        command(console, session)
-        return False
+        # A gateway may request an app-level quit (review's confirmed q).
+        return bool(command(console, session))
     if key == override_key:
         session.override = not session.override
         state = "ON" if session.override else "off"
