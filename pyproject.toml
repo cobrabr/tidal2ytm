@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tidal2ytm"
-version = "0.5.1"
+version = "0.5.2"
 description = "Transfer liked tracks from Tidal to YouTube Music with accurate version matching."
 requires-python = ">=3.11"
 dependencies = [
