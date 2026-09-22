@@ -162,10 +162,10 @@ uv run tidal2ytm review [--needs-review | --pending | --failed | --skip | --tran
    - `r`: Reject match (sets status to `needs_review`)
    - `o`: Override (prompts for YouTube video ID or URL, sets status to `pending`)
    - `t`: Mark as transferred manually
-- **Jump**: `g <id>`: Jump to artist/album `match_id` or YouTube video ID
 - **Other**:
    - `?` / `h`: Show help overlay
-   - `q` / `Esc`: Quit TUI (`Esc` backs out of the detail view first)
+   - `Esc` / `b`: Back to the main menu (`Esc` backs out of the detail view first)
+   - `q`: Quit tidal2ytm entirely (asks for confirmation)
 
 ### 3. Transfer (`transfer`)
 

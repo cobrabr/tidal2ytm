@@ -232,12 +232,15 @@ def cmd_review(args: argparse.Namespace) -> None:
             status_filter = ts
             break
 
-    run_review(
+    quit_app = run_review(
         status_filter=status_filter,
         artist_match_id=getattr(args, "artist", None),
         album_match_id=getattr(args, "album", None),
         plan_path=PLAN_FILE,
     )
+    if quit_app:
+        # Confirmed app-level quit from inside the review TUI.
+        raise SystemExit(0)
 
 
 def cmd_auth(args: argparse.Namespace) -> None:

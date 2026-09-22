@@ -389,7 +389,26 @@ def test_dispatch_routes_navigation_and_quit(isolated_data_dir: Path) -> None:
     # single album: next-album jump stays put
     assert router.dispatch("n") is True
     assert session.cursor == 1
+    # q prompts; EOF on the prompt backs out to the menu without quitting.
     assert router.dispatch("q") is False
+    assert session.quit_app is False
+    # a confirmed q quits the whole app
+    session2, _ = _decision_session(isolated_data_dir)
+    router2 = review_mod.KeyRouter(console=Console(), session=session2)
+    with patch("tidal2ytm.review.read_line", lambda _p="": "y"):
+        assert router2.dispatch("q") is False
+    assert session2.quit_app is True
+
+
+def test_dispatch_q_declined_stays_in_review(isolated_data_dir: Path, monkeypatch: Any) -> None:
+    session, _ = _decision_session(isolated_data_dir)
+    monkeypatch.setattr(review_mod, "read_line", lambda _p="": "n")
+    router = review_mod.KeyRouter(console=Console(), session=session)
+    assert router.dispatch("q") is True
+    assert session.quit_app is False
+    # Esc and b both leave the review (back to the menu), never the app
+    assert router.dispatch("\x1b") is False
+    assert router.dispatch("b") is False
 
 
 # ---------------------------------------------------------------------------
@@ -557,8 +576,8 @@ def test_run_review_renders_derived_album_positions(
     monkeypatch.setattr("tidal2ytm.review._review_readkey", lambda: "q")
     review_mod.run_review(status_filter=TrackStatus.NEEDS_REVIEW, plan_path=plan_path)
     out = capsys.readouterr().out
-    # Album header with derived match_id is rendered through the full run path.
-    assert "a/b" in out
+    # Album header renders artist — album name through the full run path.
+    assert "Wren — B" in out
 
 
 # ---------------------------------------------------------------------------
@@ -701,9 +720,11 @@ def test_review_lines_stack_three_lines_per_track(isolated_data_dir: Path) -> No
     # cursor marker only on the cursor track's head line
     assert not lines[1].plain.startswith("  ")
     assert lines[4].plain.startswith("  ")
-    # diff markers on the stacked source/match lines
-    assert lines[2].plain.strip().startswith("- Tidal")
-    assert lines[3].plain.strip().startswith("+ YTM")
+    # source/match label lines without +/- markers; the Tidal name column
+    # starts even with the YTM one (padded for the missing video id)
+    assert lines[2].plain.strip().startswith("Tidal")
+    assert lines[3].plain.strip().startswith("YTM")
+    assert lines[2].plain.index("Song") == lines[3].plain.index("Apple")
 
 
 def test_review_lines_flag_album_mismatch(isolated_data_dir: Path) -> None:
@@ -712,6 +733,133 @@ def test_review_lines_flag_album_mismatch(isolated_data_dir: Path) -> None:
     rows = review_mod.build_review_rows(session.filtered_tracks, session.track_context)
     lines, _ = review_mod.review_lines(session, rows)
     assert "⚠" in lines[1].plain
+
+
+def test_track_head_line_shows_song_name() -> None:
+    line = review_mod._track_head_line(  # pyright: ignore[reportPrivateUsage]
+        _review_track(), True
+    ).plain
+    assert "Wren - Apple" in line
+    assert "conf." in line
+    assert " | " in line
+
+
+def test_review_bar_splits_actions_and_navigation() -> None:
+    lines = review_mod.review_bar("list").plain.split("\n")
+    assert len(lines) == 2
+    # Review-specific actions on the first line, navigation on the second.
+    assert "move" in lines[0] and "match" in lines[0] and "transferred" in lines[0]
+    # Album/artist navigation sits on the first line right after move.
+    assert "album" in lines[0] and "artist" in lines[0]
+    assert "quit app" in lines[1]
+    detail_lines = review_mod.review_bar("detail").plain.split("\n")
+    assert len(detail_lines) == 2
+    assert "iew list" in detail_lines[0]
+
+
+def _span_style(line: Any, needle: str) -> str | None:
+    """Style of the span covering exactly `needle`, or None."""
+    for span in line.spans:
+        if line.plain[span.start : span.end] == needle:
+            return str(span.style)
+    return None
+
+
+def test_diff_lines_highlight_differing_fields() -> None:
+    track = {
+        "title": "Same Song",
+        "yt_title": "Same Song",
+        "tidal_album": "Real Album",
+        "yt_album": "Other Album",
+        "tidal_duration_sec": 200,
+        "yt_duration_sec": 200,
+        "tidal_track_num": 1,
+        "yt_album_track_num": 1,
+        "yt_video_id": "AAAAAAAAAAA",
+    }
+    # Tidal line renders white on grey, YTM line red on dark red, both with a
+    # subtle band; a differing Tidal field gets a solid white highlight, a
+    # differing YTM field a solid red highlight down to the differing chars.
+    # Labels are right-aligned with plain gaps after them; the video id is
+    # red italic like the YTM line.
+    tidal = review_mod._tidal_diff_line(track)  # pyright: ignore[reportPrivateUsage]
+    ytm = review_mod._ytm_diff_line(track)  # pyright: ignore[reportPrivateUsage]
+    # The video id leads so names align with the padded Tidal line.
+    assert tidal.plain.startswith("    Tidal   ")
+    assert ytm.plain.startswith("      YTM   ")
+    assert "AAAAAAAAAAA · Same Song" in ytm.plain
+    assert tidal.plain.index("Same Song") == ytm.plain.index("Same Song")
+    assert _span_style(ytm, "AAAAAAAAAAA") == "italic red on #2c0c11"
+    assert _span_style(tidal, "Real Album") == "bold black on #3d3d3d"
+    assert _span_style(tidal, "Same Song") == "white on #2b2b2b"
+    assert _span_style(ytm, "Same Song") == "red on #2c0c11"
+    assert "Other Album" in ytm.plain
+    assert _span_style(ytm, "Other Album") is None  # chunked, not one span
+    assert _span_style(ytm, "Oth") == "bold white on #601a25"
+    assert _span_style(ytm, " Album") == "red on #2c0c11"
+
+
+def test_diff_lines_highlight_differing_duration_chars() -> None:
+    # 3:07 vs 3:08 is within tolerance yet the differing digit is highlighted.
+    track = {
+        "title": "Stay and Play",
+        "yt_title": "Stay and Play",
+        "tidal_album": "Same Album",
+        "yt_album": "Same Album",
+        "tidal_duration_sec": 187,
+        "yt_duration_sec": 188,
+        "tidal_track_num": 7,
+        "yt_album_track_num": 7,
+        "yt_video_id": "AAAAAAAAAAA",
+    }
+    ytm = review_mod._ytm_diff_line(track)  # pyright: ignore[reportPrivateUsage]
+    assert "3:08" in ytm.plain
+    assert _span_style(ytm, "3:0") == "red on #2c0c11"
+    assert _span_style(ytm, "8") == "bold white on #601a25"
+
+
+def test_diff_lines_align_property_columns() -> None:
+    # Every property column starts at the same offset on both lines, even
+    # when the two sides have different widths (Track 12 vs Track N/A).
+    track = {
+        "title": "A Very Long Song Title",
+        "yt_title": "Short",
+        "tidal_album": "EP",
+        "yt_album": "A Much Longer Album Name",
+        "tidal_duration_sec": 200,
+        "yt_duration_sec": 61,
+        "tidal_track_num": 12,
+        "yt_album_track_num": 0,
+        "yt_video_id": "AAAAAAAAAAA",
+    }
+    tidal = review_mod._tidal_diff_line(track)  # pyright: ignore[reportPrivateUsage]
+    ytm = review_mod._ytm_diff_line(track)  # pyright: ignore[reportPrivateUsage]
+    assert "Track N/A" in ytm.plain
+    pairs = [
+        ("A Very Long Song Title", "Short"),
+        ("EP", "A Much Longer Album Name"),
+        ("Track 12", "Track N/A"),
+        ("3:20", "1:01"),
+    ]
+    for tidal_text, ytm_text in pairs:
+        assert tidal.plain.index(tidal_text) == ytm.plain.index(ytm_text)
+
+
+def test_diff_lines_unknown_track_number_renders_na() -> None:
+    track = {
+        "title": "Stay and Play",
+        "yt_title": "Stay and Play",
+        "tidal_album": "Same Album",
+        "yt_album": "Same Album",
+        "tidal_duration_sec": 187,
+        "yt_duration_sec": 187,
+        "tidal_track_num": 7,
+        "yt_album_track_num": 0,
+        "yt_video_id": "AAAAAAAAAAA",
+    }
+    ytm = review_mod._ytm_diff_line(track)  # pyright: ignore[reportPrivateUsage]
+    assert "Track N/A" in ytm.plain
+    assert "Track 00" not in ytm.plain
 
 
 def test_detail_body_stacks_source_and_match(isolated_data_dir: Path) -> None:

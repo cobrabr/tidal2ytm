@@ -223,7 +223,7 @@ def test_cli_main_transfer_rejects_multiple_scopes(monkeypatch: Any) -> None:
 
 def test_cli_main_review_filters(monkeypatch: Any) -> None:
     monkeypatch.setattr(sys, "argv", ["tidal2ytm", "review", "--needs-review"])
-    with patch("tidal2ytm.review.run_review") as mock:
+    with patch("tidal2ytm.review.run_review", return_value=False) as mock:
         cli_mod.cmd_review(
             MagicMock(
                 needs_review=True,

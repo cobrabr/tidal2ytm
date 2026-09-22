@@ -5,6 +5,7 @@ review.py — Interactive rich TUI navigator for the tidal2ytm transfer plan.
 from __future__ import annotations
 
 import contextlib
+import difflib
 import os
 import sys
 from collections.abc import Callable, Generator
@@ -36,7 +37,7 @@ from .keys import (
     windows_mouse,
 )
 from .matcher import DURATION_TOLERANCE_SEC
-from .models import TrackStatus
+from .models import MatchMethod, TrackStatus
 from .paths import PLAN_FILE
 from .picker_rows import scrollbar_thumb, visible_window
 from .plan_io import (
@@ -60,7 +61,6 @@ HELP_TEXT = """\
    n / →                Next album                p / ←   Previous album
    N                    Next artist               P       Previous artist
    v / Enter            Open detail view          wheel   Scroll
-   g <id>               Jump by album match_id, artist match_id, or video ID
 
 [bold]Detail[/bold]
    v / Enter / Esc      Back to the list
@@ -75,7 +75,8 @@ HELP_TEXT = """\
 
 [bold]Other[/bold]
    ? / h   Show this help
-   q / Esc Quit (Esc backs out of the detail view first)
+   Esc / b Back to the main menu (Esc backs out of the detail view first)
+   q       Quit tidal2ytm (asks for confirmation)
 
 All decisions are written immediately — there is no unsaved state.
 """
@@ -108,6 +109,8 @@ class ReviewSession:
     flash: str = ""
     # Body rows of the current viewport; refreshed every frame, drives PgUp/PgDn.
     view_h: int = 0
+    # True when the user confirmed quitting the whole app from the review TUI.
+    quit_app: bool = False
 
     # map tidal_id -> (artist_match_id, album_match_id, album_name,
     # track_index_in_album, album_total)
@@ -190,6 +193,7 @@ class ReviewRow:
     index: int
     album_match_id: str = ""
     album_name: str = ""
+    album_artist: str = ""
     album_size: int = 0
 
 
@@ -209,6 +213,7 @@ def build_review_rows(
                 -1,
                 album_match_id=album_id,
                 album_name=str(info.get("album_name", "")),
+                album_artist=str(track.get("artist", "") or ""),
             )
             header_by_album[album_id] = header
             rows.append(header)
@@ -229,77 +234,185 @@ def _dur_mismatch(track: dict[str, Any]) -> bool:
     return bool(yt_dur and tidal_dur and abs(yt_dur - tidal_dur) > DURATION_TOLERANCE_SEC)
 
 
-def _track_head_line(
-    index: int, track: dict[str, Any], ctx: dict[int, dict[str, Any]], cursor: bool
-) -> Text:
-    """First line of a track row: cursor marker, position, names, confidence."""
+def _title_mismatch(track: dict[str, Any]) -> bool:
+    yt_title = track.get("yt_title", "") or ""
+    title = track.get("title", "") or ""
+    return bool(yt_title and title and yt_title.casefold() != title.casefold())
+
+
+def _num_mismatch(track: dict[str, Any]) -> bool:
+    tidal_num = track.get("tidal_track_num")
+    yt_num = track.get("yt_album_track_num")
+    return bool(tidal_num and yt_num and tidal_num != yt_num)
+
+
+def _status_label(status: str) -> str:
+    """Human-facing status words for the head line."""
+    if status == TrackStatus.PENDING.value:
+        return "pending transfer"
+    if status == TrackStatus.NEEDS_REVIEW.value:
+        return "needs review"
+    return status
+
+
+def _track_head_line(track: dict[str, Any], cursor: bool) -> Text:
+    """First line of a track row: cursor marker, song name, confidence, status."""
     line = Text(no_wrap=True, overflow="ellipsis")
     if cursor:
-        line.append("❯ ", style="bold bright_blue")  # noqa: RUF001
+        line.append("❯ ", style="bold cyan")  # noqa: RUF001
     else:
         line.append("  ")
-    line.append(f"{index + 1:>3}. ")
-    line.append(f"{track.get('artist', '—')} - {track.get('title', '—')} ")
-    info = ctx.get(track.get("tidal_id", 0), {})
-    line.append(
-        f"· Track {info.get('pos_in_album', '?')} of {info.get('total_in_album', '?')} ",
-        style="dim",
-    )
+    line.append(str(track.get("artist", "—") or "—"), style="cyan")
+    line.append(" - ")
+    line.append(str(track.get("title", "—") or "—"), style="cyan")
+    line.append(" | ", style="dim white")
     conf: dict[str, Any] = track.get("confidence", {}) or {}
-    line.append_text(_confidence_text(conf.get("overall"), track.get("match_method", "none")))
-    line.append("  ")
+    match_method = track.get("match_method", "none")
+    if match_method != MatchMethod.ISRC.value:
+        line.append("conf. ")
+    line.append_text(_confidence_text(conf.get("overall"), match_method))
+    line.append(" | ", style="dim white")
     status = track.get("status", "")
-    line.append(status, style=STATUS_STYLE.get(status, ""))
+    line.append(_status_label(status), style=STATUS_STYLE.get(status, ""))
     if _album_mismatch(track) or _dur_mismatch(track):
         line.append(" ⚠", style="yellow")
     return line
 
 
+def _num_field(num: Any) -> str:
+    """Zero-padded two-digit track number, or N/A when absent/unknown."""
+    return f"{num:02d}" if isinstance(num, int) and num > 0 else "N/A"
+
+
+# Diff-line layout knobs — tweak these to restyle the stacked rows:
+_DIFF_INDENT = "    "  # plain leading spaces; both bands start after this
+_ID_GAP = 3  # spaces between the label column and the video-id column
+_ID_WIDTH = 11  # video-id column width; the Tidal line pads to this
+_FIELD_SEP = " · "  # separator between the property columns
+# Tidal band: neutral dark grey. YTM band: translucent dark red — true
+# translucency is not renderable, so this is dark red pre-blended over a
+# dark terminal background. Changed words get a solid highlight instead of
+# just bold: black on white (Tidal) / white on red (YTM).
+_DIFF_BG = "on #2b2b2b"
+_DIFF_BG_HOT = "on #3d3d3d"
+_YDIFF_BG = "on #2c0c11"
+_YDIFF_BG_HOT = "on #601a25"
+_T_BASE = f"white {_DIFF_BG}"
+_T_HOT = f"bold black {_DIFF_BG_HOT}"
+_Y_BASE = f"red {_YDIFF_BG}"
+_Y_HOT = f"bold white {_YDIFF_BG_HOT}"
+_Y_ID = f"italic red {_YDIFF_BG}"
+_Y_DIM = f"dim {_YDIFF_BG}"
+
+
+def _cell_len(text: str) -> int:
+    """Visible cell width (wide glyphs count double)."""
+    return Text(text).cell_len
+
+
+def _diff_columns(track: dict[str, Any]) -> list[tuple[str, str, bool, bool]]:
+    """One (tidal text, ytm text, casefold compare, tidal-hot) per property column."""
+    return [
+        (
+            str(track.get("title", "—") or "—"),
+            str(track.get("yt_title", "—") or "—"),
+            True,
+            _title_mismatch(track),
+        ),
+        (
+            str(track.get("tidal_album", "—") or "—"),
+            str(track.get("yt_album", "") or "—"),
+            True,
+            _album_mismatch(track),
+        ),
+        (
+            f"Track {_num_field(track.get('tidal_track_num'))}",
+            f"Track {_num_field(track.get('yt_album_track_num'))}",
+            False,
+            _num_mismatch(track),
+        ),
+        (
+            fmt_duration(track.get("tidal_duration_sec")),
+            fmt_duration(track.get("yt_duration_sec") or 0),
+            False,
+            _dur_mismatch(track),
+        ),
+    ]
+
+
+def _column_widths(columns: list[tuple[str, str, bool, bool]]) -> list[int]:
+    """Per-column width: the wider of the two lines, so properties align."""
+    return [max(_cell_len(tidal), _cell_len(ytm)) for tidal, ytm, _, _ in columns]
+
+
+def _append_ytm_field(line: Text, tidal_text: str, ytm_text: str, *, fold: bool = False) -> None:
+    """Append a YTM field, bolding the characters that differ from Tidal.
+
+    Literal text comparison, not the semantic mismatch helpers: a 1-second
+    duration delta is within tolerance yet still worth highlighting.
+    """
+    same = tidal_text.casefold() == ytm_text.casefold() if fold else tidal_text == ytm_text
+    if same:
+        line.append(ytm_text, style=_Y_BASE)
+        return
+    matcher = difflib.SequenceMatcher(None, tidal_text, ytm_text, autojunk=False)
+    for tag, _i1, _i2, j1, j2 in matcher.get_opcodes():
+        if j1 == j2:
+            continue
+        line.append(ytm_text[j1:j2], style=_Y_HOT if tag != "equal" else _Y_BASE)
+
+
 def _tidal_diff_line(track: dict[str, Any]) -> Text:
-    """Second row line: the Tidal source (`-` marker, diff-red)."""
+    """Second row line: the Tidal source in white, columns aligned with the YTM line."""
     line = Text(no_wrap=True, overflow="ellipsis")
-    line.append("   ")
-    line.append("-", style="red")
-    line.append(
-        f" Tidal  {track.get('title', '—')} · {track.get('tidal_album', '—')} · "
-        f"{fmt_duration(track.get('tidal_duration_sec'))} "
-        f"· #{track.get('tidal_track_num', '—')}"
-    )
+    video_id = track.get("yt_video_id", "") or ""
+    line.append(_DIFF_INDENT)
+    line.append("Tidal", style=f"bold white {_DIFF_BG}")
+    id_width = len(video_id) if video_id else _ID_WIDTH
+    line.append(" " * (_ID_GAP + id_width + len(_FIELD_SEP)), style=_DIFF_BG)
+    columns = _diff_columns(track)
+    widths = _column_widths(columns)
+    for i, (tidal_text, _, _, hot) in enumerate(columns):
+        if i:
+            line.append(_FIELD_SEP, style=_T_BASE)
+        line.append(tidal_text, style=_T_HOT if hot else _T_BASE)
+        pad = widths[i] - _cell_len(tidal_text)
+        if pad:
+            line.append(" " * pad, style=_T_BASE)
     return line
 
 
 def _ytm_diff_line(track: dict[str, Any]) -> Text:
-    """Third row line: the YTM match (`+` marker, diff-green), mismatches yellow."""
+    """Third row line: the YTM match in red, id first so the columns align with Tidal."""
     line = Text(no_wrap=True, overflow="ellipsis")
-    line.append("   ")
-    line.append("+", style="green")
+    line.append(_DIFF_INDENT)
+    line.append("  YTM", style=f"bold red {_YDIFF_BG}")
+    line.append(" " * _ID_GAP, style=_YDIFF_BG)
     video_id = track.get("yt_video_id", "") or ""
     if not video_id:
-        line.append(" YTM     — no match —", style="dim")
+        line.append("— no match —", style=_Y_DIM)
         return line
-    line.append(" YTM     ")
-    line.append(f"{track.get('yt_title', '—') or '—'} · ")
-    line.append(
-        str(track.get("yt_album", "") or "—"),
-        style="yellow" if _album_mismatch(track) else None,
-    )
-    line.append(" · ")
-    line.append(
-        fmt_duration(track.get("yt_duration_sec") or 0),
-        style="yellow" if _dur_mismatch(track) else None,
-    )
-    line.append(f" · #{track.get('yt_album_track_num') or '—'}")
-    line.append(f"  {video_id}", style="dim")
+    line.append(video_id, style=_Y_ID)
+    line.append(_FIELD_SEP, style=_Y_BASE)
+    columns = _diff_columns(track)
+    widths = _column_widths(columns)
+    for i, (tidal_text, ytm_text, fold, _) in enumerate(columns):
+        if i:
+            line.append(_FIELD_SEP, style=_Y_BASE)
+        _append_ytm_field(line, tidal_text, ytm_text, fold=fold)
+        pad = widths[i] - _cell_len(ytm_text)
+        if pad:
+            line.append(" " * pad, style=_Y_BASE)
     return line
 
 
 def _album_head_line(row: ReviewRow) -> Text:
-    """One album header line: match id, name, and the track count."""
+    """One album header line: artist — album, matching the search grouping."""
     line = Text(no_wrap=True, overflow="ellipsis")
     line.append("  ")
-    line.append(row.album_match_id or "—", style="bold")
-    if row.album_name:
-        line.append(f" — {row.album_name}")
+    line.append(row.album_artist or "—", style="bold")
+    line.append(" — ")
+    line.append(row.album_name or row.album_match_id or "—", style="underline")
     line.append(f"  ({row.album_size} track{'s' if row.album_size != 1 else ''})", style="dim")
     return line
 
@@ -316,9 +429,7 @@ def review_lines(
             continue
         track = session.filtered_tracks[row.index]
         first_line[row.index] = len(lines)
-        lines.append(
-            _track_head_line(row.index, track, session.track_context, row.index == session.cursor)
-        )
+        lines.append(_track_head_line(track, row.index == session.cursor))
         lines.append(_tidal_diff_line(track))
         lines.append(_ytm_diff_line(track))
     return lines, first_line
@@ -390,7 +501,7 @@ def detail_body(track: dict[str, Any]) -> Text:
 # ---------------------------------------------------------------------------
 
 
-def _hot(pre: str, hot: str, post: str = "", style: str = "bold bright_blue") -> Text:
+def _hot(pre: str, hot: str, post: str = "", style: str = "bold cyan") -> Text:
     """Colour-only hotkey: the action letters coloured inside their word."""
     part = Text()
     part.append(pre)
@@ -399,45 +510,76 @@ def _hot(pre: str, hot: str, post: str = "", style: str = "bold bright_blue") ->
     return part
 
 
+def _hint(key: str, label: str, style: str = "bold cyan") -> Text:
+    """A hotkey hint with the keys coloured inside the word, no brackets."""
+    if " | " in key:
+        head, _, rest = key.partition(" | ")
+        part = Text()
+        part.append_text(_hot("", head, "", style))
+        part.append(" | ", style="dim")
+        part.append_text(_hot("", rest, "", style))
+        part.append(label)
+        return part
+    return _hot("", key, label, style)
+
+
 def review_bar(mode: str) -> Text:
-    """Footer bar: bold-blue keys joined by grey pipes, yellow for view/quit keys."""
-    blue = "bold bright_blue"
-    yellow = "bold bright_yellow"
-    bar = Text()
+    """Footer on two lines: cyan review/album/artist actions, yellow general help."""
+    cyan = "bold cyan"
+    yellow = "bold yellow"
+    decide = _hint("a", "ccept")
+    decide.append(", ", style="dim")
+    decide.append_text(_hint("r", "eject"))
+    decide.append(", ", style="dim")
+    decide.append_text(_hint("s", "kip"))
+    decide.append(" or ", style="dim")
+    decide.append_text(_hint("o", "verride"))
+    decide.append(" match")
+    top = Text()
     move = Text()
     for i, k in enumerate(("↑", "↓", "j", "k", "wheel")):
         if i:
             move.append(" | ", style="dim")
-        move.append(k, style=blue)
+        move.append(k, style=cyan)
     move.append(" move")
-    parts = [
+    album = _hint("n", "ext / ")
+    album.append_text(_hint("p", "revious album"))
+    artist = _hint("N", "ext / ")
+    artist.append_text(_hint("P", "revious artist"))
+    top_parts = [
         move,
-        _hot("", "n/p", " album"),
-        _hot("", "N/P", " artist"),
-        _hot("", "a", "ccept"),
-        _hot("", "s", "kip"),
-        _hot("", "r", "eject"),
-        _hot("", "o", "verride"),
-        _hot("", "t", "ransferred"),
-        _hot("", "g", " jump"),
-        _hot("", "?", " help"),
+        album,
+        artist,
+        _hint("Enter | v", "iew details" if mode == "list" else "iew list"),
+        decide,
+        _hot("mark as ", "t", "ransferred", style=cyan),
     ]
-    if mode == "detail":
-        parts.insert(3, _hot("", "v/Enter/Esc", " back", style=yellow))
-    else:
-        parts.insert(3, _hot("", "v/Enter", " detail", style=yellow))
-    parts.append(_hot("", "q", "uit", style=yellow))
-    for i, part in enumerate(parts):
+    for i, part in enumerate(top_parts):
         if i:
-            bar.append("   ", style="dim")
-        bar.append_text(part)
+            top.append("   ", style="dim")
+        top.append_text(part)
+    bottom = Text()
+    bottom_parts = [
+        _hint("? | h", "elp", style=yellow),
+    ]
+    if mode == "list":
+        bottom_parts.append(_hint("Esc | b", "ack to main menu", style=yellow))
+    bottom_parts.append(_hint("q", "uit app", style=yellow))
+    for i, part in enumerate(bottom_parts):
+        if i:
+            bottom.append("   ", style="dim")
+        bottom.append_text(part)
+    bar = Text()
+    bar.append_text(top)
+    bar.append("\n")
+    bar.append_text(bottom)
     return bar
 
 
 def review_head(session: ReviewSession) -> Text:
-    """Title bar: blue label, dim position counts, yellow flash line."""
+    """Title bar: cyan label, dim position counts, yellow flash line."""
     head = Text(no_wrap=True, overflow="ellipsis")
-    head.append("Review", style="bold bright_blue")
+    head.append("Review", style="bold cyan")
     n = len(session.filtered_tracks)
     head.append(f"  {n} track{'s' if n != 1 else ''}  {session.cursor + 1}/{n}")
     if session.mode == "detail":
@@ -661,10 +803,23 @@ class KeyRouter:
             return True
         return self._dispatch_action(key)
 
+    def _confirm_quit(self) -> bool:
+        """Ask before quitting the whole app; False keeps the review open."""
+        with self._paused_live():
+            try:
+                answer = read_line("Quit tidal2ytm? [y/N] ").strip().lower()
+            except (KeyboardInterrupt, EOFError, OSError):
+                return False
+        if answer in ("y", "yes"):
+            self.session.quit_app = True
+            return False
+        self.session.flash = "Still in review — q again to quit the app."
+        return True
+
     def _dispatch_view(self, key: str) -> bool | None:
         """View-level keys (quit/resize/wheel/mode toggle); None when unhandled."""
         if key in ("q", CTRL_C):
-            return False
+            return self._confirm_quit()
         if key == "":
             return True
         if key == RESIZE_KEY:
@@ -682,7 +837,8 @@ class KeyRouter:
         if key in ("v", "\r", "\n"):
             self.session.mode = "detail" if self.session.mode == "list" else "list"
             return True
-        if key == "\x1b":  # Esc: back out of detail, quit from the list
+        if key in ("\x1b", "b"):
+            # Detail → list; from the list, back out to the main menu.
             if self.session.mode == "detail":
                 self.session.mode = "list"
                 return True
@@ -846,7 +1002,8 @@ def run_review(
     artist_match_id: str | None = None,
     album_match_id: str | None = None,
     plan_path: Path = PLAN_FILE,
-) -> None:
+) -> bool:
+    """Run the review TUI; True when the user quit the whole app."""
     console = Console()
 
     if not plan_path.exists():
@@ -867,7 +1024,7 @@ def run_review(
     )
     if not filtered:
         console.print("No tracks match the current filters.")
-        return
+        return False
 
     session = ReviewSession(
         plan=plan,
@@ -881,6 +1038,7 @@ def run_review(
         f"[bold]Reviewing {len(filtered)} tracks.[/bold]  Press [bold]?[/bold] for help.\n"
     )
     _run_loop(console, session)
+    return session.quit_app
 
 
 # ---------------------------------------------------------------------------

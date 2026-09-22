@@ -10,7 +10,8 @@ SPINNER_SPEED = 0.75
 SPINNER_REFRESH_PER_SECOND = 30.0
 
 STATUS_STYLE: dict[str, str] = {
-    "needs_review": "on cyan",
+    "pending": "bold yellow",
+    "needs_review": "bold magenta",
     "transferred": "on magenta",
     "skip": "dim",
     "failed": "on red",
