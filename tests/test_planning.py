@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import sys
 from pathlib import Path
@@ -1172,6 +1173,13 @@ class _TtyStub:
     def isatty(self) -> bool:
         return True
 
+    def fileno(self) -> int:
+        # No OS descriptor behind this stand-in, as for a wrapped text stream.
+        # keys._cooked_console then skips console-mode juggling; returning a
+        # descriptor would hand termios a non-tty fd and raise termios.error,
+        # which is not an OSError and would escape the prompt.
+        raise io.UnsupportedOperation("fileno")
+
 
 class _WritesStub:
     def __init__(self, writes: list[str]) -> None:
@@ -1245,6 +1253,15 @@ def test_posix_raw_yields_without_termios_when_not_a_tty(monkeypatch: Any) -> No
     monkeypatch.setattr(sys, "stdin", _NoTtyStub())
     with keys_mod.posix_raw():
         pass
+
+
+def test_read_line_tolerates_tty_stdin_without_descriptor(monkeypatch: Any) -> None:
+    from tidal2ytm import keys as keys_mod
+
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(sys, "stdin", _TtyStub())
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "ok")
+    assert keys_mod.read_line("Go") == "ok"
 
 
 class _InputStub:
