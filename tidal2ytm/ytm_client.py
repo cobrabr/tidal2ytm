@@ -2,17 +2,20 @@
 ytm_client.py — Authenticated YTMusic client construction.
 
 The TVHTML5 default client context plus the patched POST that swaps WEB_REMIX
-and strips auth headers for unauthenticated read endpoints (/search?, /player?)
-is load-bearing; see docs/superpowers/plans/2026-09-17-fix-all-review-findings.md
+and strips auth headers for unauthenticated read endpoints
+(/search?, /player?, /browse?) is load-bearing; see
+docs/superpowers/plans/2026-09-17-fix-all-review-findings.md
 (Task 11) before touching this logic.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import requests
 from tidalapi.exceptions import TidalAPIError
@@ -21,6 +24,7 @@ from ytmusicapi import YTMusic
 from . import paths as paths_mod
 from .auth import read_client_secret
 from .errors import PlanNotFoundError
+from .logging_setup import log_call, redact_payload
 
 # Same narrow auth/network failure surface as auth.py and cli.py (same list in all three).
 _AUTH_ERRORS: tuple[type[BaseException], ...] = (  # pyright: ignore[reportUnknownVariableType]
@@ -32,6 +36,8 @@ _AUTH_ERRORS: tuple[type[BaseException], ...] = (  # pyright: ignore[reportUnkno
     TidalAPIError,
 )
 
+_LOG = logging.getLogger(__name__)
+
 
 def _patched_post(yt: YTMusic, original_post: Callable[..., Any]) -> Callable[..., Any]:
     """POST wrapper: strip auth headers and use WEB_REMIX for read endpoints.
@@ -41,7 +47,14 @@ def _patched_post(yt: YTMusic, original_post: Callable[..., Any]) -> Callable[..
     """
 
     def patched_post(url: str, *args: Any, **kwargs: Any) -> Any:
-        is_unauth = "/search?" in url or "/player?" in url
+        # /browse? serves get_album; YouTube rejects it under the TVHTML5
+        # client context (HTTP 400 "Precondition check failed"), so it gets
+        # the same WEB_REMIX treatment as the other read endpoints.
+        is_unauth = "/search?" in url or "/player?" in url or "/browse?" in url
+        if "json" in kwargs and isinstance(kwargs["json"], dict):
+            body = redact_payload(kwargs["json"])  # pyright: ignore[reportUnknownArgumentType]
+            keys = ",".join(sorted(str(k) for k in body)) if isinstance(body, dict) else ""
+            _LOG.debug("POST %s payload keys: %s", urlparse(url).path, keys)
         if is_unauth:
             import copy
             import time
@@ -73,11 +86,19 @@ def _patched_post(yt: YTMusic, original_post: Callable[..., Any]) -> Callable[..
                         }
                     )
             try:
-                return original_post(url, *args, **kwargs)
+                result: Any = log_call(
+                    _LOG,
+                    f"POST {urlparse(url).path} [WEB_REMIX]",
+                    original_post,
+                    url,
+                    *args,
+                    **kwargs,
+                )
             finally:
                 yt.context["context"]["client"].update(original_client)
+            return result
         else:
-            return original_post(url, *args, **kwargs)
+            return log_call(_LOG, f"POST {urlparse(url).path}", original_post, url, *args, **kwargs)
 
     return patched_post
 

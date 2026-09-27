@@ -17,6 +17,7 @@ from ytmusicapi import YTMusic
 
 from . import auth as auth_mod
 from .errors import Tidal2YtmError
+from .logging_setup import resolve_level, setup_logging
 from .paths import DATA_DIR, PLAN_FILE, TIDAL_TOKEN_FILE, YTM_AUTH_FILE
 from .style import STATUS_STYLE
 
@@ -360,6 +361,12 @@ def main() -> None:
         prog="tidal2ytm",
         description="Transfer liked tracks from Tidal to YouTube Music, accurately.",
     )
+    parser.add_argument(
+        "--log-level",
+        default=None,
+        metavar="LEVEL",
+        help="Log verbosity: OFF, CRITICAL, ERROR, WARN (default INFO), DEBUG (case-insensitive).",
+    )
     sub = parser.add_subparsers(dest="command", required=False)
 
     # --- transfer ---
@@ -412,6 +419,11 @@ def main() -> None:
     p_auth.set_defaults(func=cmd_auth)
 
     args = parser.parse_args()
+    try:
+        setup_logging(resolve_level(args.log_level, os.environ.get("TIDAL2YTM_LOG_LEVEL")))
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(2)
     if args.command is None:
         from .planning import run_planning
 

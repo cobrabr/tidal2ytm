@@ -417,14 +417,64 @@ def _album_head_line(row: ReviewRow) -> Text:
     return line
 
 
+def album_group_header(tidal_album: str, yt_album: str, coherence: float, mean_conf: float) -> Text:
+    line = Text(no_wrap=True, overflow="ellipsis")
+    line.append(str(tidal_album or ""), style="bold")
+    line.append(" -> ")
+    line.append(str(yt_album or ""), style="underline")
+    line.append(f"  ({coherence:.0%} coherent, mean {mean_conf:.2f})", style="dim")
+    return line
+
+
+def _coherence_header_for_block(
+    session: ReviewSession, rows: list[ReviewRow], pos: int
+) -> Text | None:
+    """Coherence header for the album block starting at `rows[pos]`, if any.
+
+    Only album-anchored tracks (match_method == "album" with a recorded
+    album_coherence) contribute; blocks without them keep the plain header.
+    """
+    block: list[dict[str, Any]] = []
+    for row in rows[pos + 1 :]:
+        if row.kind != "track":
+            break
+        block.append(session.filtered_tracks[row.index])
+    coherences: list[float] = []
+    overalls: list[float] = []
+    for track in block:
+        if track.get("match_method") != MatchMethod.ALBUM.value:
+            continue
+        conf: dict[str, Any] = track.get("confidence", {}) or {}
+        coherence = conf.get("album_coherence")
+        if isinstance(coherence, int | float):
+            coherences.append(float(coherence))
+        overall = conf.get("overall")
+        if isinstance(overall, int | float):
+            overalls.append(float(overall))
+    if not coherences:
+        return None
+    tidal_album = rows[pos].album_name or str(block[0].get("tidal_album", "") or "")
+    yt_album = ""
+    for track in block:
+        candidate = track.get("yt_album", "") or ""
+        if candidate:
+            yt_album = str(candidate)
+            break
+    mean_conf = sum(overalls) / len(overalls) if overalls else 0.0
+    return album_group_header(tidal_album, yt_album, sum(coherences) / len(coherences), mean_conf)
+
+
 def review_lines(
     session: ReviewSession, rows: list[ReviewRow]
 ) -> tuple[list[Text], dict[int, int]]:
     """Flatten rows to console lines plus a track-index → first-line lookup."""
     lines: list[Text] = []
     first_line: dict[int, int] = {}
-    for row in rows:
+    for pos, row in enumerate(rows):
         if row.kind == "album":
+            header = _coherence_header_for_block(session, rows, pos)
+            if header is not None:
+                lines.append(header)
             lines.append(_album_head_line(row))
             continue
         track = session.filtered_tracks[row.index]

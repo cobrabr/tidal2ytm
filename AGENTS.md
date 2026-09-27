@@ -5,7 +5,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 ## Workflow
 
 0. `tidal2ytm auth [--ytm-only|--tidal-only] [--re-auth] [--client-id X --client-secret Y]` — create or refresh OAuth tokens. Default authenticates both YTM and Tidal; a provider whose cached token still validates is skipped. YTM flow wraps `ytmusicapi.setup.setup_oauth`; Tidal flow wraps `tidalapi.Session.login_oauth`.
-1. `tidal2ytm` (no args) — main-menu gateway (`planning.py`): fetch `tidal_source.py:get_liked_tracks` once → search/filter locally → accumulate a selection → explicit match via `matcher.py:match_track` → merge into `data/transfer_plan.toml`, with review (`r`), transfer pending (`t`), dry-run (`d`), and auth (`a`) from the main menu; the `review`/`transfer`/`auth` subcommands remain as scriptable equivalents. Done when the selection is matched, `transferred` tracks are skipped, and `[meta]` is recomputed via `plan_io.py:update_plan_meta`. Improved matches prompt `[y/N]` per track unless the `ctrl+o` override banner is on.
+1. `tidal2ytm` (no args) — main-menu gateway (`planning.py`): fetch `tidal_source.py:get_favorite_tracks` once → search/filter locally → accumulate a selection → explicit match via `matcher.py:match_track` → merge into `data/transfer_plan.toml`, with review (`r`), transfer pending (`t`), dry-run (`d`), and auth (`a`) from the main menu; the `review`/`transfer`/`auth` subcommands remain as scriptable equivalents. Done when the selection is matched, `transferred` tracks are skipped, and `[meta]` is recomputed via `plan_io.py:update_plan_meta`. Improved matches prompt `[y/N]` per track unless the `ctrl+o` override banner is on.
 2. `tidal2ytm review` — rich TUI for low-confidence matches. Done when the first write triggers `backup_plan()` to `transfer_plan.YYYYMMDD_HHMMSS.toml` and decisions persist immediately.
 3. `tidal2ytm transfer --track <11-char-id> | --album <match_id> | --artist <match_id> | --all [--dry-run]` — exactly one scope required. Done when `transfer.py` batches in-memory updates, backs up once, and writes atomically at end (plus once on first failure); `pending` → `transferred`/`failed` reflected in `[meta]`.
 4. `tidal2ytm status [--artist <match_id>] [--album <match_id>]` — offline-safe. Smoke test: `tidal2ytm --help` succeeds.
@@ -34,6 +34,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 │   ├── errors.py         # Tidal2YtmError hierarchy (PlanNotFoundError, InvalidScopeError)
 │   ├── format.py         # fmt_duration (seconds → m:ss)
 │   ├── keys.py           # shared terminal key/line reading (raw, Windows console, fallback)
+│   ├── logging_setup.py   # LOG_LEVELS, resolve_level, setup_logging, log_call, redact_payload (owns all logging config)
 │   ├── matcher.py        # ISRC / duration / fuzzy ranking
 │   ├── models.py         # TrackStatus, MatchMethod, dataclasses
 │   ├── paths.py          # DATA_DIR + token/plan paths; ensure_data_dir() (never touches disk on import)
@@ -46,7 +47,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 │   ├── slugs.py          # artist_slug, album_slug, dedup_slugs (owns all slug logic)
 │   ├── style.py          # STATUS_STYLE (status → rich style)
 │   ├── text.py           # text normalization (normalize, similarity)
-│   ├── tidal_source.py   # get_liked_tracks
+│   ├── tidal_source.py   # get_favorite_tracks
 │   ├── transfer.py       # `transfer` subcommand
 │   ├── ytm_client.py     # YTMClient: authenticated YTMusic build (TVHTML5 + WEB_REMIX patched POST)
 │   └── ytm_sink.py       # add_track_to_library (get_watch_playlist + edit_song_library_status)
@@ -88,6 +89,10 @@ Tests use fictional artist/track names and synthetic IDs only, never real catalo
 - `auth.py` owns token validity, client-secret reading, and the tidal token schema; `ytm_client.YTMClient` owns the session/header logic (WEB_REMIX swap for `/search?` and `/player?`) transplanted from `cli._ytm_login`. `cli.py` only wires argparse → runners.
 - `paths.py` never touches disk on import; entry points call `ensure_data_dir()`. `STATE_FILE`/`REVIEW_FILE` were deleted; do not reintroduce stale path constants.
 - `ytm_sink.add_track_to_library` uses `get_watch_playlist` + `edit_song_library_status` with `feedbackTokens.add`. `rate_song` / `LikeStatus.LIKE` only thumb-up a track and are wrong here.
+- Logging is file-only: records go to the per-run `logs/` file, never to the console, and console behaviour never changes for the sake of logging. `logging_setup.py` owns levels, precedence, formatter, handler, and the per-run file; other modules only `logging.getLogger(__name__)` and emit — never reconfigure handlers or the root logger.
+- `--log-level` flag beats `TIDAL2YTM_LOG_LEVEL` env beats default `INFO`; the accepted set is owned by `logging_setup.LOG_LEVELS`. An invalid env value is a hard CLI error, never a silent fallback.
+- Log records never contain tokens, client secrets, or authorization headers; DEBUG payload logging uses `logging_setup.redact_payload` and logs payload shape (key names), never token values.
+- `log_call`'s `except Exception` arm logs and always re-raises — a documented observer, not a suppressor; do not reuse the pattern to swallow errors elsewhere.
 - Every module begins with `from __future__ import annotations`; data containers are dataclasses; public functions are type-annotated.
 - `sys.exit` lives in `cli.main()` (and `--help` via argparse) plus the interactive error paths of `auth.run_ytm_auth` (missing/unparseable secrets, expired token). Library runners (`run_transfer`, `run_review`, logins, `YTMClient.login`) raise `errors.Tidal2YtmError` subclasses; tests assert raises, never `SystemExit` except at `main()`/auth-entry level.
 - No `except Exception` / `suppress(Exception)` around auth probes: those catch the narrow `_AUTH_ERRORS` tuple only, so transport/auth bugs propagate instead of degrading into "re-authenticate" or "no match". Broad `except Exception` survives only at planning TUI crash barriers and in `ytm_sink`'s documented bool contract (returns `False` on failure).

@@ -49,6 +49,12 @@ def match_result_to_track_dict(result: MatchResult) -> dict[str, Any]:
         conf_dict["album_similarity"] = conf.album_similarity
     if conf.duration_delta_sec is not None:
         conf_dict["duration_delta_sec"] = conf.duration_delta_sec
+    if conf.version_similarity is not None:
+        conf_dict["version_similarity"] = conf.version_similarity
+    if conf.track_num_match is not None:
+        conf_dict["track_num_match"] = conf.track_num_match
+    if conf.album_coherence is not None:
+        conf_dict["album_coherence"] = conf.album_coherence
     track["confidence"] = conf_dict
     return track
 

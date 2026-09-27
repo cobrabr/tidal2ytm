@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ytmusicapi import YTMusic
 
 from .models import ConfidenceBreakdown, MatchMethod, MatchResult, SourceTrack, TrackStatus
-from .text import similarity
+from .track_scoring import duration_ok, score_track_fit
 
 DURATION_TOLERANCE_SEC = 4
 CONFIDENCE_THRESHOLD = 0.70
@@ -13,6 +14,8 @@ CONFIDENCE_THRESHOLD = 0.70
 # "(Deluxe Version)"-style suffix scores ~0.84, an exact album scores 1.0.
 WRONG_ALBUM_THRESHOLD = 0.85
 _SEARCH_LIMIT = 20
+
+_LOG = logging.getLogger(__name__)
 
 
 def _build_query(track: SourceTrack) -> str:
@@ -49,6 +52,7 @@ def _build_fuzzy_summary(
 
 def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
     query = _build_query(track)
+    _LOG.info("track search: %s — %s", track.title, track.artist)
     candidates: list[dict[str, Any]] = yt.search(query, filter="songs", limit=_SEARCH_LIMIT)  # type: ignore[no-untyped-call]
 
     best_video_id: str | None = None
@@ -93,23 +97,22 @@ def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
                 status=TrackStatus.PENDING,
             )
 
-        # Strategy 2+3: Duration + fuzzy
+        # Strategy 2+3: Duration + fuzzy via shared track scorer.
         if c_dur is None:
             continue
-        dur_delta = abs(c_dur - track.duration_sec)
-        gate_ok = dur_delta <= DURATION_TOLERANCE_SEC if track.duration_sec > 0 else True
-        if not gate_ok:
+        fit = score_track_fit(track, c_title, [c_artist], c_album, c_dur, c_track_num)
+        if not duration_ok(track.duration_sec, c_dur):
             continue
-
-        title_sim = similarity(c_title, track.title)  # pyright: ignore[reportUnknownArgumentType]
-        artist_sim = similarity(c_artist, track.artist)  # pyright: ignore[reportUnknownArgumentType]
-        base_conf = title_sim * 0.6 + artist_sim * 0.4
-        album_sim = similarity(c_album, track.album) if c_album else 0.0
-        conf = base_conf * 0.75 + album_sim * 0.25
+        title_sim = fit.title_similarity
+        artist_sim = fit.artist_similarity
+        album_sim = fit.album_similarity
+        dur_delta = fit.duration_delta_sec if fit.duration_delta_sec is not None else 0
+        conf = fit.overall
 
         if conf > best_confidence:
             best_confidence = conf
             best_video_id = vid
+            _LOG.debug("candidate %s: conf %.3f", vid, conf)
             best_meta = {
                 "title": c_title,
                 "artist": c_artist,

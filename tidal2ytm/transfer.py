@@ -7,6 +7,7 @@ scoped by --track, --album, --artist, or --all.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ from .plan_io import (
     update_track_in_plan,
 )
 from .ytm_sink import add_track_to_library
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -162,6 +165,7 @@ def _transfer_one(
         update_track_in_plan(plan, tidal_id, {"status": TrackStatus.TRANSFERRED.value})
         counts.transferred += 1
     else:
+        _LOG.error("transfer failed: %s (%s)", title, video_id)
         update_track_in_plan(plan, tidal_id, {"status": TrackStatus.FAILED.value})
         counts.failed += 1
     return True
@@ -247,5 +251,11 @@ def run_transfer(
         f"Failed: {counts.failed}  "
         f"Skipped (needs review): {counts.skipped_review}  "
         f"Skipped (done): {counts.skipped_done}"
+    )
+    _LOG.info(
+        "transfer run done: transferred=%d failed=%d skipped=%d",
+        counts.transferred,
+        counts.failed,
+        counts.skipped,
     )
     return counts

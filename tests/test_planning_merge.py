@@ -155,3 +155,27 @@ def test_insert_track_dedups_slugs_plan_level() -> None:
     albums = plan["artists"][0]["albums"]
     assert [a["match_id"] for a in albums] == ["wren/apple", "wren/apple-2", "wren/apple-3"]
     assert [a["name"] for a in plan["artists"]] == ["Wren", "Wren?"]
+
+
+def test_album_method_round_trip() -> None:
+    src = SourceTrack.from_dict(
+        {"tidal_id": 31, "album_id": 7, "title": "Ember Fall", "artists": ["Vesper Vale"]}
+    )
+    res = MatchResult(
+        source=src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Ember Fall",
+        yt_artist="Vesper Vale",
+        yt_album="Ashen Light",
+        yt_album_track_num=4,
+        yt_isrc=None,
+        yt_duration_sec=209,
+        match_method=MatchMethod.ALBUM,
+        confidence=ConfidenceBreakdown(
+            overall=0.91, version_similarity=1.0, track_num_match=True, album_coherence=1.0
+        ),
+        status=TrackStatus.PENDING,
+    )
+    d = match_result_to_track_dict(res)
+    assert d["match_method"] == "album"
+    assert d["confidence"]["version_similarity"] == 1.0

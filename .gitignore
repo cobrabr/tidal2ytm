@@ -164,3 +164,6 @@ data/
 
 # Agent execution scratch (ledgers, briefs, review packages)
 .superpowers/
+
+# Per-run diagnostic logs
+logs/

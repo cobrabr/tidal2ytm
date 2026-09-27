@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import contextlib
 import datetime
 import json
+import logging
 import sys
 import time
 import webbrowser
@@ -37,6 +37,16 @@ _AUTH_ERRORS: tuple[type[BaseException], ...] = (  # pyright: ignore[reportUnkno
     requests.RequestException,
     TidalAPIError,
 )
+
+_LOG = logging.getLogger(__name__)
+
+
+def _log_auth_failure(exc: BaseException) -> None:
+    """Log an auth failure; connection-level breakage escalates to CRITICAL."""
+    if isinstance(exc, requests.ConnectionError):
+        _LOG.critical("auth connection failure: %s", exc)
+    else:
+        _LOG.error("auth failure: %s", exc)
 
 
 def parse_token_expiry(raw: object) -> datetime.datetime | None:
@@ -131,6 +141,40 @@ def _write_synthetic_client_secret(data_dir: Path, client_id: str, client_secret
     return path
 
 
+def _ensure_client_secret(
+    data_dir: Path, client_id: str | None, client_secret: str | None
+) -> tuple[str, str]:
+    """Return a usable client-id/secret pair, writing or reading as needed."""
+    if client_id and client_secret:
+        _write_synthetic_client_secret(data_dir, client_id, client_secret)
+        return (client_id, client_secret)
+    try:
+        return read_client_secret(data_dir)
+    except FileNotFoundError:
+        _LOG.error("auth failure: no client_secret_*.json in data/")
+        print(
+            "Missing client_secret_*.json in data/. Get one at "
+            "https://console.cloud.google.com/apis/credentials "
+            "-> Create Credentials -> OAuth client ID -> "
+            "TVs and Limited Input devices, save it to data/, "
+            "or pass --client-id/--client-secret.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except RuntimeError as exc:
+        _LOG.error("auth failure: %s", exc)
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _LOG.error("auth failure: could not parse client secret: %s", exc)
+        print(
+            "Error: Could not parse 'client_id' and 'client_secret' "
+            f"from client_secret_*.json: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def run_ytm_auth(
     *, client_id: str | None = None, client_secret: str | None = None, force: bool = False
 ) -> Path:
@@ -144,39 +188,19 @@ def run_ytm_auth(
         except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             pass
         else:
-            with contextlib.suppress(*_AUTH_ERRORS):
+            try:
                 yt = YTMusic(
                     str(auth_file),
                     oauth_credentials=OAuthCredentials(cid, csec),  # pyright: ignore[reportUnknownArgumentType]
                 )
                 _ = yt._token.access_token  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType]
+            except _AUTH_ERRORS as exc:
+                _log_auth_failure(exc)
+            else:
+                _LOG.info("ytm auth: cached token valid")
                 return auth_file
 
-    if client_id and client_secret:
-        _write_synthetic_client_secret(data_dir, client_id, client_secret)
-    else:
-        try:
-            client_id, client_secret = read_client_secret(data_dir)
-        except FileNotFoundError:
-            print(
-                "Missing client_secret_*.json in data/. Get one at "
-                "https://console.cloud.google.com/apis/credentials "
-                "-> Create Credentials -> OAuth client ID -> "
-                "TVs and Limited Input devices, save it to data/, "
-                "or pass --client-id/--client-secret.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        except RuntimeError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            print(
-                "Error: Could not parse 'client_id' and 'client_secret' "
-                f"from client_secret_*.json: {exc}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    client_id, client_secret = _ensure_client_secret(data_dir, client_id, client_secret)
 
     setup_oauth(
         open_browser=True,
@@ -189,13 +213,15 @@ def run_ytm_auth(
     yt = YTMusic(str(auth_file), oauth_credentials=creds)
     try:
         _ = yt._token.access_token  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType]
-    except _AUTH_ERRORS:
+    except _AUTH_ERRORS as exc:
+        _log_auth_failure(exc)
         print(
             "Error: YouTube Music authentication token is expired or revoked.\n"
             "Re-run with: tidal2ytm auth --re-auth",
             file=sys.stderr,
         )
         sys.exit(1)
+    _LOG.info("ytm auth: token cached")
     return auth_file
 
 
@@ -235,62 +261,81 @@ def _tidal_expiry_iso(expiry: object) -> object:
     return expiry
 
 
+def _try_cached_tidal_token(
+    session: tidalapi.Session,  # pyright: ignore[reportPrivateImportUsage]
+    token_file: Path,
+) -> bool:
+    """Reuse the cached Tidal token when it validates; True when login is unneeded."""
+    try:
+        token_data: MutableMapping[str, Any] = json.loads(token_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        token_data = {}
+    if not isinstance(token_data, dict):
+        token_data = {}
+    creds = _validated_tidal_credentials(token_data)
+    if creds is not None:
+        token_type, access_token, refresh_token, expiry, _user_id, _country = creds
+        if token_usable(expiry, margin=TOKEN_FRESH_MARGIN):
+            _LOG.info("tidal auth: cached token valid")
+            return True
+        try:
+            session.load_oauth_session(
+                token_type,
+                access_token,
+                refresh_token,
+                expiry,
+            )
+            if session.check_login():
+                _LOG.info("tidal auth: cached token refreshed")
+                return True
+        except _AUTH_ERRORS as exc:
+            _log_auth_failure(exc)
+    else:
+        # Legacy/incomplete cache: try a best-effort refresh when the
+        # three OAuth fields are present, else fall through to login.
+        token_type = token_data.get("token_type")
+        access_token = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token")
+        raw_expiry = token_data.get("expiry_time")
+        if (
+            isinstance(token_type, str)
+            and isinstance(access_token, str)
+            and isinstance(refresh_token, str)
+        ):
+            try:
+                session.load_oauth_session(
+                    token_type,
+                    access_token,
+                    refresh_token,
+                    parse_token_expiry(raw_expiry),
+                )
+                if session.check_login():
+                    _LOG.info("tidal auth: cached token refreshed")
+                    return True
+            except _AUTH_ERRORS as exc:
+                _log_auth_failure(exc)
+    print("Cached Tidal token expired. Re-authenticating…")
+    return False
+
+
 def run_tidal_auth(*, force: bool = False) -> Path:
     data_dir = paths.DATA_DIR
     token_file = paths.TIDAL_TOKEN_FILE
     data_dir.mkdir(parents=True, exist_ok=True)
     session = tidalapi.Session()  # pyright: ignore[reportPrivateImportUsage]
-    if not force and token_file.exists():
-        try:
-            token_data: MutableMapping[str, Any] = json.loads(
-                token_file.read_text(encoding="utf-8")
-            )
-        except (OSError, ValueError):
-            token_data = {}
-        if not isinstance(token_data, dict):
-            token_data = {}
-        creds = _validated_tidal_credentials(token_data)
-        if creds is not None:
-            token_type, access_token, refresh_token, expiry, _user_id, _country = creds
-            if token_usable(expiry, margin=TOKEN_FRESH_MARGIN):
-                return token_file
-            with contextlib.suppress(*_AUTH_ERRORS):
-                session.load_oauth_session(
-                    token_type,
-                    access_token,
-                    refresh_token,
-                    expiry,
-                )
-                if session.check_login():
-                    return token_file
-        else:
-            with contextlib.suppress(*_AUTH_ERRORS):
-                # Legacy/incomplete cache: try a best-effort refresh when the
-                # three OAuth fields are present, else fall through to login.
-                token_type = token_data.get("token_type")
-                access_token = token_data.get("access_token")
-                refresh_token = token_data.get("refresh_token")
-                raw_expiry = token_data.get("expiry_time")
-                if (
-                    isinstance(token_type, str)
-                    and isinstance(access_token, str)
-                    and isinstance(refresh_token, str)
-                ):
-                    session.load_oauth_session(
-                        token_type,
-                        access_token,
-                        refresh_token,
-                        parse_token_expiry(raw_expiry),
-                    )
-                    if session.check_login():
-                        return token_file
-        print("Cached Tidal token expired. Re-authenticating…")
+    if not force and token_file.exists() and _try_cached_tidal_token(session, token_file):
+        return token_file
 
     link_login, login_future = session.login_oauth()
     url = f"https://{link_login.verification_uri_complete}"
     print(f"Opening Tidal authorization URL in your browser: {url}")
     webbrowser.open(url)
-    login_future.result()
+    try:
+        login_future.result()
+    except _AUTH_ERRORS as exc:
+        _log_auth_failure(exc)
+        raise
+    _LOG.info("tidal auth: login ok")
 
     user = session.user
     user_id = user.id if user is not None and isinstance(user.id, int) else None

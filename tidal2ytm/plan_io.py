@@ -21,7 +21,7 @@ from .errors import InvalidScopeError
 from .models import TrackStatus
 from .paths import PLAN_FILE
 
-logger = logging.getLogger(__name__)
+_LOG = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -34,7 +34,7 @@ _PLAN_HEADER = """\
 # Generated: {generated_at}
 #
 # status:       pending | transferred | skip | failed | needs_review
-# match_method: isrc | duration | fuzzy | none
+# match_method: isrc | duration | fuzzy | album | none
 #
 # To fix a bad match:    edit yt_video_id (bare 11-char YouTube ID) and set status = "pending"
 # To skip a track:       set status = "skip"
@@ -116,7 +116,7 @@ def load_plan(path: Path) -> dict[str, Any]:
             try:
                 track["yt_video_id"] = extract_video_id(str(raw_id))
             except ValueError:
-                logger.warning(
+                _LOG.warning(
                     "Clearing invalid yt_video_id %r (tidal_id=%r); forcing needs_review",
                     raw_id,
                     track.get("tidal_id"),
@@ -135,6 +135,7 @@ def save_plan(plan: dict[str, Any], path: Path) -> None:
     leave a truncated plan behind. The parent directory is created as needed,
     so no import-time directory setup is required.
     """
+    _LOG.debug("plan save: %s", path.name)
     path.parent.mkdir(parents=True, exist_ok=True)
     generated_at = plan.get("meta", {}).get(
         "generated_at", datetime.now().isoformat(timespec="seconds")
@@ -160,6 +161,7 @@ def backup_plan(path: Path) -> Path:
     ts = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
     backup_path = path.parent / f"transfer_plan.{ts}.toml"
     shutil.copy2(path, backup_path)
+    _LOG.debug("plan backup created: %s", backup_path.name)
     return backup_path
 
 
@@ -259,6 +261,16 @@ def update_plan_meta(plan: dict[str, Any]) -> None:
     meta["needs_review"] = counts[TrackStatus.NEEDS_REVIEW.value]
     meta["skip"] = counts[TrackStatus.SKIP.value]
     meta["failed"] = counts[TrackStatus.FAILED.value]
+    _LOG.debug(
+        "plan meta recomputed: total=%d transferred=%d pending=%d"
+        " needs_review=%d skip=%d failed=%d",
+        total,
+        meta["transferred"],
+        meta["pending"],
+        meta["needs_review"],
+        meta["skip"],
+        meta["failed"],
+    )
 
 
 def iter_tracks(plan: dict[str, Any]) -> Iterator[dict[str, Any]]:

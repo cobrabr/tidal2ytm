@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
+from .logging_setup import log_call
 from .models import SourceTrack
 
 if TYPE_CHECKING:
@@ -9,6 +11,8 @@ if TYPE_CHECKING:
     from tidalapi.session import Session
 
 _PAGE_LIMIT = 9999
+
+_LOG = logging.getLogger(__name__)
 
 
 def _to_source_track(t: Track) -> SourceTrack:
@@ -39,15 +43,24 @@ def _to_source_track(t: Track) -> SourceTrack:
     )
 
 
-def get_liked_tracks(session: Session) -> list[SourceTrack]:
-    results: list[SourceTrack] = []
-    offset = 0
+def get_favorite_tracks(session: Session) -> list[SourceTrack]:
     # Session.user is typed as a pre-login union; post-login it exposes favorites.
-    user: Any = session.user
-    while True:
-        page: list[Track] = user.favorites.tracks(limit=_PAGE_LIMIT, offset=offset)
-        if not page:
-            break
-        results.extend(_to_source_track(t) for t in page)
-        offset += len(page)
-    return results
+    def _fetch_all() -> list[SourceTrack]:
+        results: list[SourceTrack] = []
+        seen: set[int] = set()
+        offset = 0
+        user: Any = session.user
+        while True:
+            page: list[Track] = user.favorites.tracks(limit=_PAGE_LIMIT, offset=offset)
+            if not page:
+                break
+            for t in page:
+                track = _to_source_track(t)
+                # The API can list the same track id twice; first listing wins.
+                if track.tidal_id not in seen:
+                    seen.add(track.tidal_id)
+                    results.append(track)
+            offset += len(page)
+        return results
+
+    return log_call(_LOG, "GET tidal favorites (favorite tracks)", _fetch_all)

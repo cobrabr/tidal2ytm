@@ -12,6 +12,7 @@ import tidal2ytm.review as review_mod
 from tidal2ytm.confidence import color_for
 from tidal2ytm.errors import PlanNotFoundError
 from tidal2ytm.models import TrackStatus
+from tidal2ytm.review import album_group_header
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -957,3 +958,8 @@ def test_review_run_no_tracks_match_returns(capsys: Any, isolated_data_dir: Path
     review_mod.run_review(status_filter=TrackStatus.NEEDS_REVIEW, plan_path=plan_path)
     out = capsys.readouterr().out
     assert "No tracks" in out
+
+
+def test_album_group_header_shows_coherence() -> None:
+    text = album_group_header("Ashen Light", "Ashen Light", 1.0, 0.91)
+    assert "1.0" in text.plain or "100" in text.plain

@@ -5,6 +5,7 @@ from pathlib import Path
 # All user-specific runtime files live here. The directory is created lazily
 # via ensure_data_dir() so importing this module never touches disk.
 DATA_DIR = Path("data")
+LOGS_DIR = Path("logs")
 
 TIDAL_TOKEN_FILE = DATA_DIR / "tidal_token.json"
 YTM_AUTH_FILE = DATA_DIR / "ytm_auth.json"
@@ -15,3 +16,9 @@ def ensure_data_dir() -> Path:
     """Create the runtime data directory if needed; returns it."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     return DATA_DIR
+
+
+def ensure_logs_dir() -> Path:
+    """Create the log directory if needed; returns it. Never called on import."""
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    return LOGS_DIR

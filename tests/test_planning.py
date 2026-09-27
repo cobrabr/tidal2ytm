@@ -56,7 +56,7 @@ def test_match_action_confirms_before_matching(tmp_path: Path) -> None:
     with patch.object(planning_mod, "match_track") as mock_match:
         counts = run_match_action(session, MagicMock(), input_fn=lambda _p: "n")
         mock_match.assert_not_called()
-        assert counts == {"new": 0, "upgraded": 0, "kept": 0, "skipped": 0}
+        assert counts == {"new": 0, "upgraded": 0, "kept": 0, "transferred": 0}
 
 
 def test_match_action_adds_new_match(tmp_path: Path) -> None:
@@ -81,11 +81,11 @@ def test_match_action_adds_new_match(tmp_path: Path) -> None:
     )
     with patch.object(planning_mod, "match_track", return_value=result):
         counts = run_match_action(session, MagicMock(), input_fn=lambda _p: "Y")
-    assert counts == {"new": 1, "upgraded": 0, "kept": 0, "skipped": 0}
+    assert counts == {"new": 1, "upgraded": 0, "kept": 0, "transferred": 0}
     assert session.plan_path.exists()
 
 
-def test_match_action_prompts_on_differing_rematch(tmp_path: Path) -> None:
+def test_match_action_skips_differing_rematch_without_override(tmp_path: Path) -> None:
     from tidal2ytm import plan_io
     from tidal2ytm import planning as planning_mod
     from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
@@ -147,7 +147,7 @@ def test_match_action_stores_unmatched_on_error(tmp_path: Path) -> None:
 
     with patch.object(planning_mod, "match_track", side_effect=_boom):
         counts = run_match_action(session, MagicMock(), input_fn=lambda _p: "Y")
-    assert counts == {"new": 1, "upgraded": 0, "kept": 0, "skipped": 0}
+    assert counts == {"new": 1, "upgraded": 0, "kept": 0, "transferred": 0}
     stored = plan_io.find_existing_match(plan_io.load_plan(session.plan_path), 1)
     assert stored is not None and stored["status"] == "needs_review"
 
@@ -201,7 +201,7 @@ def test_match_action_override_skips_prompt(tmp_path: Path) -> None:
 
     with patch.object(planning_mod, "match_track", return_value=new):
         counts = run_match_action(session, MagicMock(), input_fn=_answer)
-    assert counts == {"new": 0, "upgraded": 1, "kept": 0, "skipped": 0}
+    assert counts == {"new": 0, "upgraded": 1, "kept": 0, "transferred": 0}
     assert len(prompts) == 1  # confirm only; no per-track prompt in override mode
     stored = plan_io.find_existing_match(plan_io.load_plan(plan_path), 1)
     assert stored is not None and stored["yt_video_id"] == "BBBBBBBBBBB"
@@ -225,34 +225,6 @@ def _match_result(video_id: str, confidence: float) -> Any:
     )
 
 
-def test_match_action_prompt_shows_both_sides(tmp_path: Path) -> None:
-    from tidal2ytm import plan_io
-    from tidal2ytm import planning as planning_mod
-    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
-
-    plan_path = tmp_path / "transfer_plan.toml"
-    src = _src()
-    plan: dict[str, Any] = {"meta": {}, "artists": []}
-    insert_track(plan, match_result_to_track_dict(_match_result("AAAAAAAAAAA", 0.8)), 1971)
-    plan_io.update_plan_meta(plan)
-    plan_io.save_plan(plan, plan_path)
-
-    prompts: list[str] = []
-    answers = iter(["Y", "y"])
-    session = PlanningSession(plan_path=plan_path, liked=[src], selection={1: src})
-
-    def _answer(prompt: str) -> str:
-        prompts.append(prompt)
-        return next(answers)
-
-    with patch.object(planning_mod, "match_track", return_value=_match_result("BBBBBBBBBBB", 0.95)):
-        counts = run_match_action(session, MagicMock(), input_fn=_answer)
-    assert counts == {"new": 0, "upgraded": 1, "kept": 0, "skipped": 0}
-    assert len(prompts) == 2
-    assert "AAAAAAAAAAA" in prompts[1] and "BBBBBBBBBBB" in prompts[1]
-    assert "0.80" in prompts[1] and "0.95" in prompts[1]
-
-
 def test_match_action_factory_login_after_confirm(tmp_path: Path) -> None:
     from tidal2ytm import planning as planning_mod
 
@@ -267,11 +239,11 @@ def test_match_action_factory_login_after_confirm(tmp_path: Path) -> None:
     )
     counts = run_match_action(session, yt_factory=_factory, input_fn=lambda _p: "n")
     assert logins == []
-    assert counts == {"new": 0, "upgraded": 0, "kept": 0, "skipped": 0}
+    assert counts == {"new": 0, "upgraded": 0, "kept": 0, "transferred": 0}
     with patch.object(planning_mod, "match_track", return_value=_match_result("AAAAAAAAAAA", 0.9)):
         counts = run_match_action(session, yt_factory=_factory, input_fn=lambda _p: "Y")
     assert logins == ["login"]
-    assert counts == {"new": 1, "upgraded": 0, "kept": 0, "skipped": 0}
+    assert counts == {"new": 1, "upgraded": 0, "kept": 0, "transferred": 0}
 
 
 def test_menu_body_shows_counts() -> None:
@@ -1308,64 +1280,10 @@ def test_match_action_prints_informative_progress(tmp_path: Path, capsys: Any) -
     out = capsys.readouterr().out
     assert "[1/1]" in out
     assert "Apple" in out and "Wren" in out
-    assert "AAAAAAAAAAA" in out
-    # Result line: ↳ [method] id — title by artist (album, Track NN) — conf. X (detail).
-    assert "↳ [fuzzy]" in out
-    assert "Track 01" in out
-    assert "conf." in out
-    # No structured similarities on this result, so the raw summary renders
-    # (asserted in halves: the console wraps the long line at 80 columns).
-    assert "(title=0.95," in out
-    assert "artist=1.00)" in out
-
-
-def test_result_line_renders_structured_breakdown() -> None:
-    from tidal2ytm import planning as planning_mod
-
-    track = {
-        "yt_video_id": "AAAAAAAAAAA",
-        "yt_title": "Apple",
-        "yt_artist": "Wren",
-        "yt_album": "Apple",
-        "yt_album_track_num": 1,
-        "match_method": "fuzzy",
-        "confidence": {
-            "overall": 1.0,
-            "title_similarity": 1.0,
-            "artist_similarity": 1.0,
-            "album_similarity": 1.0,
-            "duration_delta_sec": 0,
-        },
-    }
-    plain = planning_mod._result_line(track, "      ").plain  # pyright: ignore[reportPrivateUsage]
-    assert plain.startswith("      ↳ [fuzzy] AAAAAAAAAAA")
-    assert "(Apple, Track 01)" in plain
-    assert "conf. 1.00" in plain
-    assert "(title 1.00, artist 1.00, album 1.00, Δdur 0s)" in plain
-
-
-def test_result_line_missing_track_number_renders_na() -> None:
-    from tidal2ytm import planning as planning_mod
-
-    track = {
-        "yt_video_id": "AAAAAAAAAAA",
-        "yt_title": "Apple",
-        "yt_artist": "Wren",
-        "yt_album": "Apple",
-        "yt_album_track_num": 0,
-        "match_method": "fuzzy",
-        "confidence": {"overall": 0.9},
-    }
-    line = planning_mod._result_line(track)  # pyright: ignore[reportPrivateUsage]
-    assert "Track N/A" in line.plain
-    assert "Track —" not in line.plain
-    # The video id renders italic magenta.
-    for span in line.spans:
-        if line.plain[span.start : span.end] == "AAAAAAAAAAA":
-            assert str(span.style) == "italic magenta"
-            break
-    else:
-        raise AssertionError("video id span missing")
+    # Status line only: glyph plus trailing tag, no video id or breakdown.
+    assert "✓" in out and "— new" in out
+    assert "AAAAAAAAAAA" not in out
+    assert "conf." not in out
 
 
 def test_read_plan_counts_missing_file_returns_zeros(tmp_path: Path) -> None:
@@ -1675,7 +1593,7 @@ def test_gateway_auth_scope_routing(
     monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _fake_ytm_auth)
     monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
     monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_favorite_tracks", _fake_liked)
     answers = iter([scope, ""])
     monkeypatch.setattr("builtins.input", lambda _p="": next(answers))
     session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
@@ -1716,7 +1634,7 @@ def test_gateway_auth_ytm_failure_still_runs_tidal(
     monkeypatch.setattr("tidal2ytm.auth.run_ytm_auth", _boom_ytm)
     monkeypatch.setattr("tidal2ytm.auth.run_tidal_auth", _fake_tidal_auth)
     monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_favorite_tracks", _fake_liked)
     answers = iter(["", ""])
     monkeypatch.setattr("builtins.input", lambda _p="": next(answers))
     session = PlanningSession(plan_path=tmp_path / "x.toml", liked=[], selection={})
@@ -1959,7 +1877,7 @@ def test_startup_load_fetches_library_when_token_fresh(
         return [_src(1), _src(2)]
 
     monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _fake_liked)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_favorite_tracks", _fake_liked)
     captured: dict[str, PlanningSession] = {}
 
     def _fake_loop(_console: Any, session: PlanningSession) -> None:
@@ -1986,7 +1904,7 @@ def test_startup_load_stays_silent_without_fresh_token(
         raise AssertionError("must not fetch without a session")
 
     monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _no_fetch)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_favorite_tracks", _no_fetch)
     captured: dict[str, PlanningSession] = {}
 
     def _fake_loop(_console: Any, session: PlanningSession) -> None:
@@ -2013,7 +1931,7 @@ def test_startup_load_reports_fetch_failure(tmp_path: Path, monkeypatch: Any, ca
         raise OSError("offline")
 
     monkeypatch.setattr("tidal2ytm.cli.tidal_login", _fake_login)
-    monkeypatch.setattr("tidal2ytm.tidal_source.get_liked_tracks", _boom)
+    monkeypatch.setattr("tidal2ytm.tidal_source.get_favorite_tracks", _boom)
     answers = iter([""])
     monkeypatch.setattr("builtins.input", lambda _p="": next(answers))
     captured: dict[str, PlanningSession] = {}
@@ -2040,7 +1958,7 @@ def test_match_action_abort_at_confirm_returns_counts(
         plan_path=tmp_path / "transfer_plan.toml", liked=[_src()], selection={1: _src()}
     )
     counts = run_match_action(session, MagicMock(), input_fn=_abort)
-    assert counts == {"new": 0, "upgraded": 0, "kept": 0, "skipped": 0}
+    assert counts == {"new": 0, "upgraded": 0, "kept": 0, "transferred": 0}
     assert not session.plan_path.exists()
 
 
@@ -2101,3 +2019,642 @@ def test_match_action_abort_at_overwrite_keeps_stored(
         plan_io.load_plan(plan_path)["artists"][0]["albums"][0]["tracks"][0]["yt_video_id"]
         == "AAAAAAAAAAA"
     )
+
+
+def test_match_action_groups_by_album(tmp_path: Path) -> None:
+    from tidal2ytm.models import SourceTrack
+    from tidal2ytm.planning import PlanningSession, run_match_action
+
+    liked = [
+        SourceTrack.from_dict(
+            {
+                "tidal_id": 1,
+                "album_id": 7,
+                "title": "Ember Fall",
+                "artists": ["Vesper Vale"],
+                "album": "Ashen Light",
+                "duration": 200,
+                "track_num": 1,
+            }
+        ),
+        SourceTrack.from_dict(
+            {
+                "tidal_id": 2,
+                "album_id": 7,
+                "title": "Cinder Hymn",
+                "artists": ["Vesper Vale"],
+                "album": "Ashen Light",
+                "duration": 200,
+                "track_num": 2,
+            }
+        ),
+    ]
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=liked)
+    session.selection = {t.tidal_id: t for t in liked}
+    session.library_loaded = True
+    yt = MagicMock()
+    yt.search.return_value = [
+        {"browseId": "MPRE_A", "title": "Ashen Light", "artist": "Vesper Vale", "year": "2001"}
+    ]
+    yt.get_album.return_value = {
+        "title": "Ashen Light",
+        "tracks": [
+            {
+                "videoId": "AAAAAAAAAAA",
+                "title": "Ember Fall",
+                "artists": [{"name": "Vesper Vale"}],
+                "duration_seconds": 200,
+                "trackNumber": 1,
+            },
+            {
+                "videoId": "BBBBBBBBBBB",
+                "title": "Cinder Hymn",
+                "artists": [{"name": "Vesper Vale"}],
+                "duration_seconds": 200,
+                "trackNumber": 2,
+            },
+        ],
+    }
+    counts = run_match_action(session, yt=yt, input_fn=lambda _: "y")
+    assert counts["new"] == 2
+    assert yt.get_album.call_count == 1
+
+
+def test_match_action_empty_selection_no_network(tmp_path: Path) -> None:
+    from tidal2ytm.planning import PlanningSession, run_match_action
+
+    session = PlanningSession(plan_path=tmp_path / "transfer_plan.toml", liked=[])
+    session.selection = {}
+    session.library_loaded = True
+    yt = MagicMock()
+    counts = run_match_action(session, yt=yt, input_fn=lambda _: "y")
+    assert counts == {"new": 0, "upgraded": 0, "kept": 0, "transferred": 0}
+    yt.search.assert_not_called()
+    yt.get_album.assert_not_called()
+
+
+def test_abstained_album_fallback_forced_into_review(tmp_path: Path) -> None:
+    from tidal2ytm import plan_io
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+
+    src = _src(21, "Ember Fall", "Vesper Vale", "Ashen Light", 77, year=2001, track=1, duration=200)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[src], selection={src.tidal_id: src}
+    )
+    yt = MagicMock()
+    yt.search.return_value = [
+        {"browseId": "MPRE_A", "title": "Ashen Light", "artist": "Vesper Vale", "year": "2001"}
+    ]
+    yt.get_album.return_value = {
+        "title": "Ashen Light",
+        "tracks": [
+            {
+                "videoId": "CCCCCCCCCCC",
+                "title": "Unrelated Song",
+                "artists": [{"name": "Vesper Vale"}],
+                "duration_seconds": 999,
+                "trackNumber": 9,
+            },
+        ],
+    }
+    fallback = MatchResult(
+        source=src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Ember Fall",
+        yt_artist="Vesper Vale",
+        yt_album="Ashen Light",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.95, summary="title=0.99, artist=1.00"),
+        status=TrackStatus.PENDING,
+    )
+    with patch.object(planning_mod, "match_track", return_value=fallback):
+        counts = run_match_action(session, yt, input_fn=lambda _: "Y")
+    assert counts["new"] == 1
+    stored = plan_io.find_existing_match(plan_io.load_plan(session.plan_path), src.tidal_id)
+    assert stored is not None
+    assert stored["yt_video_id"] == "AAAAAAAAAAA"
+    assert stored["status"] == "needs_review"
+    assert "No in-album fit" in stored.get("review_reason", "")
+    assert "title=0.99" in stored.get("review_reason", "")
+
+
+def test_album_resolve_failure_still_prints_status_line(tmp_path: Path, capsys: Any) -> None:
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+
+    src = _src(21, "Ember Fall", "Vesper Vale", "Ashen Light", 77, year=2001, track=1, duration=200)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[src], selection={src.tidal_id: src}
+    )
+    fallback = MatchResult(
+        source=src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Ember Fall",
+        yt_artist="Vesper Vale",
+        yt_album="Ashen Light",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.95, summary="title=0.99, artist=1.00"),
+        status=TrackStatus.PENDING,
+    )
+    with (
+        patch.object(planning_mod, "resolve_album_group", side_effect=RuntimeError("boom")),
+        patch.object(planning_mod, "match_track", return_value=fallback),
+    ):
+        run_match_action(session, MagicMock(), input_fn=lambda _: "Y")
+    out = capsys.readouterr().out
+    # Resolve failed, fallback succeeded: one finished status line, no headers.
+    assert "✓" in out and "— new" in out
+    assert "album resolve failed" not in out
+    assert "↳" not in out
+
+
+def _album_hit(src: SourceTrack, video_id: str) -> Any:
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+
+    return MatchResult(
+        source=src,
+        yt_video_id=video_id,
+        yt_title=src.title,
+        yt_artist=src.artist,
+        yt_album=src.album,
+        yt_album_track_num=src.track_num,
+        yt_isrc=None,
+        yt_duration_sec=src.duration_sec,
+        match_method=MatchMethod.ALBUM,
+        confidence=ConfidenceBreakdown(
+            overall=0.95,
+            title_similarity=1.0,
+            artist_similarity=1.0,
+            album_similarity=1.0,
+            duration_delta_sec=0,
+            track_num_match=True,
+            album_coherence=1.0,
+        ),
+        status=TrackStatus.PENDING,
+    )
+
+
+def test_pending_entry_shows_new_status_format() -> None:
+    import io
+
+    from rich.console import Console
+
+    from tidal2ytm import planning as planning_mod
+
+    src = _src(31, "Ember Fall", "Vesper Vale", "Ashen Light", 77, year=2001, track=1, duration=200)
+    row = planning_mod._pending_row(1, 5, src)  # pyright: ignore[reportPrivateUsage]
+    assert (
+        row.head.plain  # pyright: ignore[reportPrivateUsage]
+        == "[1/5] Matching Vesper Vale - Ashen Light - 01. Ember Fall"
+    )
+    buf = io.StringIO()
+    Console(file=buf, width=200).print(row)
+    assert "[1/5] Matching Vesper Vale - Ashen Light - 01. Ember Fall" in buf.getvalue()
+    assert "…" in buf.getvalue()
+    assert len(buf.getvalue().strip().splitlines()) == 1
+    from tidal2ytm.style import SPINNER_NAME, SPINNER_STYLE
+
+    assert row._spinner.name == SPINNER_NAME  # pyright: ignore[reportPrivateUsage]
+    assert row._spinner.style == SPINNER_STYLE  # pyright: ignore[reportPrivateUsage]
+    head = row.head  # pyright: ignore[reportPrivateUsage]
+    num_spans = [s for s in head.spans if head.plain[s.start : s.end] == "01"]
+    assert num_spans and num_spans[0].style == "bold white"
+    title_spans = [s for s in head.spans if head.plain[s.start : s.end] == "Ember Fall"]
+    assert title_spans and title_spans[0].style == "bold white"
+    count_spans = [s for s in head.spans if head.plain[s.start : s.end] == "1/5"]
+    assert count_spans and count_spans[0].style == "yellow"
+
+
+def test_done_entry_shows_glyph_and_tag() -> None:
+    from tidal2ytm import planning as planning_mod
+
+    src = _src(31, "Ember Fall", "Vesper Vale", "Ashen Light", 77, year=2001, track=1, duration=200)
+    outcome = planning_mod._MatchOutcome(  # pyright: ignore[reportPrivateUsage]
+        tag="new", tag_style="bold white", glyph="✓", glyph_style="bold green"
+    )
+    line = planning_mod._done_entry(1, 5, src, outcome)  # pyright: ignore[reportPrivateUsage]
+    assert line.plain == "[1/5] Matching Vesper Vale - Ashen Light - 01. Ember Fall ✓ — new"
+    tag_spans = [s for s in line.spans if line.plain[s.start : s.end] == "new"]
+    assert tag_spans and tag_spans[0].style == "bold white"
+
+
+def test_failed_entry_shows_red_cross_without_tag() -> None:
+    from tidal2ytm import planning as planning_mod
+
+    src = _src(31, "Ember Fall", "Vesper Vale", "Ashen Light", 77, year=2001, track=1, duration=200)
+    outcome = planning_mod._MatchOutcome(  # pyright: ignore[reportPrivateUsage]
+        tag="", tag_style="", glyph="✕", glyph_style="bold red"
+    )
+    line = planning_mod._done_entry(1, 5, src, outcome)  # pyright: ignore[reportPrivateUsage]
+    assert line.plain == "[1/5] Matching Vesper Vale - Ashen Light - 01. Ember Fall ✕"
+    assert "—" not in line.plain
+
+
+def test_match_run_prints_only_status_lines(tmp_path: Path, capsys: Any) -> None:
+    from tidal2ytm import planning as planning_mod
+
+    src = _src(31, "Beer", "Vesper Vale", "Ashen Light", 77, year=2001, track=1)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[src], selection={src.tidal_id: src}
+    )
+
+    def fake_resolve(
+        sources: list[SourceTrack], yt: Any, cache: dict[str, Any], delay: float = 0.3
+    ) -> list[Any]:
+        return [_album_hit(s, "AAAAAAAAAAA") for s in sources]
+
+    real_console = planning_mod.Console
+
+    def wide_console(**kw: Any) -> Any:
+        kw.setdefault("width", 200)
+        return real_console(**kw)
+
+    with (
+        patch.object(planning_mod, "resolve_album_group", side_effect=fake_resolve),
+        patch.object(planning_mod, "Console", side_effect=wide_console),
+    ):
+        run_match_action(session, MagicMock(), input_fn=lambda _: "Y")
+    out = capsys.readouterr().out
+    assert "\u2713" in out and "\u2014 new" in out
+    assert "\u21b3" not in out and "[album]" not in out and "pos \u2713" not in out
+
+
+def test_match_action_skips_already_matched_without_api_calls(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tidal2ytm import plan_io
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
+
+    plan_path = tmp_path / "transfer_plan.toml"
+    src = _src()
+    old = MatchResult(
+        source=src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Apple",
+        yt_artist="Wren",
+        yt_album="Apple",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.8),
+        status=TrackStatus.PENDING,
+    )
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    insert_track(plan, match_result_to_track_dict(old), 1971)
+    plan_io.update_plan_meta(plan)
+    plan_io.save_plan(plan, plan_path)
+
+    session = PlanningSession(plan_path=plan_path, liked=[src], selection={1: src})
+    yt = MagicMock()
+    with (
+        patch.object(planning_mod, "Live"),
+        patch.object(planning_mod, "resolve_album_group") as mock_resolve,
+        patch.object(planning_mod, "match_track") as mock_match,
+    ):
+        counts = run_match_action(session, yt, input_fn=lambda _p: "Y")
+    mock_resolve.assert_not_called()
+    mock_match.assert_not_called()
+    assert yt.method_calls == []
+    assert counts == {"new": 0, "upgraded": 0, "kept": 1, "transferred": 0}
+    assert "— kept" in capsys.readouterr().out
+
+
+def test_match_action_skips_transferred_as_transferred(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tidal2ytm import plan_io
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
+
+    plan_path = tmp_path / "transfer_plan.toml"
+    src = _src()
+    old = MatchResult(
+        source=src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Apple",
+        yt_artist="Wren",
+        yt_album="Apple",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.8),
+        status=TrackStatus.TRANSFERRED,
+    )
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    insert_track(plan, match_result_to_track_dict(old), 1971)
+    plan_io.update_plan_meta(plan)
+    plan_io.save_plan(plan, plan_path)
+
+    session = PlanningSession(plan_path=plan_path, liked=[src], selection={1: src})
+    yt = MagicMock()
+    with (
+        patch.object(planning_mod, "Live"),
+        patch.object(planning_mod, "resolve_album_group") as mock_resolve,
+        patch.object(planning_mod, "match_track") as mock_match,
+    ):
+        counts = run_match_action(session, yt, input_fn=lambda _p: "Y")
+    mock_resolve.assert_not_called()
+    mock_match.assert_not_called()
+    assert yt.method_calls == []
+    assert counts == {"new": 0, "upgraded": 0, "kept": 0, "transferred": 1}
+    assert "— transferred" in capsys.readouterr().out
+
+
+def test_upfront_skip_colours_glyph_by_stored_confidence() -> None:
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.confidence import color_for
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
+
+    src = _src()
+    old = MatchResult(
+        source=src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Apple",
+        yt_artist="Wren",
+        yt_album="Apple",
+        yt_album_track_num=1,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.8),
+        status=TrackStatus.PENDING,
+    )
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    insert_track(plan, match_result_to_track_dict(old), 1971)
+    counts = {"new": 0, "upgraded": 0, "kept": 0, "transferred": 0}
+    entries, fresh = planning_mod._partition_fresh(  # pyright: ignore[reportPrivateUsage]
+        [src], plan, False, counts
+    )
+    assert fresh == []
+    assert counts["kept"] == 1
+    assert len(entries) == 1
+    tick = entries[0].plain.index("✓")
+    styles = {s.style for s in entries[0].spans if s.start <= tick < s.end}
+    assert styles == {f"bold {color_for(0.8)}"}
+
+
+def test_match_run_creates_no_backup(tmp_path: Path, capsys: Any) -> None:
+    from tidal2ytm import plan_io
+    from tidal2ytm import planning as planning_mod
+
+    plan_path = tmp_path / "transfer_plan.toml"
+    src = _src(31, "Beer", "Vesper Vale", "Ashen Light", 77, year=2001, track=1)
+    session = PlanningSession(plan_path=plan_path, liked=[src], selection={src.tidal_id: src})
+    plan_io.save_plan({"meta": {}, "artists": []}, plan_path)
+
+    def fake_resolve(
+        sources: list[SourceTrack], yt: Any, cache: dict[str, Any], delay: float = 0.3
+    ) -> list[Any]:
+        return [_album_hit(s, "AAAAAAAAAAA") for s in sources]
+
+    with (
+        patch.object(planning_mod, "Live"),
+        patch.object(planning_mod, "resolve_album_group", side_effect=fake_resolve),
+    ):
+        run_match_action(session, MagicMock(), input_fn=lambda _: "Y")
+    capsys.readouterr()
+    assert list(tmp_path.glob("transfer_plan.*.toml")) == []
+
+
+def test_match_run_has_no_blank_lines_between_groups(tmp_path: Path, capsys: Any) -> None:
+    from tidal2ytm import planning as planning_mod
+
+    src_a = _src(31, "Beer", "Vesper Vale", "Ashen Light", 77, year=2001, track=1)
+    src_b = _src(32, "Wine", "Vesper Vale", "Barren Field", 78, year=2001, track=1)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml",
+        liked=[src_a, src_b],
+        selection={src_a.tidal_id: src_a, src_b.tidal_id: src_b},
+    )
+
+    def fake_resolve(
+        sources: list[SourceTrack], yt: Any, cache: dict[str, Any], delay: float = 0.3
+    ) -> list[Any]:
+        return [_album_hit(s, "AAAAAAAAAAA") for s in sources]
+
+    real_console = planning_mod.Console
+
+    def wide_console(**kw: Any) -> Any:
+        kw.setdefault("width", 200)
+        return real_console(**kw)
+
+    with (
+        patch.object(planning_mod, "Live"),
+        patch.object(planning_mod, "resolve_album_group", side_effect=fake_resolve),
+        patch.object(planning_mod, "Console", side_effect=wide_console),
+    ):
+        run_match_action(session, MagicMock(), input_fn=lambda _: "Y")
+    out = capsys.readouterr().out
+    assert "\n\n" not in out
+
+
+def test_match_numbers_follow_display_order_not_selection_slots(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tidal2ytm import plan_io
+    from tidal2ytm import planning as planning_mod
+    from tidal2ytm.models import ConfidenceBreakdown, MatchMethod, MatchResult, TrackStatus
+    from tidal2ytm.planning_merge import insert_track, match_result_to_track_dict
+
+    plan_path = tmp_path / "transfer_plan.toml"
+    first = _src(1, "Ember", "Slate", "Nightshade", 101, year=1970, track=1)
+    kept_src = _src(2, "Nightshade", "Slate", "Nightshade", 101, year=1970, track=2)
+    third = _src(3, "Apple", "Wren", "Apple", 102, year=1971, track=1)
+    old = MatchResult(
+        source=kept_src,
+        yt_video_id="AAAAAAAAAAA",
+        yt_title="Nightshade",
+        yt_artist="Slate",
+        yt_album="Nightshade",
+        yt_album_track_num=2,
+        yt_isrc=None,
+        yt_duration_sec=200,
+        match_method=MatchMethod.FUZZY,
+        confidence=ConfidenceBreakdown(overall=0.8),
+        status=TrackStatus.PENDING,
+    )
+    plan: dict[str, Any] = {"meta": {}, "artists": []}
+    insert_track(plan, match_result_to_track_dict(old), 1970)
+    plan_io.update_plan_meta(plan)
+    plan_io.save_plan(plan, plan_path)
+    session = PlanningSession(
+        plan_path=plan_path,
+        liked=[first, kept_src, third],
+        selection={1: first, 2: kept_src, 3: third},
+    )
+    vids = iter(["BBBBBBBBBBB", "CCCCCCCCCCC"])
+
+    def fake_resolve(group: Any, yt: Any, cache: Any, delay: float = 0.0) -> Any:
+        return [_album_hit(s, next(vids)) for s in group]
+
+    with (
+        patch.object(planning_mod, "Live"),
+        patch.object(planning_mod, "resolve_album_group", side_effect=fake_resolve),
+    ):
+        counts = run_match_action(session, MagicMock(), input_fn=lambda _p: "Y")
+    assert counts == {"new": 2, "upgraded": 0, "kept": 1, "transferred": 0}
+    lines = capsys.readouterr().out.splitlines()
+    kept_lines = [ln for ln in lines if "— kept" in ln]
+    new_lines = [ln for ln in lines if "— new" in ln]
+    assert len(kept_lines) == 1 and "[1/3]" in kept_lines[0]
+    assert len(new_lines) == 2
+    assert "[2/3]" in new_lines[0] and "[3/3]" in new_lines[1]
+
+
+def test_pending_entries_caps_to_room() -> None:
+    from rich.text import Text
+
+    from tidal2ytm.planning import (  # pyright: ignore[reportPrivateUsage]
+        _pending_entries,  # pyright: ignore[reportPrivateUsage]
+        _PendingRow,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    rows = [_PendingRow(Text(f"pending {k}")) for k in range(20)]
+    entries = _pending_entries(rows, 10)  # pyright: ignore[reportPrivateUsage]
+    assert len(entries) == 10
+    for k, entry in enumerate(entries[:9]):
+        assert entry is rows[k]
+    assert "11 more" in str(entries[9])
+
+    fitting = _pending_entries(rows[:3], 10)  # pyright: ignore[reportPrivateUsage]
+    assert len(fitting) == 3
+    assert all(entry is rows[k] for k, entry in enumerate(fitting))
+
+
+def test_panel_entries_windows_done_lines_with_indicator() -> None:
+    from rich.text import Text
+
+    from tidal2ytm.planning import (  # pyright: ignore[reportPrivateUsage]
+        _panel_entries,  # pyright: ignore[reportPrivateUsage]
+        _PendingRow,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    done = [Text(f"line {k}") for k in range(7)]
+    entries = _panel_entries(done, [], 5)  # pyright: ignore[reportPrivateUsage]
+    assert len(entries) == 5
+    assert "3 earlier" in str(entries[0])
+    assert "line 3" in str(entries[1]) and "line 6" in str(entries[4])
+
+    fitting = _panel_entries(done[:3], [], 5)  # pyright: ignore[reportPrivateUsage]
+    assert len(fitting) == 3
+    assert all("earlier" not in str(entry) for entry in fitting)
+
+    rows = [_PendingRow(Text(f"pending {k}")) for k in range(2)]
+    mixed = _panel_entries(done[:3], rows, 5)  # pyright: ignore[reportPrivateUsage]
+    assert len(mixed) == 5
+    assert mixed[3] is rows[0]
+    assert all("earlier" not in str(entry) for entry in mixed)
+
+
+def test_match_album_groups_wraps_run_in_panel_and_returns_lines() -> None:
+    from rich.panel import Panel
+    from rich.text import Text
+
+    from tidal2ytm import planning as planning_mod
+
+    src_a = _src(1, "Beer", "Vesper Vale", "Ashen Light", 7, year=2001, track=1)
+    src_b = _src(2, "Empty", "Vesper Vale", "Ashen Light", 7, year=2001, track=2)
+    groups = {7: [src_a, src_b]}
+    counts: dict[str, int] = {"new": 0, "upgraded": 0, "kept": 0, "transferred": 0}
+
+    def fake_resolve(
+        sources: list[SourceTrack], yt: Any, cache: dict[str, Any], delay: float = 0.3
+    ) -> list[Any]:
+        return [_album_hit(s, f"BBBBBBBBBB{i}") for i, s in enumerate(sources)]
+
+    console = MagicMock()
+    console.size.height = 24
+    with (
+        patch.object(planning_mod, "resolve_album_group", side_effect=fake_resolve),
+        patch.object(planning_mod, "Live") as live_cls,
+    ):
+        done = planning_mod._match_album_groups(  # pyright: ignore[reportPrivateUsage]
+            groups,
+            {1: 1, 2: 2},
+            2,
+            MagicMock(),
+            {"meta": {}, "artists": []},
+            console,
+            counts,
+            False,
+        )
+    assert len(done) == 2
+    assert all(isinstance(line, Text) and "✓" in line.plain for line in done)
+    console.print.assert_not_called()
+    live_cls.assert_called_once()
+    live = live_cls.return_value.__enter__.return_value
+    updates = [call.args[0] for call in live.update.call_args_list if call.args]
+    assert updates and isinstance(updates[-1], Panel)
+    panel_title = updates[-1].title
+    assert isinstance(panel_title, Text) and "Matching…" in panel_title.plain
+
+
+def test_match_run_clears_screen_without_standalone_title(tmp_path: Path) -> None:
+    from rich.panel import Panel
+
+    from tidal2ytm import planning as planning_mod
+
+    src = _src(1, "Beer", "Vesper Vale", "Ashen Light", 7, year=2001, track=1)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[src], selection={1: src}
+    )
+    console = MagicMock()
+    console.size.height = 40
+
+    def fake_resolve(
+        sources: list[SourceTrack], yt: Any, cache: dict[str, Any], delay: float = 0.3
+    ) -> list[Any]:
+        return [_album_hit(s, "BBBBBBBBBB1") for s in sources]
+
+    with (
+        patch.object(planning_mod, "Console", MagicMock(return_value=console)),
+        patch.object(planning_mod, "Live"),
+        patch.object(planning_mod, "resolve_album_group", side_effect=fake_resolve),
+    ):
+        planning_mod.run_match_action(session, MagicMock(), input_fn=lambda _: "Y")
+    assert console.clear.called
+    titles = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], Panel)
+    ]
+    assert titles == []
+
+
+def test_match_run_prints_done_lines_naturally(tmp_path: Path) -> None:
+    from tidal2ytm import planning as planning_mod
+
+    src = _src(1, "Beer", "Vesper Vale", "Ashen Light", 7, year=2001, track=1)
+    session = PlanningSession(
+        plan_path=tmp_path / "transfer_plan.toml", liked=[src], selection={1: src}
+    )
+    console = MagicMock()
+    console.size.height = 40
+
+    def fake_resolve(
+        sources: list[SourceTrack], yt: Any, cache: dict[str, Any], delay: float = 0.3
+    ) -> list[Any]:
+        return [_album_hit(s, "BBBBBBBBBB1") for s in sources]
+
+    with (
+        patch.object(planning_mod, "Console", MagicMock(return_value=console)),
+        patch.object(planning_mod, "Live"),
+        patch.object(planning_mod, "resolve_album_group", side_effect=fake_resolve),
+    ):
+        planning_mod.run_match_action(session, MagicMock(), input_fn=lambda _: "Y")
+    printed = [str(call.args[0]) for call in console.print.call_args_list if call.args]
+    assert any("✓" in text for text in printed)
+    assert any("Matched:" in text for text in printed)

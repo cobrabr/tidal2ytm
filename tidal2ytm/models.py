@@ -9,6 +9,7 @@ class MatchMethod(StrEnum):
     ISRC = "isrc"
     DURATION = "duration"
     FUZZY = "fuzzy"
+    ALBUM = "album"
     NONE = "none"
 
 
@@ -27,6 +28,9 @@ class ConfidenceBreakdown:
     artist_similarity: float | None = None
     album_similarity: float | None = None
     duration_delta_sec: int | None = None
+    version_similarity: float | None = None
+    track_num_match: bool | None = None
+    album_coherence: float | None = None
     summary: str | None = None
 
 

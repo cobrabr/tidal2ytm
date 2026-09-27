@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from tidal2ytm.tidal_source import get_liked_tracks
+from tidal2ytm.tidal_source import get_favorite_tracks
 
 
 @dataclass
@@ -79,7 +79,7 @@ def test_tidal_source_year_missing_and_artist_name_none() -> None:
         track_num=1,
         volume_num=1,
     )
-    result = get_liked_tracks(_session_with([[track]]))  # type: ignore[arg-type]
+    result = get_favorite_tracks(_session_with([[track]]))  # type: ignore[arg-type]
     assert result[0].tidal_id == 999 and result[0].album_year is None
     assert result[0].artist == ""
 
@@ -96,7 +96,7 @@ def test_tidal_source_artist_none_object() -> None:
         track_num=2,
         volume_num=1,
     )
-    result = get_liked_tracks(_session_with([[track]]))  # type: ignore[arg-type]
+    result = get_favorite_tracks(_session_with([[track]]))  # type: ignore[arg-type]
     assert result[0].tidal_id == 1000
     assert result[0].artist == ""
     assert result[0].album_year == 2020
@@ -123,7 +123,7 @@ def test_tidal_source_handles_multiple_tracks() -> None:
         track_num=2,
         volume_num=1,
     )
-    result = get_liked_tracks(_session_with([[t1, t2]]))  # type: ignore[arg-type]
+    result = get_favorite_tracks(_session_with([[t1, t2]]))  # type: ignore[arg-type]
     assert [t.tidal_id for t in result] == [1, 2]
     # Field mapping across multiple tracks, not just identity.
     assert result[0].artist == "Vesper Vale"
@@ -139,19 +139,30 @@ def test_tidal_source_handles_multiple_tracks() -> None:
 def test_tidal_source_propagates_attribute_error() -> None:
     session = _session_with([[BareTrack()]])
     with pytest.raises(AttributeError):
-        get_liked_tracks(session)  # type: ignore[arg-type]
+        get_favorite_tracks(session)  # type: ignore[arg-type]
 
 
 def test_tidal_source_paginates_until_exhausted() -> None:
     t1 = FakeTrack(id=1, name="Cinder Path")
     t2 = FakeTrack(id=2, name="Mire Song")
     t3 = FakeTrack(id=3, name="Hollow Crown")
-    result = get_liked_tracks(_session_with([[t1, t2], [t3]]))  # type: ignore[arg-type]
+    result = get_favorite_tracks(_session_with([[t1, t2], [t3]]))  # type: ignore[arg-type]
     assert [t.tidal_id for t in result] == [1, 2, 3]
 
 
 def test_tidal_source_empty_favourites_returns_empty_list() -> None:
-    assert get_liked_tracks(_session_with([])) == []  # type: ignore[arg-type]
+    assert get_favorite_tracks(_session_with([])) == []  # type: ignore[arg-type]
+
+
+def test_tidal_source_dedupes_duplicate_ids() -> None:
+    from tidal2ytm.tidal_source import get_favorite_tracks
+
+    t1 = FakeTrack(id=1, name="Cinder Path")
+    t2 = FakeTrack(id=2, name="Mire Song")
+    dup = FakeTrack(id=1, name="Cinder Path (second listing)")
+    result = get_favorite_tracks(_session_with([[t1, t2, dup]]))  # type: ignore[arg-type]
+    assert [t.tidal_id for t in result] == [1, 2]
+    assert result[0].title == "Cinder Path"
 
 
 def test_tidal_source_api_error_propagates() -> None:
@@ -161,4 +172,4 @@ def test_tidal_source_api_error_propagates() -> None:
             raise RuntimeError("api down")
 
     with pytest.raises(RuntimeError):
-        get_liked_tracks(FakeSession(BoomFavorites()))  # type: ignore[arg-type]
+        get_favorite_tracks(FakeSession(BoomFavorites()))  # type: ignore[arg-type]

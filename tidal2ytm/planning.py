@@ -6,6 +6,7 @@ cross-search selection, and match it to YTM on demand.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import sys
 import time
@@ -13,12 +14,13 @@ from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rich.columns import Columns
-from rich.console import Console, Group
+from rich.console import Console, ConsoleOptions, Group, RenderResult
 from rich.live import Live
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
@@ -34,6 +36,7 @@ except ImportError:  # pragma: no cover
 
 HAS_READCHAR = _has_readchar
 
+from .album_matching import group_by_album_id, resolve_album_group  # noqa: E402
 from .confidence import color_for  # noqa: E402
 from .format import fmt_duration  # noqa: E402
 from .keys import (  # noqa: E402
@@ -55,7 +58,7 @@ from .keys import (  # noqa: E402
     windows_mouse,
 )
 from .matcher import match_track  # noqa: E402
-from .models import MatchMethod, SourceTrack  # noqa: E402
+from .models import MatchResult, SourceTrack, TrackStatus  # noqa: E402
 from .paths import PLAN_FILE  # noqa: E402
 from .picker_rows import (  # noqa: E402
     ListRow,
@@ -68,7 +71,6 @@ from .picker_rows import (  # noqa: E402
     visible_window,
 )
 from .plan_io import (  # noqa: E402
-    backup_plan,
     find_existing_match,
     load_plan,
     save_plan,
@@ -87,10 +89,13 @@ from .planning_search import (  # noqa: E402
     resolve_album_link,
     search_library,
 )
+from .style import SPINNER_NAME, SPINNER_STYLE  # noqa: E402
 
 # Re-exports: the Windows key helpers moved to keys.py (Task 11); planning
 # keeps them importable at the old path for callers and tests.
 __all__ = ["classify_windows_event", "drain_escape", "kernel32", "map_windows_key"]
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -99,7 +104,6 @@ class PlanningSession:
     liked: list[SourceTrack] = field(default_factory=list[SourceTrack])
     selection: dict[int, SourceTrack] = field(default_factory=dict[int, SourceTrack])
     override: bool = False
-    backup_done: bool = False
     library_loaded: bool = False
 
     @property
@@ -177,12 +181,12 @@ def _match_one(
     src: SourceTrack,
     plan: dict[str, Any],
     yt: Any,
-    console: Console,
     counts: dict[str, int],
-    indent: str = "  ",
-) -> dict[str, Any] | None:
-    """Match one selected track into the plan; None when matching failed.
+) -> tuple[dict[str, Any] | None, _MatchOutcome | None]:
+    """Match one selected track into the plan.
 
+    Returns the track dict and None on success (the outcome is decided by
+    `_apply_match_action`), or None plus a red-cross outcome on failure.
     A failed match is recorded here: an unmatched needs_review entry when no
     match is stored yet, otherwise the stored match is kept and counted.
     """
@@ -193,36 +197,17 @@ def _match_one(
         if existing is None:
             insert_track(plan, unmatched_track_dict(src, f"Match error: {exc}"), src.album_year)
             counts["new"] += 1
-            note = Text(f"{indent}↳ match failed: {exc} [recorded as needs_review]", style="red")
-            console.print(note)
         else:
             counts["kept"] += 1
-            console.print(Text(f"{indent}↳ match failed: {exc} [kept stored match]", style="red"))
-        return None
-    return match_result_to_track_dict(result)
+        _LOG.error("per-track match failed for %s: %s", src.title, exc)
+        return None, _MatchOutcome(glyph="✕", glyph_style="bold red")
+    return match_result_to_track_dict(result), None
 
 
-def _resolve_conflict(
-    existing: dict[str, Any] | None,
-    new_dict: dict[str, Any],
-    ask: Callable[[str], str],
-) -> bool:
-    """Ask whether to overwrite a stored match; False on abort or decline."""
-    old = existing or {}
-    old_conf = old.get("confidence", {}).get("overall", 0.0)
-    new_conf = new_dict.get("confidence", {}).get("overall", 0.0)
-    prompt = (
-        f"Differing match for '{new_dict.get('title')}':\n"
-        f"  stored: {old.get('match_method', 'none')} "
-        f"{old.get('yt_video_id', '')} @ {old_conf:.2f}\n"
-        f"  new: {new_dict.get('match_method')} "
-        f"{new_dict.get('yt_video_id')} @ {new_conf:.2f}\n"
-        "Overwrite? [y/N] "
-    )
-    try:
-        return ask(prompt).strip().lower() in ("y", "yes")
-    except (KeyboardInterrupt, EOFError):
-        return False
+def _stored_confidence(track: dict[str, Any]) -> float:
+    """Overall confidence of a stored plan entry; 0.0 when unrecorded."""
+    conf = track.get("confidence", {}).get("overall", 0.0)
+    return float(conf) if isinstance(conf, int | float) else 0.0
 
 
 def _apply_match_action(
@@ -232,41 +217,251 @@ def _apply_match_action(
     new_dict: dict[str, Any],
     counts: dict[str, int],
     override: bool,
-    ask: Callable[[str], str],
-    console: Console,
-    indent: str = "  ",
-) -> None:
-    """Apply one successful match to the plan per its merge action."""
-    line = _result_line(new_dict, indent)
+) -> _MatchOutcome:
+    """Apply one successful match to the plan; returns its status-line outcome."""
+    tick = _MatchOutcome(glyph="✓", glyph_style=f"bold {color_for(_stored_confidence(new_dict))}")
     action = classify_track(existing, new_dict["yt_video_id"])
     if action == "skip-transferred":
-        counts["skipped"] += 1
-        line.append_text(_status_tag("skipped, already transferred"))
-        console.print(line)
+        counts["transferred"] += 1
+        tick.tag, tick.tag_style = "transferred", "bold dim white"
     elif action == "add-new":
         insert_track(plan, new_dict, src.album_year)
         counts["new"] += 1
-        line.append_text(_status_tag("new"))
-        console.print(line)
+        tick.tag, tick.tag_style = "new", "bold white"
     elif action == "keep-same":
         counts["kept"] += 1
-        line.append_text(_status_tag("kept, same as stored"))
-        console.print(line)
+        tick.tag, tick.tag_style = "kept", "bold dim white"
     elif override:
         assert existing is not None
         update_track_in_plan(plan, src.tidal_id, new_dict)
         counts["upgraded"] += 1
-        line.append_text(_status_tag("upgraded, override on"))
-        console.print(line)
-    elif _resolve_conflict(existing, new_dict, ask):
-        update_track_in_plan(plan, src.tidal_id, new_dict)
-        counts["upgraded"] += 1
-        upgraded = Text(f"{indent}↳ upgraded to ")
-        upgraded.append(str(new_dict.get("yt_video_id")), style="italic magenta")
-        console.print(upgraded)
+        tick.tag, tick.tag_style = "upgraded", "bold yellow"
     else:
         counts["kept"] += 1
-        console.print(Text(f"{indent}↳ kept stored match"))
+        tick.tag, tick.tag_style = "kept", "bold dim white"
+    return tick
+
+
+def _record_fallback_failure(
+    plan: dict[str, Any],
+    src: SourceTrack,
+    existing: dict[str, Any] | None,
+    exc: Exception,
+    counts: dict[str, int],
+    album_reason: str | None = None,
+) -> _MatchOutcome:
+    """Record a per-track fallback exception as needs_review or kept."""
+    _LOG.error("per-track fallback failed for %s: %s", src.title, exc)
+    reason = f"Match error: {exc}"
+    if album_reason:
+        reason = f"{album_reason}; fallback: {reason}"
+    if existing is None:
+        insert_track(plan, unmatched_track_dict(src, reason), src.album_year)
+        counts["new"] += 1
+    else:
+        counts["kept"] += 1
+    return _MatchOutcome(glyph="✕", glyph_style="bold red")
+
+
+def _match_group_fallback(
+    group: list[SourceTrack],
+    plan: dict[str, Any],
+    yt: Any,
+    counts: dict[str, int],
+    override: bool,
+) -> dict[int, _MatchOutcome]:
+    """Per-track fallback for a group whose album resolve failed."""
+    outcomes: dict[int, _MatchOutcome] = {}
+    for src in group:
+        existing = find_existing_match(plan, src.tidal_id)
+        new_dict, failure = _match_one(src, plan, yt, counts)
+        if failure is not None:
+            outcomes[src.tidal_id] = failure
+            continue
+        assert new_dict is not None
+        outcomes[src.tidal_id] = _apply_match_action(
+            plan, src, existing, new_dict, counts, override
+        )
+    return outcomes
+
+
+def _apply_album_result(
+    result: MatchResult,
+    plan: dict[str, Any],
+    yt: Any,
+    counts: dict[str, int],
+    override: bool,
+) -> _MatchOutcome:
+    """Apply one album-group result, falling back to per-track on no-fit."""
+    existing = find_existing_match(plan, result.source.tidal_id)
+    if result.yt_video_id is None:
+        album_reason = result.review_reason or "Album abstained"
+        _LOG.warning(
+            "album abstained (%s); routing %s to per-track fallback",
+            album_reason,
+            result.source.title,
+        )
+        try:
+            fallback = match_track(result.source, yt)
+        except Exception as exc:
+            return _record_fallback_failure(
+                plan, result.source, existing, exc, counts, album_reason=album_reason
+            )
+        fallback_detail = (
+            fallback.review_reason or fallback.confidence.summary or fallback.yt_video_id or ""
+        )
+        if fallback_detail:
+            fallback.review_reason = f"{album_reason}; fallback: {fallback_detail}"
+        else:
+            fallback.review_reason = album_reason
+        fallback.status = TrackStatus.NEEDS_REVIEW
+        new_dict = match_result_to_track_dict(fallback)
+    else:
+        new_dict = match_result_to_track_dict(result)
+    return _apply_match_action(plan, result.source, existing, new_dict, counts, override)
+
+
+_VIEWPORT_RESERVE = 2
+
+
+def _pending_entries(rows: list[_PendingRow], room: int) -> list[Text | _PendingRow]:
+    """Pending rows capped to `room`: head rows plus a `… N more` marker.
+
+    During a group resolve every member is pending at once; oversized groups
+    keep the first rows and the marker names the rest.
+    """
+    if len(rows) <= room:
+        return list(rows)
+    entries: list[Text | _PendingRow] = list(rows[: room - 1])
+    entries.append(Text(f"… {len(rows) - room + 1} more tracks in this group", style="dim"))
+    return entries
+
+
+def _panel_entries(
+    done: list[Text], pending: list[_PendingRow], room: int
+) -> list[Text | _PendingRow]:
+    """Tail window of finished lines plus pending rows, capped to `room`.
+
+    Finished lines keep their most recent tail; overflow collapses into the
+    dim `… N earlier` marker so the panel never grows past the screen.
+    """
+    pend = _pending_entries(pending, room)
+    rest = room - len(pend)
+    hidden = 0
+    shown: list[Text] = []
+    if len(done) <= rest:
+        shown = done[:]
+    elif rest >= 2:
+        shown = done[-(rest - 1) :]
+        hidden = len(done) - len(shown)
+    else:
+        hidden = len(done)
+    entries: list[Text | _PendingRow] = []
+    if hidden and rest > 0:
+        entries.append(Text(f"… {hidden} earlier", style="dim"))
+    entries.extend(shown)
+    entries.extend(pend)
+    return entries
+
+
+def _match_panel(done: list[Text], pending: list[_PendingRow], panel_height: int) -> Panel:
+    """Full-screen matching panel: bordered, sized to the terminal."""
+    return Panel(
+        Group(*_panel_entries(done, pending, panel_height - 2)),
+        title=Text(" Matching… ", style="bold"),
+        border_style="dim",
+        expand=True,
+        height=panel_height,
+    )
+
+
+def _match_album_groups(
+    groups: dict[int, list[SourceTrack]],
+    positions: dict[int, int],
+    total: int,
+    yt: Any,
+    plan: dict[str, Any],
+    console: Console,
+    counts: dict[str, int],
+    override: bool,
+) -> list[Text]:
+    """Resolve each album group once, routing no-fit rows via per-track fallback.
+
+    The whole run lives in one full-screen Live panel; finished lines are
+    returned, not printed — the caller dumps them as ordinary scrolling
+    output so the terminal scrollback keeps the whole run.
+    """
+    album_cache: dict[str, Any] = {}
+    panel_height = max(5, console.size.height - _VIEWPORT_RESERVE)
+    done_lines: list[Text] = []
+    with Live(console=console, transient=True, vertical_overflow="visible") as live:
+        for group in groups.values():
+            rows_by_id = {
+                src.tidal_id: _pending_row(positions[src.tidal_id], total, src) for src in group
+            }
+            live.update(_match_panel(done_lines, list(rows_by_id.values()), panel_height))
+            try:
+                results = resolve_album_group(group, yt, album_cache)
+            except Exception as exc:
+                _LOG.error("album resolve failed for group %s: %s", group[0].album, exc)
+                outcomes = _match_group_fallback(group, plan, yt, counts, override)
+                for src in group:
+                    rows_by_id.pop(src.tidal_id)
+                    outcome = outcomes.get(src.tidal_id)
+                    if outcome is not None:
+                        done_lines.append(_done_entry(positions[src.tidal_id], total, src, outcome))
+                    live.update(_match_panel(done_lines, list(rows_by_id.values()), panel_height))
+                continue
+            for result in results:
+                outcome = _apply_album_result(result, plan, yt, counts, override)
+                rows_by_id.pop(result.source.tidal_id, None)
+                done_lines.append(
+                    _done_entry(positions[result.source.tidal_id], total, result.source, outcome)
+                )
+                live.update(_match_panel(done_lines, list(rows_by_id.values()), panel_height))
+    return done_lines
+
+
+def _partition_fresh(
+    ordered: list[SourceTrack],
+    plan: dict[str, Any],
+    override: bool,
+    counts: dict[str, int],
+) -> tuple[list[Text], list[SourceTrack]]:
+    """Return instant kept/transferred entries for planned tracks plus the rest.
+
+    Instant entries are numbered by display order: they print first, so they
+    take positions 1..K and the fresh tracks continue after them.
+    """
+    n = len(ordered)
+    fresh: list[SourceTrack] = []
+    instant: list[Text] = []
+    shown = 0
+    for src in ordered:
+        existing = find_existing_match(plan, src.tidal_id)
+        if existing is not None and not override:
+            if str(existing.get("status", "")) == TrackStatus.TRANSFERRED.value:
+                counts["transferred"] += 1
+                tag = "transferred"
+            else:
+                counts["kept"] += 1
+                tag = "kept"
+            shown += 1
+            instant.append(
+                _done_entry(
+                    shown,
+                    n,
+                    src,
+                    _MatchOutcome(
+                        tag=tag,
+                        tag_style="bold dim white",
+                        glyph_style=f"bold {color_for(_stored_confidence(existing))}",
+                    ),
+                )
+            )
+            continue
+        fresh.append(src)
+    return instant, fresh
 
 
 def run_match_action(
@@ -275,10 +470,13 @@ def run_match_action(
     input_fn: Callable[[str], str] | None = None,
     yt_factory: Callable[[], Any] | None = None,
 ) -> dict[str, int]:
-    """Match the session selection into the plan file; returns new/upgraded/kept/skipped counts."""
+    """Match the session selection into the plan file.
+
+    Returns new/upgraded/kept/transferred counts.
+    """
     console = Console()
     ask: Callable[[str], str] = read_line if input_fn is None else input_fn
-    counts = {"new": 0, "upgraded": 0, "kept": 0, "skipped": 0}
+    counts = {"new": 0, "upgraded": 0, "kept": 0, "transferred": 0}
     if not session.selection:
         console.print("Nothing selected.")
         return dict(counts)
@@ -290,6 +488,7 @@ def run_match_action(
         return counts
     if answer not in ("", "y", "yes"):
         return counts
+    console.clear()
     if yt is None:
         assert yt_factory is not None
         from .cli import wait_status
@@ -301,25 +500,34 @@ def run_match_action(
     else:
         plan = {"meta": {}, "artists": []}
     ordered = iter_selection_ordered(session.selection)
-    for i, src in enumerate(ordered, 1):
-        indent = " " * (len(f"[{i}/{n}]") + 1)
-        console.print(_match_tag(i, n, src))
-        existing = find_existing_match(plan, src.tidal_id)
-        new_dict = _match_one(src, plan, yt, console, counts, indent)
-        if new_dict is None:
-            continue
-        _apply_match_action(
-            plan, src, existing, new_dict, counts, session.override, ask, console, indent
-        )
-    if not session.backup_done and session.plan_path.exists():
-        bpath = backup_plan(session.plan_path)
-        console.print(f"Backup -> {bpath.name}")
-        session.backup_done = True
+    instant, fresh = _partition_fresh(ordered, plan, session.override, counts)
+    offset = len(ordered) - len(fresh)
+    positions = {t.tidal_id: offset + j for j, t in enumerate(fresh, start=1)}
+    groups = group_by_album_id(fresh)
+    done_lines = instant + _match_album_groups(
+        groups,
+        positions,
+        len(ordered),
+        yt,
+        plan,
+        console,
+        counts,
+        session.override,
+    )
+    for line in done_lines:
+        console.print(line)
     update_plan_meta(plan)
     save_plan(plan, session.plan_path)
     console.print(
         f"Matched: {counts['new']} new, {counts['upgraded']} upgraded, "
-        f"{counts['kept']} kept, {counts['skipped']} skipped (transferred)"
+        f"{counts['kept']} kept, {counts['transferred']} transferred"
+    )
+    _LOG.info(
+        "match run done: %d new, %d upgraded, %d kept, %d transferred",
+        counts["new"],
+        counts["upgraded"],
+        counts["kept"],
+        counts["transferred"],
     )
     return counts
 
@@ -351,121 +559,61 @@ def _select_all(
     console.print(f"Selected everything: {len(session.selection)} track(s).")
 
 
-def _match_tag(i: int, n: int, src: SourceTrack) -> Text:
-    """First progress line: `[i/n] Matching Title by Artist (Album, Track NN, m:ss, ISRC xxx)…`.
+@dataclass
+class _MatchOutcome:
+    """One finished status line: trailing tag plus result glyph."""
 
-    Names (title/artist/album/track number) render cyan, the counter and the
-    ISRC value green, the duration cyan; everything else is default white.
-    """
-    tag = Text()
-    tag.append("[")
-    tag.append(f"{i}/{n}", style="green")
-    tag.append("] Matching ")
-    tag.append(src.title, style="cyan")
-    tag.append(" by ")
-    tag.append(src.artist, style="cyan")
-    segments: list[Text] = []
-    if src.album:
-        album_seg = Text()
-        album_seg.append(src.album, style="cyan")
-        segments.append(album_seg)
+    tag: str = ""
+    tag_style: str = ""
+    glyph: str = "✓"
+    glyph_style: str = ""
+
+
+def _entry_head(i: int, n: int, src: SourceTrack) -> Text:
+    """Shared status-line stem: `[i/n] Matching Artist - Album - NN. Title`."""
+    head = Text()
+    head.append("[", style="white")
+    head.append(f"{i}/{n}", style="yellow")
+    head.append("] Matching ", style="white")
+    head.append(src.artist, style="bold blue")
+    head.append(" - ", style="white")
+    head.append(src.album, style="bold cyan")
+    head.append(" - ", style="white")
     if src.track_num > 0:
-        num_seg = Text("Track ")
-        num_seg.append(f"{src.track_num:02d}", style="cyan")
-        segments.append(num_seg)
-    dur_seg = Text()
-    dur_seg.append(fmt_duration(src.duration_sec), style="cyan")
-    segments.append(dur_seg)
-    if src.isrc:
-        isrc_seg = Text("ISRC ")
-        isrc_seg.append(src.isrc, style="green")
-        segments.append(isrc_seg)
-    tag.append(" (")
-    for j, seg in enumerate(segments):
-        if j:
-            tag.append(", ")
-        tag.append_text(seg)
-    tag.append(")…")
-    return tag
+        head.append(f"{src.track_num:02d}", style="bold white")
+        head.append(". ", style="white")
+    head.append(src.title, style="bold white")
+    return head
 
 
-def _breakdown_token(conf: dict[str, Any]) -> Text:
-    """Parenthesised confidence detail after `conf. X`.
+class _PendingRow:
+    """One in-flight status line: stem text plus an animated spinner frame."""
 
-    Structured `(title a, artist b, album c, Δdur Ns)` when the match carried
-    similarities; otherwise the raw summary string, or nothing when neither.
-    Similarity numbers follow the confidence threshold colours; the duration
-    delta is white at zero, red above.
-    """
-    title_sim = conf.get("title_similarity")
-    artist_sim = conf.get("artist_similarity")
-    album_sim = conf.get("album_similarity")
-    delta = conf.get("duration_delta_sec")
-    token = Text()
-    if (
-        isinstance(title_sim, int | float)
-        and isinstance(artist_sim, int | float)
-        and isinstance(album_sim, int | float)
-        and isinstance(delta, int)
-    ):
-        token.append(" (title ")
-        token.append(f"{title_sim:.2f}", style=color_for(title_sim))
-        token.append(", artist ")
-        token.append(f"{artist_sim:.2f}", style=color_for(artist_sim))
-        token.append(", album ")
-        token.append(f"{album_sim:.2f}", style=color_for(album_sim))
-        token.append(", Δdur ")
-        token.append(f"{delta}s", style="white" if delta == 0 else "red")
-        token.append(")")
-        return token
-    summary = conf.get("summary", "")
-    if summary:
-        token.append(f" ({summary})")
-    return token
+    def __init__(self, head: Text) -> None:
+        self.head = head
+        self._spinner = Spinner(SPINNER_NAME, style=SPINNER_STYLE)
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        # Spinner.render returns Text at runtime (typed RenderableType);
+        # assembling one Text keeps stem and frame on a single line.
+        frame = cast(Text, self._spinner.render(console.get_time()))
+        yield Text.assemble(self.head, "… ", frame)
 
 
-def _result_line(track: dict[str, Any], indent: str = "") -> Text:
-    """Markup-safe result line: `↳ [method] id — Title by Artist (Album, Track NN) — conf. X (…)`.
-
-    The arrow prefix aligns under the `[i/n]` counter; names render cyan, the
-    method bold yellow, the video id italic magenta. Only the arrow carries a
-    style on its own span — a base style would leak onto every default-white
-    append below.
-    """
-    conf: dict[str, Any] = track.get("confidence", {}) or {}
-    overall = conf.get("overall", 0.0)
-    method = track.get("match_method", "none")
-    line = Text()
-    line.append(f"{indent}↳ ", style="dim")
-    line.append("[")
-    line.append(str(method), style="bold yellow")
-    line.append("] ")
-    line.append(str(track.get("yt_video_id") or "(no match)"), style="italic magenta")
-    line.append(" — ")
-    line.append(str(track.get("yt_title") or "—"), style="cyan")
-    line.append(" by ")
-    line.append(str(track.get("yt_artist") or "—"), style="cyan")
-    line.append(" (")
-    line.append(str(track.get("yt_album") or "—"), style="cyan")
-    line.append(", Track ")
-    num = track.get("yt_album_track_num")
-    line.append(f"{num:02d}" if isinstance(num, int) and num > 0 else "N/A", style="cyan")
-    line.append(") — conf. ")
-    if method == MatchMethod.ISRC.value:
-        line.append("exact match", style="blue")
-    else:
-        line.append(f"{overall:.2f}", style=color_for(overall))
-    line.append_text(_breakdown_token(conf))
-    return line
+def _pending_row(i: int, n: int, src: SourceTrack) -> _PendingRow:
+    """Live-region placeholder while a track is still being matched."""
+    return _PendingRow(_entry_head(i, n, src))
 
 
-def _status_tag(text: str) -> Text:
-    """Trailing result tag: green text inside regular-white brackets."""
-    tag = Text()
-    tag.append(" [")
-    tag.append(text, style="green")
-    tag.append("]")
-    return tag
+def _done_entry(i: int, n: int, src: SourceTrack, outcome: _MatchOutcome) -> Text:
+    """Finished status line: stem plus glyph and optional trailing tag."""
+    entry = _entry_head(i, n, src)
+    entry.append(" ")
+    entry.append(outcome.glyph, style=outcome.glyph_style)
+    if outcome.tag:
+        entry.append(" — ", style="white")
+        entry.append(outcome.tag, style=outcome.tag_style)
+    return entry
 
 
 def hot_hint(pre: str, hot: str, post: str = "", style: str = "bold bright_blue") -> Text:
@@ -1268,10 +1416,10 @@ def _do_gateway_auth(
             )
         if tidal_ok and not session.library_loaded:
             from .cli import tidal_login, wait_status
-            from .tidal_source import get_liked_tracks
+            from .tidal_source import get_favorite_tracks
 
             with wait_status("Fetching Tidal tracks"):
-                session.liked = get_liked_tracks(tidal_login())
+                session.liked = get_favorite_tracks(tidal_login())
             session.library_loaded = True
             console.print(f"Found {len(session.liked)} tracks.")
     except (KeyboardInterrupt, EOFError):
@@ -1667,7 +1815,7 @@ def _try_startup_library_load(
     first menu render would otherwise clear it unseen).
     """
     from .cli import tidal_login, wait_status
-    from .tidal_source import get_liked_tracks
+    from .tidal_source import get_favorite_tracks
 
     ask: Callable[[str], str] = read_line if input_fn is None else input_fn
     try:
@@ -1675,7 +1823,7 @@ def _try_startup_library_load(
         if tidal_session is None:
             return
         with wait_status("Fetching Tidal tracks"):
-            session.liked = get_liked_tracks(tidal_session)
+            session.liked = get_favorite_tracks(tidal_session)
     except Exception:
         console.print(f"Could not load Tidal library — [{_STYLE_AUTH}]a[/]uthenticate to retry.")
         ask("Press Enter to continue…")

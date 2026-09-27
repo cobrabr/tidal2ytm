@@ -202,6 +202,11 @@ All runtime files are written to the `data/` directory (git-ignored).
 | `data/tidal_token.json`                   | Cached Tidal OAuth token (created by `tidal2ytm auth`)              |
 | `data/ytm_auth.json`                      | Cached YTM OAuth token (created by `tidal2ytm auth`)                |
 | `data/client_secret_*.json`               | Google Cloud OAuth client credentials you download from the Console |
+| `logs/YYYYMMDD-HHMMSS-ffffff.log`         | Timestamped diagnostic log for the run (git-ignored)                |
+
+### Logging
+
+Every run writes a timestamped log file to the `logs/` directory (git-ignored). The default level `INFO` records external API calls, auth steps, album resolve verdicts and transfer results. `--log-level DEBUG` adds scoring detail, cache hits, request payload shapes and plan saves; `--log-level ERROR` or `--log-level CRITICAL` narrow the file to failures; `--log-level OFF` disables logging entirely. `TIDAL2YTM_LOG_LEVEL` sets the same value via the environment; the flag wins. Example: `uv run tidal2ytm --log-level DEBUG review`.
 
 ## Development
 

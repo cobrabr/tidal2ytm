@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, cast
 
 from ytmusicapi import YTMusic
+
+from .logging_setup import log_call
+
+_LOG = logging.getLogger(__name__)
 
 
 def add_track_to_library(
@@ -29,7 +34,9 @@ def add_track_to_library(
         print(f"[DRY RUN] Would add to library: {title} → {video_id}")
         return True
     try:
-        watch: Any = yt.get_watch_playlist(videoId=video_id, limit=1)
+        watch: Any = log_call(
+            _LOG, "library add lookup", yt.get_watch_playlist, videoId=video_id, limit=1
+        )
         tracks: Any = watch.get("tracks") or []
         if tracks:
             feedback_tokens: Any = tracks[0].get("feedbackTokens") or {}
@@ -38,17 +45,21 @@ def add_track_to_library(
         add_token: Any = feedback_tokens.get("add")
         if not add_token:
             # Already in the library — nothing to add.
+            _LOG.info("library add ok: %s (already present)", video_id)
             return True
-        result: Any = yt.edit_song_library_status([add_token])
+        result: Any = log_call(_LOG, "library add commit", yt.edit_song_library_status, [add_token])
         if isinstance(result, dict):
             payload = cast(dict[str, Any], result)
             status = cast(str | None, payload.get("status"))
             if status is not None and status != "STATUS_SUCCEEDED":
                 print(f"[ERROR] Library-add failed for: {title} ({video_id}): {status}")
+                _LOG.error("library add failed: %s (status %s)", video_id, status)
                 return False
         if delay > 0:
             time.sleep(delay)
+        _LOG.info("library add ok: %s", video_id)
         return True
     except Exception as e:
         print(f"[ERROR] Failed to add {title} to library: {e}")
+        _LOG.error("library add failed: %s: %s", video_id, e)
         return False
