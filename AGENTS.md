@@ -73,7 +73,7 @@ Tests use fictional artist/track names and synthetic IDs only, never real catalo
 - CI (`.github/workflows/ci.yml`, ubuntu-latest) runs `check-toml`, `ruff check`, `ruff format --check`, `pyright`, then the full suite as `uv run pytest --cov --cov-fail-under=80 --cov-report=xml --cov-report=term-missing` (no `-x`, no `-q`). Run that exact sequence before pushing — the pre-push hook's `pytest -q -x` can hide order-dependent and coverage-path failures.
 - Platform-branched code (`os.name`, `termios`/`msvcrt` guards) has a path CI exercises that Windows never does: force both branches in tests (monkeypatch `os.name`, stub the guarded import), because a green local run proves nothing about the Linux path.
 - Test doubles must implement the full interface production code touches (a stdin stand-in needs `fileno()` when the reader calls it); never stub narrower than the real collaborator. When production branches on a capability (`termios` import, `isatty`), the double must drive the same branch CI will take.
-- **ALWAYS check CI runs on GitHub after a `git push`.** Ensuring CI will run successfully *cannot* be guaranteed by looking at code alone.
+- **ALWAYS watch the CI run after a `git push`**: `gh run list` to find it, `gh run watch <run-id> --exit-status` to block on it. The pre-push hook runs on the dev platform, so local green proves nothing. Markdown-only pushes queue no run (`paths-ignore: ['**.md']`), so there's nothing to watch.
 
 ## Versioning
 
