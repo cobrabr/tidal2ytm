@@ -2,4 +2,21 @@
 name = "tidal2ytm-ipc"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
+description = "NDJSON protocol and sidecar process client for tidal2ytm."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1.53.1", features = [
+    "io-util",
+    "macros",
+    "process",
+    "rt",
+    "sync",
+    "time",
+] }
+tidal2ytm-core = { path = "../tidal2ytm-core" }
