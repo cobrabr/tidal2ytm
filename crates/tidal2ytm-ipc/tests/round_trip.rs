@@ -51,16 +51,19 @@ fn interpreter(root: &Path) -> String {
 
 fn config() -> SidecarConfig {
     let root = repo_root();
-    // The sidecar package is imported from the checkout rather than from the
-    // venv, so a `uv sync` that has not installed the workspace member still
-    // starts. Its own dependencies still have to come from the interpreter.
     let package_root = root.join("sidecar");
+    // Belt and braces, not the mechanism. `cwd` below is already the package
+    // root and `python -m` puts it on `sys.path[0]`, and `uv sync --all-groups`
+    // installs both workspace packages into the venv regardless. Nothing about
+    // this test depends on it.
     let (_level, value) = log_level_env("INFO").expect("INFO is a valid level");
     SidecarConfig {
         program: interpreter(&root).into(),
         args: vec!["-m".to_string(), "tidal2ytm_sidecar".to_string()],
         // `tidal2ytm.paths.DATA_DIR` is the relative `data`, so the token caches
-        // the sidecar reads resolve here and not the developer's real ones.
+        // resolve here and not the developer's real ones. `sidecar/data` does not
+        // exist in a checkout, which is what keeps `auth.status` off the network
+        // — and it means this test only ever sees the signed-out answer.
         cwd: package_root.clone(),
         env: vec![
             ("TIDAL2YTM_LOG_LEVEL".to_string(), value),
@@ -71,6 +74,29 @@ fn config() -> SidecarConfig {
         ],
         handshake_timeout: Duration::from_secs(30),
     }
+}
+
+/// The canonical `auth.status` answer from `contracts/auth_status.json`, read
+/// rather than restated. That file is the one place the cross-language shape is
+/// written down, and both suites assert against it. A third copy written here
+/// would fail on a legitimate contract change with a diff pointing at production
+/// code, and whoever authored the change would have no way to guess the copy
+/// exists.
+fn auth_status_contract() -> Value {
+    let path = repo_root().join("contracts").join("auth_status.json");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
+}
+
+/// An object's keys, order-free, so two payloads can be compared as shapes.
+fn keys_of<'a>(value: &'a Value, what: &str) -> std::collections::BTreeSet<&'a str> {
+    value
+        .as_object()
+        .unwrap_or_else(|| panic!("{what} is a JSON object, got {value}"))
+        .keys()
+        .map(String::as_str)
+        .collect()
 }
 
 async fn spawn_or_explain(config: &SidecarConfig) -> SidecarClient {
@@ -110,40 +136,28 @@ async fn the_real_sidecar_answers_auth_status() {
         .await
         .expect("auth.status is answered");
 
-    for provider in ["tidal", "ytm"] {
-        let state = data
-            .get(provider)
-            .unwrap_or_else(|| panic!("auth.status reports {provider}"));
-        assert!(
-            state["valid"].is_boolean(),
-            "{provider}.valid must be a boolean, got {state}"
-        );
-        assert!(
-            state["expires_at"].is_null() || state["expires_at"].is_string(),
-            "{provider}.expires_at must be a string or null, got {state}"
-        );
-        // `contracts/auth_status.json` pins the provider object to exactly these
-        // two keys, which is what keeps a future field from quietly shipping
-        // cache contents over the boundary.
-        let keys: Vec<&str> = state
-            .as_object()
-            .expect("a provider is an object")
-            .keys()
-            .map(String::as_str)
-            .collect();
+    // The shape is compared against the contract's, so a rename or an added
+    // field on either side is a diff against `contracts/auth_status.json` and not
+    // against a third restatement of it. What the *values* hold is deliberately
+    // not asserted: with no token cache reachable the sidecar is signed out on
+    // both providers, so this exercises `ops._signed_out` and nothing else.
+    // Signed-in values are `ops.auth_status`'s contract with its own suite
+    // (`sidecar/tests/test_ops.py`).
+    let contract = auth_status_contract()["data"].clone();
+    let providers = contract
+        .as_object()
+        .unwrap_or_else(|| panic!("the contract's data is an object, got {contract}"));
+    assert!(!providers.is_empty(), "the contract names no providers");
+    for (provider, expected) in providers {
+        let actual = data
+            .get(provider.as_str())
+            .unwrap_or_else(|| panic!("auth.status does not report {provider}"));
         assert_eq!(
-            keys.iter()
-                .copied()
-                .collect::<std::collections::BTreeSet<_>>(),
-            ["expires_at", "valid"].into_iter().collect(),
-            "{provider} carries an unexpected field"
+            keys_of(actual, provider),
+            keys_of(expected, provider),
+            "{provider} does not match contracts/auth_status.json"
         );
     }
-    // Token material must never cross the boundary, whatever the cache holds.
-    assert!(
-        !data.to_string().to_lowercase().contains("token"),
-        "auth.status leaked something token-shaped: {data}"
-    );
 
     client.shutdown().await.expect("sidecar shuts down");
 }
@@ -182,10 +196,22 @@ async fn the_real_sidecar_refuses_an_op_it_does_not_implement() {
     client.shutdown().await.expect("sidecar shuts down");
 }
 
+// Closing stdin is the whole shutdown mechanism, and nothing shorter of the
+// sidecar's own voice says it worked. `shutdown` returns `Ok` down both branches
+// — the child exited and the child was killed after the grace period — and so
+// does every other observable left: `is_alive` is cleared on both, and a
+// subsequent `call` short-circuits on it. The one thing only the sidecar can
+// report is that its read loop reached EOF, and that is exactly the
+// two-implementations-agree fact this file exists to prove: the host closed the
+// pipe, and Python's loop honoured it.
 #[tokio::test]
 async fn closing_stdin_stops_the_real_sidecar() {
     let config = config();
     let client = spawn_or_explain(&config).await;
+    // Taken before the shutdown, so the lines the sidecar writes on its way out
+    // are queued rather than dropped with the client.
+    let mut stderr = client.take_stderr().expect("stderr channel is present");
+
     client.shutdown().await.expect("sidecar shuts down");
     assert!(!client.is_alive());
 
@@ -198,6 +224,23 @@ async fn closing_stdin_stops_the_real_sidecar() {
     assert!(
         matches!(after, Err(IpcError::SidecarLost)),
         "got: {after:?}"
+    );
+
+    let mut honoured_eof = false;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(line) = stderr.recv().await {
+            if line.contains("stdin closed, exiting") {
+                honoured_eof = true;
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the sidecar's stderr closed rather than the test hanging on it");
+    assert!(
+        honoured_eof,
+        "the sidecar never reported stdin closing, so it was killed rather than \
+         shut down and this test proved nothing about close-stdin"
     );
 }
 
