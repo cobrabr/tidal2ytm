@@ -29,9 +29,11 @@ eggs/
 # Python eggs directory
 .eggs/
 # Library directory
-lib/
+# Root-anchored: the Python template rule matched `src/lib/` too, which is
+# frontend source, not build output.
+/lib/
 # 64-bit library directory
-lib64/
+/lib64/
 # Buildout parts
 parts/
 # Python source distribution

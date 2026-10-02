@@ -1,0 +1,14 @@
+dist/
+node_modules/
+src-tauri/
+coverage/
+pnpm-lock.yaml
+Cargo.lock
+docs/
+*.md
+sidecar/
+uv.lock
+.github/
+.opencode/
+.pre-commit-config.yaml
+contracts/
