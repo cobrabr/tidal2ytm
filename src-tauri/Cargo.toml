@@ -1,0 +1,9 @@
+[package]
+name = "tidal2ytm"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "tidal2ytm_host"
+crate-type = ["rlib"]
