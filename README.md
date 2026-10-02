@@ -14,9 +14,8 @@ Those services pick the first result they find. They don't account for:
 
 | Priority | Method           | How it works                                                                                    |
 | -------- | ---------------- | ----------------------------------------------------------------------------------------------- |
-| 1        | **ISRC**         | Exact recording identifier. Unambiguous. Confidence: 1.0                                        |
-| 2        | **Duration**     | Title + artist + duration within ±4 s. Confidence: ~0.85                                        |
-| 3        | **Fuzzy album**  | Among duration matches, prefers closest album name. Confidence: ~0.70                           |
+| 1        | **Duration**     | Title + artist + duration within ±4 s. Confidence: ~0.85                                        |
+| 2        | **Fuzzy album**  | Among duration matches, prefers closest album name. Confidence: ~0.70                           |
 | —        | **Review queue** | Anything below threshold marked `needs_review` in `transfer_plan.toml` for manual confirmation. |
 
 If the tool isn't confident about a match, it won't guess — it sets the status to `needs_review` in the plan file.
@@ -230,7 +229,6 @@ uv run pytest --cov --cov-report=term-missing -q
 
 ## Notes
 
-- **ISRC on YTM**: When the ISRC matches a YTM candidate, the match is unambiguous. When it doesn't, duration + fuzzy album takes over.
-- **Classical music**: ISRC is your best friend here. Tracks where it doesn't resolve on YTM's side land in the review queue, which is the right outcome — you want to verify the correct recording manually.
+- **Classical music**: Tidal's track-level metadata is thin, so album-level matching carries more of the weight. Expect a larger review queue.
 - **Tracks not on YTM**: Show up as "No candidates found" in the review queue. Handle them by clearing the video ID and setting status to `needs_review`, or using the override (`o`) key in the review TUI.
 - **Rate limiting**: Small delays are built in. For large libraries, just let it run overnight.

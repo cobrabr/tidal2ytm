@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — ISRC > duration (±4 s) > fuzzy, managed with `uv` from the repo root.
+Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — album-anchored matching with duration and fuzzy fallbacks, managed with `uv` from the repo root.
 
 ## Workflow
 
@@ -35,7 +35,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 │   ├── format.py         # fmt_duration (seconds → m:ss)
 │   ├── keys.py           # shared terminal key/line reading (raw, Windows console, fallback)
 │   ├── logging_setup.py   # LOG_LEVELS, resolve_level, setup_logging, log_call, redact_payload (owns all logging config)
-│   ├── matcher.py        # ISRC / duration / fuzzy ranking
+│   ├── matcher.py        # duration / fuzzy ranking for a single track
 │   ├── models.py         # TrackStatus, MatchMethod, dataclasses
 │   ├── paths.py          # DATA_DIR + token/plan paths; ensure_data_dir() (never touches disk on import)
 │   ├── picker_rows.py    # pure picker row model: ListRow/PickerView, build_rows, toggles, viewport
