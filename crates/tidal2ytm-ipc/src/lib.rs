@@ -4,6 +4,8 @@
 //! round-trip test in `tests/round_trip.rs` spawns a real Python process, and
 //! that test is what proves the boundary works on a headless Linux runner.
 
+pub mod client;
 pub mod protocol;
 
+pub use client::{LOG_LEVELS, SidecarClient, SidecarConfig, log_level_env};
 pub use protocol::{ErrorKind, IpcError};

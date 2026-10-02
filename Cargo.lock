@@ -173,7 +173,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "tidal2ytm-core",
  "tokio",
 ]
 
