@@ -18,7 +18,6 @@ def _track(tidal_id: int, title: str, artist: str, album: str, album_id: int = 1
         album_id=album_id,
         album_year=1971,
         duration_sec=200,
-        isrc=None,
         track_num=1,
         disc_num=1,
         version=None,

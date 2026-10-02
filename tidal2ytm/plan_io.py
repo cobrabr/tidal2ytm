@@ -34,7 +34,7 @@ _PLAN_HEADER = """\
 # Generated: {generated_at}
 #
 # status:       pending | transferred | skip | failed | needs_review
-# match_method: isrc | duration | fuzzy | album | none
+# match_method: duration | fuzzy | album | none
 #
 # To fix a bad match:    edit yt_video_id (bare 11-char YouTube ID) and set status = "pending"
 # To skip a track:       set status = "skip"

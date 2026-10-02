@@ -82,9 +82,7 @@ All decisions are written immediately — there is no unsaved state.
 """
 
 
-def _confidence_text(value: float | None, match_method: str = "none") -> Text:
-    if match_method == "isrc":
-        return Text("exact match", style="blue")
+def _confidence_text(value: float | None) -> Text:
     if value is None:
         return Text("—")
     return Text(f"{value:.2f}", style=color_for(value))
@@ -267,10 +265,8 @@ def _track_head_line(track: dict[str, Any], cursor: bool) -> Text:
     line.append(str(track.get("title", "—") or "—"), style="cyan")
     line.append(" | ", style="dim white")
     conf: dict[str, Any] = track.get("confidence", {}) or {}
-    match_method = track.get("match_method", "none")
-    if match_method != MatchMethod.ISRC.value:
-        line.append("conf. ")
-    line.append_text(_confidence_text(conf.get("overall"), match_method))
+    line.append("conf. ")
+    line.append_text(_confidence_text(conf.get("overall")))
     line.append(" | ", style="dim white")
     status = track.get("status", "")
     line.append(_status_label(status), style=STATUS_STYLE.get(status, ""))
@@ -499,7 +495,6 @@ def detail_body(track: dict[str, Any]) -> Text:
         ("Title", track.get("title", "—")),
         ("Album", track.get("tidal_album", "—")),
         ("Duration", fmt_duration(track.get("tidal_duration_sec"))),
-        ("ISRC", track.get("tidal_isrc") or "—"),
         ("Track #", str(track.get("tidal_track_num", "—"))),
     ]:
         body.append(f"  {label + ':':10} {val}\n")
@@ -514,7 +509,6 @@ def detail_body(track: dict[str, Any]) -> Text:
             ("Title", track.get("yt_title", "—") or "—", False),
             ("Album", track.get("yt_album", "") or "—", _album_mismatch(track)),
             ("Duration", fmt_duration(track.get("yt_duration_sec") or 0), _dur_mismatch(track)),
-            ("ISRC", track.get("yt_isrc") or "—", False),
             ("Track #", str(track.get("yt_album_track_num") or "—"), False),
             ("Video ID", video_id, False),
             ("URL", f"https://music.youtube.com/watch?v={video_id}", False),
@@ -533,7 +527,7 @@ def detail_body(track: dict[str, Any]) -> Text:
     body.append("\n")
     body.append(f"  Match method:  {match_method}\n")
     body.append("  Confidence:    ")
-    body.append_text(_confidence_text(conf.get("overall"), match_method))
+    body.append_text(_confidence_text(conf.get("overall")))
     summary = conf.get("summary", "")
     if summary:
         body.append(f"  ←  {summary}")
@@ -925,15 +919,8 @@ class KeyRouter:
             return None
         status, message = entry
         track = self.session.filtered_tracks[self.session.cursor]
-        was_isrc = (
-            key == "r"
-            and track.get("match_method") == "isrc"
-            and track.get("confidence", {}).get("overall", 0.0) == 1.0
-        )
         _apply_decision(self.session, track, status)
         self.session.flash = message
-        if was_isrc:
-            self.session.flash += " — this was an ISRC match; set back to 'pending' if accidental."
         self._advance()
         return status
 

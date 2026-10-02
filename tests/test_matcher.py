@@ -33,7 +33,6 @@ def test_matcher_makes_no_detail_lookups() -> None:
             "artists": ["Vesper Vale"],
             "album": "Ashen Light",
             "duration": 209,
-            "isrc": "USABC1234567",
         }
     )
     cand = {
@@ -49,34 +48,12 @@ def test_matcher_makes_no_detail_lookups() -> None:
     yt.get_song.assert_not_called()
 
 
-def test_matcher_isrc_via_candidate() -> None:
-    track = {
-        "title": "Muddle",
-        "artists": ["Wren"],
-        "album": "Cinder Child",
-        "duration": 221,
-        "isrc": "USABC1234567",
-    }
-    cand = {
-        "videoId": "CCCCCCCCCCC",
-        "title": "Muddle in the Puddle",
-        "artists": [{"name": "Wren"}],
-        "album": {"name": "Cinder Child"},
-        "duration_seconds": 221,
-        "isrc": "USABC1234567",
-    }
-    yt = _yt_with_candidates([cand])
-    res = match_track(_source(track), yt)
-    assert res.match_method == MatchMethod.ISRC and res.confidence.overall == 1.0
-
-
 def test_matcher_duration_boundary_4s_pass_5s_fail() -> None:
     track = {
         "title": "Ember",
         "artists": ["Vesper"],
         "album": "Ember",
         "duration": 209,
-        "isrc": None,
     }
     cand_4s = {
         "videoId": "AAAAAAAAAAA",
@@ -114,7 +91,6 @@ def test_matcher_no_candidates_needs_review() -> None:
         "artists": ["Nobody"],
         "album": "None",
         "duration": 200,
-        "isrc": None,
     }
     yt = _yt_with_candidates([])
     res = match_track(_source(track), yt)
@@ -127,7 +103,6 @@ def test_matcher_fuzzy_prefers_closest_album() -> None:
         "artists": ["A"],
         "album": "Cinder Child",
         "duration": 200,
-        "isrc": None,
     }
     c1 = {
         "videoId": "AAAAAAAAAAA",
@@ -157,7 +132,6 @@ def test_matcher_threshold_edge_just_below_rejects() -> None:
         "artists": ["Wren"],
         "album": "Cinder Child",
         "duration": 200,
-        "isrc": None,
     }
     cand = {
         "videoId": "AAAAAAAAAAA",
@@ -178,7 +152,6 @@ def test_non_latin_title_does_not_score_one() -> None:
         "artists": ["アーティスト"],
         "album": "アルバム",
         "duration": 200,
-        "isrc": None,
     }
     cand = {
         "videoId": "AAAAAAAAAAA",
@@ -198,7 +171,6 @@ def test_unknown_source_duration_skips_duration_gate() -> None:
         "artists": ["Blashen"],
         "album": "Ash",
         "duration": 0,
-        "isrc": None,
     }
     cand = {
         "videoId": "BBBBBBBBBBB",
@@ -219,7 +191,6 @@ def test_deluxe_suffix_album_is_needs_review() -> None:
         "artists": ["Vesper Vale"],
         "album": "Ashen Light",
         "duration": 213,
-        "isrc": None,
     }
     cand = {
         "videoId": "DDDDDDDDDDD",
@@ -240,7 +211,6 @@ def test_exact_album_is_pending() -> None:
         "artists": ["Vesper Vale"],
         "album": "Ashen Light",
         "duration": 213,
-        "isrc": None,
     }
     cand = {
         "videoId": "DDDDDDDDDDD",
@@ -254,17 +224,17 @@ def test_exact_album_is_pending() -> None:
     assert result.status == TrackStatus.PENDING
 
 
-def test_isrc_miss_falls_back_to_duration_over_fuzzy_title() -> None:
-    # Candidate B: exact title/artist/album but wrong duration (fails the gate).
-    # Candidate A: candidate-metadata ISRC mismatch + right duration — the ISRC
-    # miss must fall through to the duration strategy instead of letting the
-    # fuzzy-title candidate win.
+def test_duration_gate_outranks_title_similarity() -> None:
+    """A wrong-duration exact title loses to a right-duration weaker title.
+
+    The duration gate is what decides here: the exact-title candidate is 91 s
+    outside the tolerance, so it never reaches the title comparison at all.
+    """
     track = {
         "title": "Ember Fall",
         "artists": ["Vesper Vale"],
         "album": "Ashen Light",
         "duration": 209,
-        "isrc": "USABC1234567",
     }
     cand_fuzzy_wrong_dur = {
         "videoId": "BBBBBBBBBBB",
@@ -273,15 +243,14 @@ def test_isrc_miss_falls_back_to_duration_over_fuzzy_title() -> None:
         "album": {"name": "Ashen Light"},
         "duration_seconds": 300,
     }
-    cand_isrc_miss_right_dur = {
+    cand_right_dur = {
         "videoId": "AAAAAAAAAAA",
         "title": "Ember Fall (Live)",
         "artists": [{"name": "Vesper Vale"}],
         "album": {"name": "Quartz Sea"},
         "duration_seconds": 209,
-        "isrc": "USZZZ9999999",
     }
-    yt = _yt_with_candidates([cand_fuzzy_wrong_dur, cand_isrc_miss_right_dur])
+    yt = _yt_with_candidates([cand_fuzzy_wrong_dur, cand_right_dur])
     res = match_track(_source(track), yt)
     assert res.yt_video_id == "AAAAAAAAAAA"
     assert res.match_method == MatchMethod.DURATION
@@ -293,7 +262,6 @@ def test_matcher_candidates_missing_keys_are_skipped() -> None:
         "artists": ["Vesper"],
         "album": "Ash",
         "duration": 200,
-        "isrc": None,
     }
     cands = [
         {"title": "Ember"},  # no videoId
@@ -317,7 +285,6 @@ def test_matcher_search_errors_propagate() -> None:
         "artists": ["Vesper"],
         "album": "Ash",
         "duration": 200,
-        "isrc": None,
     }
     yt = MagicMock()
     yt.search.side_effect = RuntimeError("search down")

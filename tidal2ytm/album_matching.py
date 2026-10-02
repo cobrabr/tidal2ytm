@@ -94,7 +94,6 @@ def _review_results(
             yt_artist=None,
             yt_album=None,
             yt_album_track_num=None,
-            yt_isrc=None,
             yt_duration_sec=None,
             match_method=MatchMethod.NONE,
             confidence=ConfidenceBreakdown(overall=overall, summary=summary),
@@ -284,7 +283,6 @@ def _map_winner_tracks(sources: list[SourceTrack], winner: dict[str, Any]) -> li
                 yt_artist=(best_row.get("artists") or [{}])[0].get("name"),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
                 yt_album=winner.get("title"),
                 yt_album_track_num=best_row.get("trackNumber"),
-                yt_isrc=None,
                 yt_duration_sec=best_row.get("duration_seconds"),
                 match_method=MatchMethod.ALBUM,
                 confidence=ConfidenceBreakdown(

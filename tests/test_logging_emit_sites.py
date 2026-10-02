@@ -91,7 +91,6 @@ def test_get_favorite_tracks_logs_operation(
     page_track.id = 7
     page_track.name = "Apple"
     page_track.duration = 200
-    page_track.isrc = None
     page_track.track_num = 1
     page_track.volume_num = 1
     page_track.version = None
@@ -121,7 +120,6 @@ def test_resolve_album_group_logs_verdict_and_abstain(
         album_id=11,
         album_year=1971,
         duration_sec=200,
-        isrc=None,
         track_num=1,
         disc_num=1,
         version=None,
@@ -168,7 +166,6 @@ def test_resolve_album_group_abstains_at_warn(
         album_id=11,
         album_year=1971,
         duration_sec=200,
-        isrc=None,
         track_num=1,
         disc_num=1,
         version=None,
@@ -201,7 +198,6 @@ def test_match_track_logs_search_and_candidate_scores(
         album_id=12,
         album_year=1971,
         duration_sec=200,
-        isrc=None,
         track_num=1,
         disc_num=1,
         version=None,
@@ -252,7 +248,6 @@ def test_planning_fallback_routing_logged_at_warn(
                 yt_artist=None,
                 yt_album=None,
                 yt_album_track_num=None,
-                yt_isrc=None,
                 yt_duration_sec=None,
                 match_method=MatchMethod.NONE,
                 confidence=ConfidenceBreakdown(overall=0.0, summary="No album resolve"),
@@ -269,7 +264,6 @@ def test_planning_fallback_routing_logged_at_warn(
         yt_artist="Vesper Vale",
         yt_album="Ashen Light",
         yt_album_track_num=1,
-        yt_isrc=None,
         yt_duration_sec=200,
         match_method=MatchMethod.FUZZY,
         confidence=ConfidenceBreakdown(overall=0.95, summary="title=0.99, artist=1.00"),

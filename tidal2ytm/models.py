@@ -6,7 +6,6 @@ from typing import Any
 
 
 class MatchMethod(StrEnum):
-    ISRC = "isrc"
     DURATION = "duration"
     FUZZY = "fuzzy"
     ALBUM = "album"
@@ -51,7 +50,6 @@ class SourceTrack:
     album_id: int
     album_year: int | None
     duration_sec: int
-    isrc: str | None
     track_num: int
     disc_num: int
     version: str | None
@@ -87,7 +85,6 @@ class SourceTrack:
             album_id=_to_int(data.get("album_id", -1), -1),
             album_year=data.get("album_year"),
             duration_sec=_to_int(duration_raw, 0),
-            isrc=data.get("isrc"),
             track_num=_to_int(data.get("track_num", 0), 0),
             disc_num=_to_int(data.get("disc_num", data.get("volume_num", 0)), 0),
             version=data.get("version"),
@@ -102,7 +99,6 @@ class MatchResult:
     yt_artist: str | None
     yt_album: str | None
     yt_album_track_num: int | None
-    yt_isrc: str | None
     yt_duration_sec: int | None
     match_method: MatchMethod
     confidence: ConfidenceBreakdown

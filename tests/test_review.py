@@ -26,13 +26,11 @@ def _review_track(**overrides: Any) -> dict[str, Any]:
         "title": "Apple",
         "tidal_album": "Apple",
         "tidal_duration_sec": 200,
-        "tidal_isrc": "",
         "tidal_track_num": 1,
         "yt_artist": "Wren",
         "yt_title": "Apple",
         "yt_album": "Apple",
         "yt_duration_sec": 200,
-        "yt_isrc": "",
         "yt_album_track_num": 1,
         "yt_video_id": "AAAAAAAAAAA",
         "match_method": "fuzzy",
@@ -872,14 +870,6 @@ def test_detail_body_stacks_source_and_match(isolated_data_dir: Path) -> None:
     assert "fuzzy" in plain
     assert "needs_review" in plain
     assert "music.youtube.com/watch?v=AAAAAAAAAAA" in plain
-
-
-def test_detail_body_shows_exact_match_label_for_isrc(isolated_data_dir: Path) -> None:
-    session = _list_session(isolated_data_dir)
-    track = session.filtered_tracks[0]
-    track["match_method"] = "isrc"
-    track["confidence"] = {"overall": 1.0}
-    assert "exact match" in review_mod.detail_body(track).plain
 
 
 def test_view_toggle_keys_switch_modes(isolated_data_dir: Path) -> None:

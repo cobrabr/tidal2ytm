@@ -28,7 +28,6 @@ class FakeTrack:
     artists: list[FakeArtist] = field(default_factory=list[FakeArtist])
     album: FakeAlbum | None = None
     duration: int = 0
-    isrc: str | None = None
     track_num: int = 0
     volume_num: int = 0
     version: str | None = None
@@ -92,7 +91,6 @@ def test_tidal_source_artist_none_object() -> None:
         artists=[],
         album=FakeAlbum(name="Gloaming", id=456, year=2020),
         duration=180,
-        isrc="USABC1234567",
         track_num=2,
         volume_num=1,
     )

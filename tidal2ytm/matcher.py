@@ -25,11 +25,6 @@ def _build_query(track: SourceTrack) -> str:
     return " ".join(parts)
 
 
-def _isrc_from_candidate(candidate: dict[str, Any]) -> str | None:
-    """Try to extract ISRC from search candidate metadata without a get_song call."""
-    return candidate.get("isrc")
-
-
 def _album_track_num_from_candidate(candidate: dict[str, Any]) -> int | None:
     return candidate.get("trackNumber") or candidate.get("album_track_num")
 
@@ -50,7 +45,7 @@ def _build_fuzzy_summary(
     return s
 
 
-def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
+def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:
     query = _build_query(track)
     _LOG.info("track search: %s — %s", track.title, track.artist)
     candidates: list[dict[str, Any]] = yt.search(query, filter="songs", limit=_SEARCH_LIMIT)  # type: ignore[no-untyped-call]
@@ -74,30 +69,9 @@ def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
         c_album_info: Any = candidate.get("album") or {}
         c_album = c_album_info.get("name", "")  # pyright: ignore[reportAssignmentType, reportUnknownMemberType]
         c_dur = candidate.get("duration_seconds")
-        c_isrc: str | None = _isrc_from_candidate(candidate)
         c_track_num: int | None = _album_track_num_from_candidate(candidate)
 
-        # Strategy 1: ISRC via candidate metadata only (no extra API call;
-        # ytmusicapi search results carry no ISRC, so a bounded get_song
-        # fallback would only burn player requests — a miss falls through to
-        # duration/fuzzy below, while transport/auth errors propagate).
-        if track.isrc and c_isrc and c_isrc.upper() == track.isrc.upper():
-            breakdown = ConfidenceBreakdown(overall=1.0, summary="Exact ISRC match")
-            return MatchResult(
-                source=track,
-                yt_video_id=vid,
-                yt_title=c_title,
-                yt_artist=c_artist,  # pyright: ignore[reportUnknownArgumentType]
-                yt_album=c_album,  # pyright: ignore[reportUnknownArgumentType]
-                yt_album_track_num=c_track_num,
-                yt_isrc=c_isrc,
-                yt_duration_sec=c_dur,
-                match_method=MatchMethod.ISRC,
-                confidence=breakdown,
-                status=TrackStatus.PENDING,
-            )
-
-        # Strategy 2+3: Duration + fuzzy via shared track scorer.
+        # Duration + fuzzy via the shared track scorer.
         if c_dur is None:
             continue
         fit = score_track_fit(track, c_title, [c_artist], c_album, c_dur, c_track_num)
@@ -118,7 +92,6 @@ def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
                 "artist": c_artist,
                 "album": c_album,
                 "dur": c_dur,
-                "isrc": c_isrc,
                 "track_num": c_track_num,
             }
             wrong_album = album_sim < WRONG_ALBUM_THRESHOLD
@@ -158,7 +131,6 @@ def match_track(track: SourceTrack, yt: YTMusic) -> MatchResult:  # noqa: C901
         yt_artist=best_meta.get("artist"),
         yt_album=best_meta.get("album"),
         yt_album_track_num=best_meta.get("track_num"),
-        yt_isrc=best_meta.get("isrc"),
         yt_duration_sec=best_meta.get("dur"),
         match_method=best_method,
         confidence=best_breakdown,

@@ -27,7 +27,6 @@ def _src(tidal_id: int = 1) -> SourceTrack:
         album_id=11,
         album_year=1971,
         duration_sec=200,
-        isrc=None,
         track_num=1,
         disc_num=1,
         version=None,
@@ -42,7 +41,6 @@ def _result() -> MatchResult:
         yt_artist="Wren",
         yt_album="Apple",
         yt_album_track_num=1,
-        yt_isrc=None,
         yt_duration_sec=200,
         match_method=MatchMethod.FUZZY,
         confidence=ConfidenceBreakdown(overall=0.9),
@@ -168,7 +166,6 @@ def test_album_method_round_trip() -> None:
         yt_artist="Vesper Vale",
         yt_album="Ashen Light",
         yt_album_track_num=4,
-        yt_isrc=None,
         yt_duration_sec=209,
         match_method=MatchMethod.ALBUM,
         confidence=ConfidenceBreakdown(

@@ -20,10 +20,9 @@ title = "Muddle in the Puddle"
 artists = ["Wren"]
 album = "Cinder Child"
 duration = 221
-isrc = "USABC1234567"
 yt_video_id = "CCCCCCCCCCC"
 status = "pending"
-match_method = "isrc"
+match_method = "fuzzy"
 confidence = { overall = 1.0, title = 1.0, artist = 1.0, album = 1.0 }
 
 [[artists.albums.tracks]]

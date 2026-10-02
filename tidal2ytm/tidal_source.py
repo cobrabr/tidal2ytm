@@ -36,7 +36,6 @@ def _to_source_track(t: Track) -> SourceTrack:
         album_id=album_id,
         album_year=album_year,
         duration_sec=t.duration,
-        isrc=t.isrc,
         track_num=t.track_num,
         disc_num=t.volume_num,
         version=t.version,
