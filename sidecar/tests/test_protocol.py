@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tidal2ytm_sidecar import protocol
+from tidal2ytm_sidecar import ops, protocol
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "contracts"
 
@@ -21,6 +21,44 @@ def test_hello_matches_the_shared_contract() -> None:
 def test_success_response_matches_the_shared_contract() -> None:
     contract = _contract("auth_status.json")
     assert protocol.success_response(1, contract["data"]) == contract
+
+
+# The envelope test above is tautological about the payload: it feeds the
+# contract's own `data` back in as the argument. This one runs the real op, so
+# a rename of `expires_at` or a dropped half of the response fails here and in
+# `tidal2ytm-ipc`'s tests rather than in production. Signed-out is the case
+# where both languages can produce the same bytes without a token file.
+def test_the_sidecar_auth_status_payload_matches_the_shared_contract(
+    isolated_data_dir: Path,
+) -> None:
+    assert ops.auth_status() == _contract("auth_status.json")["data"]
+
+
+# The six kinds are a closed enum the host branches on, and a typo such as
+# `sidecar-lost` would sail through: `_ERROR_KINDS` would contain the typo too,
+# and the Rust suite pins its own literals independently. Pin the wire names.
+def test_every_error_kind_has_its_documented_wire_name() -> None:
+    assert protocol.AUTH_EXPIRED == "auth_expired"
+    assert protocol.RATE_LIMITED == "rate_limited"
+    assert protocol.NOT_FOUND == "not_found"
+    assert protocol.UPSTREAM == "upstream"
+    assert protocol.BAD_REQUEST == "bad_request"
+    assert protocol.SIDECAR_LOST == "sidecar_lost"
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "auth_expired",
+        "rate_limited",
+        "not_found",
+        "upstream",
+        "bad_request",
+        "sidecar_lost",
+    ],
+)
+def test_every_error_kind_is_accepted(kind: str) -> None:
+    assert protocol.error_response(1, kind, "m")["error"]["kind"] == kind
 
 
 def test_error_response_matches_the_shared_contract() -> None:

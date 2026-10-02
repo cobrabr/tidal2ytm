@@ -21,6 +21,19 @@ def _write(stream: IO[str], envelope: dict[str, object]) -> None:
     stream.flush()
 
 
+def _logged_params(op: object, params: dict[str, Any]) -> object:
+    """What may be logged for this request's params.
+
+    `auth.*` ops carry credentials by definition, so they log shape only: the
+    key names and nothing else. Every other op logs real values, because the
+    matching and debugging data the GUI needs has to stay visible. Modelled on
+    the CLI's payload logging in `ytm_client`.
+    """
+    if isinstance(op, str) and op.startswith("auth."):
+        return {key: "[shape]" for key in params}
+    return redact_payload(params)
+
+
 def run(stdin: IO[str], stdout: IO[str]) -> int:
     """Answer requests until stdin closes. Returns the process exit code."""
     setup_stderr_logging(level_from_env())
@@ -51,9 +64,13 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
         shown: object = raw_params
         if isinstance(raw_params, Mapping):
             params = cast("Mapping[str, Any]", raw_params)
-            shown = redact_payload(cast("dict[str, Any]", raw_params))
+            shown = _logged_params(op, cast("dict[str, Any]", raw_params))
         elif isinstance(raw_params, list):
             shown = redact_payload(cast("list[Any]", raw_params))
+        elif isinstance(raw_params, str):
+            # A scalar has no keys for redact_payload to match on, so the only
+            # thing standing between a bare token and the log file is this.
+            shown = redact_text(raw_params)
         _LOG.info("rid=%s op=%s params=%s", rid, op, json.dumps(shown))
 
         if not isinstance(op, str):

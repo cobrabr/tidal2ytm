@@ -172,3 +172,28 @@ def test_redact_text_blanks_credentials_in_upstream_messages() -> None:
     redacted = logging_setup.redact_text(message)
     assert "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" not in redacted
     assert "/oauth2/token" in redacted
+
+
+# A bare token reaches `redact_text` with no key for the pattern filter to
+# match, so the long-run rule is what stops it.
+def test_redact_text_blanks_a_bare_token_with_no_label() -> None:
+    assert "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" not in logging_setup.redact_text(
+        "params=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    )
+    assert "ya29.A0ARrdmockSecretValue1234567890abcdef" not in logging_setup.redact_text(
+        'params="ya29.A0ARrdmockSecretValue1234567890abcdef"'
+    )
+
+
+# The mirror image, and the reason the pattern cannot simply be "any long
+# string": over-redaction destroys exactly the matching and debugging data the
+# logs exist for. `artist_slug` is unbounded (slugs.py), so a long artist name
+# is a routine input, not an edge case.
+def test_redact_text_keeps_matching_data_visible() -> None:
+    for value in (
+        "artist_slug=tangerine-dream-deluxe-edition-2 album_slug=nightfall",
+        "match_id=tangerine-dream/nightfall-3 confidence=0.93",
+        "yt_video_id=dQw4w9WgXcQ",
+        "title=Ember Fall (Deluxe Edition Remastered 2024)",
+    ):
+        assert logging_setup.redact_text(value) == value

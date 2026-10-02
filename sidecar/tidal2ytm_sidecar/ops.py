@@ -39,7 +39,7 @@ def _tidal_state() -> dict[str, Any]:
     try:
         cached = _cached(auth.paths.TIDAL_TOKEN_FILE)
         return {
-            "valid": auth.token_usable(auth.parse_token_expiry(cached.get("expiry_time"))),
+            "valid": auth.tidal_cache_valid(auth.paths.TIDAL_TOKEN_FILE),
             "expires_at": cached.get("expiry_time"),
         }
     except _CACHE_READ_ERRORS as exc:

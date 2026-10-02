@@ -1,6 +1,6 @@
 [project]
 name = "tidal2ytm-sidecar"
-version = "0.1.0"
+version = "0.7.0"
 description = "Thin Tidal/YouTube Music adapter spoken over NDJSON by the tidal2ytm host."
 requires-python = ">=3.11"
 dependencies = [

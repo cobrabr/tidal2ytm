@@ -694,7 +694,7 @@ dev = [
 
 [[package]]
 name = "tidal2ytm-sidecar"
-version = "0.1.0"
+version = "0.7.0"
 source = { editable = "sidecar" }
 dependencies = [
     { name = "tidal2ytm" },

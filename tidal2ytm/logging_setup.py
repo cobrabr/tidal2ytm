@@ -43,10 +43,19 @@ _REDACT_PATTERNS = (
 # the `api_key` pattern above instead of sailing past it.
 _NORMALIZED_REDACT_PATTERNS = tuple(p.replace("_", "") for p in _REDACT_PATTERNS)
 
-# Long opaque strings preceded by a credential-ish label. Upstream exception
-# text embeds the request URL, so a structure-only filter leaks the token
-# through the error message.
-_CREDENTIAL_RE = re.compile(r"(?i)\b(?:bearer\s+)?[A-Za-z0-9_\-]{20,}\b")
+# A long opaque run of token-shaped characters. Upstream exception text embeds
+# the request URL, so a structure-only filter leaks the token through the error
+# message. Three deliberate choices keep matching data legible:
+#   - `-` and `/` are excluded, so hyphenated artist slugs and `artist/album`
+#     match ids break into runs below the floor and survive; album slugs are
+#     capped at 15 chars anyway (slugs.py).
+#   - `=` is excluded, so a `key=value` pair cannot join into one long run and
+#     take the value's own key with it.
+#   - No label is required. A bare 20+ char run is redacted whether or not
+#     anything introduces it, because a credential whose label an upstream
+#     exception stripped is still a credential. The cost is that a 20+ char
+#     separator-free word is also redacted.
+_CREDENTIAL_RE = re.compile(r"[A-Za-z0-9_.+~]{20,}")
 
 # Mutable module state: the per-run file and its handler are fixed for the
 # life of the process once set up; tests reset them via monkeypatch.
