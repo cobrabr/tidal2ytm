@@ -34,7 +34,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 │   ├── errors.py         # Tidal2YtmError hierarchy (PlanNotFoundError, InvalidScopeError)
 │   ├── format.py         # fmt_duration (seconds → m:ss)
 │   ├── keys.py           # shared terminal key/line reading (raw, Windows console, fallback)
-│   ├── logging_setup.py   # LOG_LEVELS, resolve_level, setup_logging, log_call, redact_payload (owns all logging config)
+│   ├── logging_setup.py   # LOG_LEVELS, resolve_level, setup_logging, setup_stderr_logging, log_call, redact_payload, redact_text (owns all logging config)
 │   ├── matcher.py        # duration / fuzzy ranking for a single track
 │   ├── models.py         # TrackStatus, MatchMethod, dataclasses
 │   ├── paths.py          # DATA_DIR + token/plan paths; ensure_data_dir() (never touches disk on import)
@@ -51,8 +51,10 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 │   ├── transfer.py       # `transfer` subcommand
 │   ├── ytm_client.py     # YTMClient: authenticated YTMusic build (TVHTML5 + WEB_REMIX patched POST)
 │   └── ytm_sink.py       # add_track_to_library (get_watch_playlist + edit_song_library_status)
-└── tests/                # pytest; isolated via tests/conftest.py:isolated_data_dir
+└── tests/                # pytest; isolated via conftest.py:isolated_data_dir
 ```
+
+`sidecar/` is a second uv workspace member (`tidal2ytm_sidecar`) holding the NDJSON sidecar: `protocol.py` owns the wire envelopes, `ops.py` answers questions about the outside world, `runner.py` is the read/answer loop, and `sidecar_logging.py` reads the host-supplied level. `contracts/*.json` is the cross-language wire contract, asserted by both the Python and the Rust suites.
 
 ## Quality gates
 
@@ -91,7 +93,7 @@ Tests use fictional artist/track names and synthetic IDs only, never real catalo
 - `paths.py` never touches disk on import; entry points call `ensure_data_dir()`. `STATE_FILE`/`REVIEW_FILE` were deleted; do not reintroduce stale path constants.
 - `ytm_sink.add_track_to_library` uses `get_watch_playlist` + `edit_song_library_status` with `feedbackTokens.add`. `rate_song` / `LikeStatus.LIKE` only thumb-up a track and are wrong here.
 - Logging is file-only: records go to the per-run `logs/` file, never to the console, and console behaviour never changes for the sake of logging. `logging_setup.py` owns levels, precedence, formatter, handler, and the per-run file; other modules only `logging.getLogger(__name__)` and emit — never reconfigure handlers or the root logger.
-- `--log-level` flag beats `TIDAL2YTM_LOG_LEVEL` env beats default `INFO`; the accepted set is owned by `logging_setup.LOG_LEVELS`. An invalid env value is a hard CLI error, never a silent fallback.
+- `--log-level` flag beats `TIDAL2YTM_LOG_LEVEL` env beats default `INFO`; the accepted set is owned by `logging_setup.LOG_LEVELS`. An invalid env value is a hard CLI error, never a silent fallback. The GUI host passes the same env var to the sidecar at spawn, so the level applies even if the sidecar dies before its handshake.
 - Log records never contain tokens, client secrets, or authorization headers; DEBUG payload logging uses `logging_setup.redact_payload` and logs payload shape (key names), never token values.
 - `log_call`'s `except Exception` arm logs and always re-raises — a documented observer, not a suppressor; do not reuse the pattern to swallow errors elsewhere.
 - Every module begins with `from __future__ import annotations`; data containers are dataclasses; public functions are type-annotated.

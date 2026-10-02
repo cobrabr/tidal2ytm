@@ -167,3 +167,11 @@ data/
 
 # Per-run diagnostic logs
 logs/
+
+# Rust, frontend, and sidecar build output
+node_modules/
+.vite/
+src-tauri/gen/
+src-tauri/binaries/
+sidecar/build/
+sidecar/dist/

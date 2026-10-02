@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -21,7 +23,30 @@ LOG_LEVELS: dict[str, int] = {
     "DEBUG": logging.DEBUG,
 }
 
-_REDACT_KEYS = frozenset({"access_token", "refresh_token", "authorization", "client_secret"})
+# Single owner of the redaction vocabulary. Matched as a case-insensitive
+# substring of the key name, because upstream payloads nest the sensitive
+# value under a varying prefix: `access_token`, `tokenValue`, `session_id`.
+_REDACT_PATTERNS = (
+    "token",
+    "secret",
+    "cookie",
+    "authorization",
+    "bearer",
+    "refresh",
+    "access",
+    "api_key",
+    "client_secret",
+    "session",
+)
+
+# Same vocabulary with separators folded out, so a camelCase `apiKey` matches
+# the `api_key` pattern above instead of sailing past it.
+_NORMALIZED_REDACT_PATTERNS = tuple(p.replace("_", "") for p in _REDACT_PATTERNS)
+
+# Long opaque strings preceded by a credential-ish label. Upstream exception
+# text embeds the request URL, so a structure-only filter leaks the token
+# through the error message.
+_CREDENTIAL_RE = re.compile(r"(?i)\b(?:bearer\s+)?[A-Za-z0-9_\-]{20,}\b")
 
 # Mutable module state: the per-run file and its handler are fixed for the
 # life of the process once set up; tests reset them via monkeypatch.
@@ -69,12 +94,32 @@ def setup_logging(level_name: str) -> Path | None:
     return path
 
 
+def setup_stderr_logging(level_name: str) -> None:
+    """Send records to stderr. Used by the sidecar, whose stdout is the IPC channel."""
+    name = resolve_level(level_name, None)
+    root = logging.getLogger()
+    for handler in root.handlers:
+        if getattr(handler, "_tidal2ytm_stderr", False):
+            return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-5s %(name)s %(message)s"))
+    handler._tidal2ytm_stderr = True  # type: ignore[attr-defined]
+    root.addHandler(handler)
+    root.setLevel(LOG_LEVELS[name])
+    handler.setLevel(LOG_LEVELS[name])
+
+
+def _is_sensitive(key: object) -> bool:
+    lowered = str(key).lower().replace("_", "").replace("-", "")
+    return any(pattern in lowered for pattern in _NORMALIZED_REDACT_PATTERNS)
+
+
 def redact_payload(payload: dict[str, Any] | list[Any]) -> dict[str, Any] | list[Any]:
-    """Replace token-bearing keys with '[redacted]', recursively."""
+    """Replace sensitive keys with '[redacted]', recursively."""
     if isinstance(payload, dict):
         return {
             k: "[redacted]"
-            if str(k).lower() in _REDACT_KEYS
+            if _is_sensitive(k)
             else (
                 redact_payload(cast(dict[str, Any] | list[Any], v))
                 if isinstance(v, dict | list)
@@ -86,6 +131,11 @@ def redact_payload(payload: dict[str, Any] | list[Any]) -> dict[str, Any] | list
         redact_payload(cast(dict[str, Any] | list[Any], v)) if isinstance(v, dict | list) else v
         for v in payload
     ]
+
+
+def redact_text(value: str) -> str:
+    """Blank out long opaque strings that look like credentials in free text."""
+    return _CREDENTIAL_RE.sub("[redacted]", value)
 
 
 def log_call(

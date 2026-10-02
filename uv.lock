@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.11"
 
+[manifest]
+members = [
+    "tidal2ytm",
+    "tidal2ytm-sidecar",
+]
+
 [[package]]
 name = "certifi"
 version = "2026.7.22"
@@ -664,6 +670,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "tidal2ytm-sidecar" },
 ]
 
 [package.metadata]
@@ -682,6 +689,24 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.9" },
+    { name = "tidal2ytm-sidecar", editable = "sidecar" },
+]
+
+[[package]]
+name = "tidal2ytm-sidecar"
+version = "0.1.0"
+source = { editable = "sidecar" }
+dependencies = [
+    { name = "tidal2ytm" },
+    { name = "tidalapi" },
+    { name = "ytmusicapi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tidal2ytm", editable = "." },
+    { name = "tidalapi", specifier = ">=0.8.3" },
+    { name = "ytmusicapi", specifier = ">=1.7.0" },
 ]
 
 [[package]]

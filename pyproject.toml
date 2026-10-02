@@ -19,10 +19,26 @@ dependencies = [
 tidal2ytm = "tidal2ytm.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-cov>=6", "pyright>=1.1", "ruff>=0.9", "pre-commit>=4"]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=6",
+    "pyright>=1.1",
+    "ruff>=0.9",
+    "pre-commit>=4",
+    # The sidecar is a workspace member, not a dependency of the CLI, so plain
+    # `uv sync` would not install it and `uv sync --all-groups` would leave the
+    # sidecar tests unable to import their own package.
+    "tidal2ytm-sidecar",
+]
+
+[tool.uv.workspace]
+members = ["sidecar"]
+
+[tool.uv.sources]
+tidal2ytm-sidecar = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "sidecar/tests"]
 addopts = "-q --strict-markers"
 
 [tool.coverage.run]
@@ -45,3 +61,6 @@ ignore = ["S101"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 reportMissingImports = false
+# The sidecar is a workspace member, not an installed dependency, so pyright has
+# to be pointed at its source rather than at the editable install shim.
+extraPaths = ["sidecar"]

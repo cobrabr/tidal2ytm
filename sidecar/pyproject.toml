@@ -1,0 +1,20 @@
+[project]
+name = "tidal2ytm-sidecar"
+version = "0.1.0"
+description = "Thin Tidal/YouTube Music adapter spoken over NDJSON by the tidal2ytm host."
+requires-python = ">=3.11"
+dependencies = [
+    "tidal2ytm",
+    "tidalapi>=0.8.3",
+    "ytmusicapi>=1.7.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+tidal2ytm = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["tidal2ytm_sidecar"]

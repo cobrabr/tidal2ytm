@@ -18,11 +18,11 @@ def _reset_logging_state(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(logging_setup, "_handler", None)
     root = logging.getLogger()
     for h in root.handlers[:]:
-        if getattr(h, "_tidal2ytm_run", False):
+        if getattr(h, "_tidal2ytm_run", False) or getattr(h, "_tidal2ytm_stderr", False):
             root.removeHandler(h)
     yield
     for h in root.handlers[:]:
-        if getattr(h, "_tidal2ytm_run", False):
+        if getattr(h, "_tidal2ytm_run", False) or getattr(h, "_tidal2ytm_stderr", False):
             root.removeHandler(h)
 
 
@@ -52,6 +52,18 @@ def test_setup_off_attaches_no_handler(tmp_path: Path, monkeypatch: pytest.Monke
         all(getattr(h, "_tidal2ytm_run", False) is False for h in root.handlers)
         or not root.handlers
     )
+
+
+# The sidecar's stdout is the IPC channel, so a doubled stderr handler would
+# double every record the host has to read. Idempotence is the whole contract.
+def test_setup_stderr_logging_attaches_exactly_one_handler() -> None:
+    root = logging.getLogger()
+    before = len(root.handlers)
+    logging_setup.setup_stderr_logging("DEBUG")
+    logging_setup.setup_stderr_logging("INFO")
+    stderr_handlers = [h for h in root.handlers if getattr(h, "_tidal2ytm_stderr", False)]
+    assert len(stderr_handlers) == 1
+    assert len(root.handlers) == before + 1
 
 
 def test_setup_creates_timestamped_run_file(
@@ -138,3 +150,25 @@ def test_redact_payload_strips_token_fields() -> None:
     assert out_d["Authorization"] == "[redacted]"
     assert cast(dict[str, Any], out_d["nested"])["access_token"] == "[redacted]"  # noqa: S105
     assert cast(dict[str, Any], out_d["nested"])["safe"] == 1
+
+
+def test_redact_payload_strips_nested_prefixed_keys() -> None:
+    payload: dict[str, Any] = {
+        "sessionId": "sess_1",
+        "client_secret": "shh",
+        "items": [{"apiKey": "k1", "title": "Ember Fall"}],
+    }
+    out = logging_setup.redact_payload(payload)
+    out_d = cast(dict[str, Any], out)
+    assert out_d["sessionId"] == "[redacted]"
+    assert out_d["client_secret"] == "[redacted]"  # noqa: S105
+    items = cast(list[dict[str, Any]], out_d["items"])
+    assert items[0]["apiKey"] == "[redacted]"
+    assert items[0]["title"] == "Ember Fall"
+
+
+def test_redact_text_blanks_credentials_in_upstream_messages() -> None:
+    message = "GET /oauth2/token failed: https://x.test/a?k=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    redacted = logging_setup.redact_text(message)
+    assert "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" not in redacted
+    assert "/oauth2/token" in redacted
