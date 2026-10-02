@@ -11,24 +11,30 @@
 //! `print` or a library banner adds to the channel. Those need three different
 //! answers, and `classify` is where the difference is drawn:
 //!
-//! - A JSON object carrying an `id` is a response *addressed to someone*. If it
-//!   fails strict deserialisation — an error `kind` this build does not know, a
-//!   missing `ok` — the line is still attributed by that `id` and the one call
-//!   it belongs to fails with `MalformedResponse`. Stepping over it instead
-//!   would leave that caller waiting out its per-op timeout, which is exactly
-//!   the outcome `protocol::ErrorKind` documents that it is avoiding, and it
-//!   would hide the offending line from the person debugging it.
-//! - A JSON object carrying an `event` that is not a readable `ServerEvent` is
-//!   a protocol violation. During the handshake that is unambiguous: `hello` is
+//! - A JSON object carrying an `event` is an announcement, not an answer. A
+//!   readable `ServerEvent` is handled; one this build cannot read is a
+//!   protocol violation. During the handshake that is unambiguous: `hello` is
 //!   the only event that exists and the only thing being waited for, so it kills
 //!   the process and returns `MalformedResponse`. Reporting a handshake timeout
 //!   instead would blame the clock for a sidecar that had already answered.
 //!   *After* the handshake it is forward-compatibility surface — a newer sidecar
 //!   may announce something this build has never heard of — so it is stepped
-//!   over rather than tearing down a healthy session. There is no id, so no
-//!   caller is waiting on it either way.
-//! - Anything that is not JSON, or JSON with neither an `id` nor an `event`,
-//!   belongs to nobody. It is stepped over, before and after the handshake.
+//!   over rather than tearing down a healthy session. It is never attributed by
+//!   an `id` it happens to carry: the sidecar never sends both keys, and failing
+//!   a live call over an announcement would blame that call for news that is not
+//!   its own.
+//! - A JSON object carrying an unsigned integer `id` is a response *addressed to
+//!   someone*. If it fails strict deserialisation — an error `kind` this build
+//!   does not know, a missing `ok` — the line is still attributed by that `id`
+//!   and the one call it belongs to fails with `MalformedResponse`. Stepping
+//!   over it instead would leave that caller waiting out its per-op timeout,
+//!   which is exactly the outcome `protocol::ErrorKind` documents that it is
+//!   avoiding, and it would hide the offending line from the person debugging
+//!   it.
+//! - Anything else belongs to nobody: not JSON, or JSON with neither an `event`
+//!   nor a usable `id`, including an `id` that is a string, a float or negative.
+//!   No pending call is keyed by such an id, so failing one would mean guessing
+//!   whose call to blame. It is stepped over, before and after the handshake.
 //!
 //! In-flight calls are never failed by a line that cannot be attributed to
 //! them: that would blame an unrelated request for someone else's bad news. The
@@ -122,13 +128,15 @@ pub struct SidecarClient {
 enum Line {
     /// A response envelope that parsed strictly.
     Response(Response),
-    /// Addressed to `id`, but shaped in a way this build cannot read.
+    /// Addressed to an unsigned integer `id`, but shaped in a way this build
+    /// cannot read.
     Unreadable { id: u64 },
     /// A server event, currently only the handshake.
     Event(ServerEvent),
     /// Carries an `event` key that is not a server event this build knows.
     UnknownEvent,
-    /// Belongs to nobody: a stray print, a library banner, a blank line.
+    /// Belongs to nobody: a stray print, a library banner, a blank line, an `id`
+    /// no pending call is keyed by.
     Noise,
 }
 
@@ -316,16 +324,10 @@ impl SidecarClient {
             },
         );
 
-        let Ok(line) = serde_json::to_string(&Request { id, op, params }) else {
-            self.inner.pending.lock().await.remove(&id);
-            // A request is not a response, but `MalformedResponse` is the only
-            // variant that names a line the host could not speak, and a request
-            // that will not serialise is one the sidecar can never answer. The
-            // id is dropped so nothing waits for a response that cannot come.
-            return Err(IpcError::MalformedResponse {
-                line: format!("could not serialise the request for op {op:?}"),
-            });
-        };
+        // `Request` is a `u64`, a `&str` and a `Value`, so there is nothing here
+        // a serialiser can reject.
+        let line = serde_json::to_string(&Request { id, op, params })
+            .expect("a u64, a string, and a Value always serialise");
 
         let written = {
             let mut guard = self.inner.stdin.lock().await;
@@ -408,8 +410,8 @@ impl SidecarClient {
 }
 
 /// Sort a stdout line into what it is, so nothing that cannot be attributed to a
-/// request is mistaken for one. See the module docs for why the three
-/// unattributable cases are treated differently.
+/// request is mistaken for one. See the module docs for why the unattributable
+/// cases are treated differently.
 fn classify(line: &str) -> Line {
     // `protocol::parse_server_event` is the one owner of what a server event is.
     if let Some(event) = parse_server_event(line) {
@@ -418,14 +420,20 @@ fn classify(line: &str) -> Line {
     let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
         return Line::Noise;
     };
+    // An `event` key settles what the line is before an `id` is considered. The
+    // sidecar never emits both, so this only decides the case a *newer* sidecar
+    // introduces, and attributing that by its id would fail a live call over an
+    // announcement.
+    if value.get("event").is_some() {
+        return Line::UnknownEvent;
+    }
+    // Only an unsigned integer can name a pending call, because that is the only
+    // key `pending` holds. An `id` of any other type addresses nobody.
     if let Some(id) = value.get("id").and_then(Value::as_u64) {
         return match serde_json::from_value::<Response>(value) {
             Ok(response) => Line::Response(response),
             Err(_) => Line::Unreadable { id },
         };
-    }
-    if value.get("event").is_some() {
-        return Line::UnknownEvent;
     }
     Line::Noise
 }
@@ -462,9 +470,22 @@ mod tests {
     use serde_json::json;
     use std::time::Duration;
 
-    const HELLO: &str = r#"import json,sys
-print(json.dumps({"event":"hello","protocol":1,"capabilities":["auth.status"]}), flush=True)
-"#;
+    /// The stub's handshake line, read from `contracts/hello.json` rather than
+    /// retyped here. That file is the one place the handshake shape is written
+    /// down, and both suites assert against it; a stub carrying its own copy
+    /// would keep passing after the contract it claims to honour had moved on.
+    /// The parsed value is formatted as compact JSON, which the hello contract
+    /// makes a valid Python dict literal — it holds strings and integers only.
+    fn hello() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contracts")
+            .join("hello.json");
+        let contract = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let value: Value = serde_json::from_str(&contract)
+            .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+        format!("import json,sys\nprint(json.dumps({value}), flush=True)\n")
+    }
 
     fn config(script: &str) -> SidecarConfig {
         SidecarConfig {
@@ -552,16 +573,18 @@ print(json.dumps({"event":"hello","protocol":"one","capabilities":["auth.status"
 
     #[tokio::test]
     async fn a_sidecar_that_writes_junk_before_the_handshake_still_starts() {
+        let hello = hello();
         let script = format!(
-            "import json,sys\nprint('a library banner', file=sys.stderr)\nprint('more noise')\n{HELLO}"
+            "import json,sys\nprint('a library banner', file=sys.stderr)\nprint('more noise')\n{hello}"
         );
         assert!(SidecarClient::spawn(&config(&script)).await.is_ok());
     }
 
     #[tokio::test]
-    async fn sidecar_stderr_is_forwarded_and_stdout_stays_clean() {
+    async fn sidecar_stderr_is_forwarded() {
+        let hello = hello();
         let script = format!(
-            "import sys\nprint('diagnostic line', file=sys.stderr, flush=True)\n{HELLO}for _ in sys.stdin:\n    pass\n"
+            "import sys\nprint('diagnostic line', file=sys.stderr, flush=True)\n{hello}for _ in sys.stdin:\n    pass\n"
         );
         let client = SidecarClient::spawn(&config(&script))
             .await
@@ -587,8 +610,9 @@ print(json.dumps({"event":"hello","protocol":"one","capabilities":["auth.status"
     #[tokio::test]
     async fn concurrent_calls_each_receive_their_own_response() {
         const TAGS: [&str; 4] = ["a", "b", "c", "d"];
+        let hello = hello();
         let script = format!(
-            "import json,sys,time\n{HELLO}reqs=[json.loads(sys.stdin.readline()) for _ in range(4)]\nfor m in sorted(reqs, key=lambda r: -r['id']):\n    time.sleep(0.05)\n    print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'echo': m['params']['tag']}}}}), flush=True)\nfor _ in sys.stdin:\n    pass\n"
+            "import json,sys,time\n{hello}reqs=[json.loads(sys.stdin.readline()) for _ in range(4)]\nfor m in sorted(reqs, key=lambda r: -r['id']):\n    time.sleep(0.05)\n    print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'echo': m['params']['tag']}}}}), flush=True)\nfor _ in sys.stdin:\n    pass\n"
         );
         let client = Arc::new(
             SidecarClient::spawn(&config(&script))
@@ -616,7 +640,8 @@ print(json.dumps({"event":"hello","protocol":"one","capabilities":["auth.status"
     // success.
     #[tokio::test]
     async fn a_sidecar_that_dies_mid_request_fails_the_in_flight_call() {
-        let script = format!("import sys\n{HELLO}sys.stdin.readline()\nsys.exit(9)\n");
+        let hello = hello();
+        let script = format!("import sys\n{hello}sys.stdin.readline()\nsys.exit(9)\n");
         let client = SidecarClient::spawn(&config(&script))
             .await
             .expect("starts");
@@ -632,7 +657,8 @@ print(json.dumps({"event":"hello","protocol":"one","capabilities":["auth.status"
 
     #[tokio::test]
     async fn a_call_after_the_sidecar_died_fails_immediately() {
-        let script = format!("import sys\n{HELLO}sys.stdin.readline()\nsys.exit(9)\n");
+        let hello = hello();
+        let script = format!("import sys\n{hello}sys.stdin.readline()\nsys.exit(9)\n");
         let client = SidecarClient::spawn(&config(&script))
             .await
             .expect("starts");
@@ -645,8 +671,9 @@ print(json.dumps({"event":"hello","protocol":"one","capabilities":["auth.status"
 
     #[tokio::test]
     async fn a_timed_out_call_is_dropped_and_later_calls_still_work() {
+        let hello = hello();
         let script = format!(
-            "import json,sys,time\n{HELLO}for line in sys.stdin:\n    m=json.loads(line)\n    time.sleep(0.3)\n    print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'ok': True}}}}), flush=True)\n"
+            "import json,sys,time\n{hello}for line in sys.stdin:\n    m=json.loads(line)\n    time.sleep(0.3)\n    print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'ok': True}}}}), flush=True)\n"
         );
         let client = SidecarClient::spawn(&config(&script))
             .await
@@ -671,8 +698,9 @@ print(json.dumps({"event":"hello","protocol":"one","capabilities":["auth.status"
     // and must not stop the reader from serving later calls.
     #[tokio::test]
     async fn a_stray_stdout_line_does_not_break_later_calls() {
+        let hello = hello();
         let script = format!(
-            "import json,sys\n{HELLO}print('a stray print', flush=True)\nfor line in sys.stdin:\n    m=json.loads(line)\n    print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'ok': True}}}}), flush=True)\n"
+            "import json,sys\n{hello}print('a stray print', flush=True)\nfor line in sys.stdin:\n    m=json.loads(line)\n    print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'ok': True}}}}), flush=True)\n"
         );
         let client = SidecarClient::spawn(&config(&script))
             .await
@@ -686,14 +714,39 @@ print(json.dumps({"event":"hello","protocol":"one","capabilities":["auth.status"
         );
     }
 
+    // A newer sidecar may announce something this build has never heard of, and
+    // may put the request id on the announcement so the host can watch a call
+    // progress. Both an unreadable event and a readable one are announcements,
+    // not answers: attributing either by its `id` would fail a live call over
+    // news that is not its own, which is the one thing the module docs promise
+    // cannot happen.
+    #[tokio::test]
+    async fn an_id_bearing_event_does_not_fail_the_call_it_names() {
+        let hello = hello();
+        let script = format!(
+            "import json,sys\n{hello}m=json.loads(sys.stdin.readline())\nprint(json.dumps({{'id': m['id'], 'event': 'progress', 'done': 0.5}}), flush=True)\nprint(json.dumps({{'id': m['id'], 'event': 'hello', 'protocol': 1, 'capabilities': ['auth.status']}}), flush=True)\nprint(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'ok': True}}}}), flush=True)\nfor _ in sys.stdin:\n    pass\n"
+        );
+        let client = SidecarClient::spawn(&config(&script))
+            .await
+            .expect("starts");
+        let result = client
+            .call("auth.status", json!({}), Some(Duration::from_secs(10)))
+            .await;
+        assert_eq!(
+            result.expect("both announcements were stepped over")["ok"],
+            json!(true)
+        );
+    }
+
     // `protocol.rs` promises that an unrecognised error kind surfaces as
     // `MalformedResponse`. That is only true if the reader attributes the line
     // by `id` *before* insisting it deserialises, and fails exactly that call
     // instead of leaving it to time out.
     #[tokio::test]
     async fn a_response_this_build_cannot_read_fails_only_its_own_call() {
+        let hello = hello();
         let script = format!(
-            "import json,sys\n{HELLO}for _ in range(2):\n    m=json.loads(sys.stdin.readline())\n    if m['params']['tag']=='bad':\n        print(json.dumps({{'id': m['id'], 'ok': False, 'error': {{'kind': 'quota_exceeded', 'message': 'slow down'}}}}), flush=True)\n    else:\n        print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'tag': m['params']['tag']}}}}), flush=True)\nfor _ in sys.stdin:\n    pass\n"
+            "import json,sys\n{hello}for _ in range(2):\n    m=json.loads(sys.stdin.readline())\n    if m['params']['tag']=='bad':\n        print(json.dumps({{'id': m['id'], 'ok': False, 'error': {{'kind': 'quota_exceeded', 'message': 'slow down'}}}}), flush=True)\n    else:\n        print(json.dumps({{'id': m['id'], 'ok': True, 'data': {{'tag': m['params']['tag']}}}}), flush=True)\nfor _ in sys.stdin:\n    pass\n"
         );
         let client = Arc::new(
             SidecarClient::spawn(&config(&script))
