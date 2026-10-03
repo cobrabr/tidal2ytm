@@ -9,16 +9,21 @@
 	let { label, state }: Props = $props();
 </script>
 
-<div class="row">
+<div class="row" role="group" aria-label={label}>
 	<span class="label">{label}</span>
 	<!--
 		`state.valid` is the only thing that decides this. `expires_at` is present
 		for a cached token whether or not that token still works, so branching on
 		its presence would report an expired session as a working one.
 
-		`role="status"` is the live region the async load in Task 9 will update, and
+		`role="status"` is the live region the async load updates, and
 		`data-state` is the outcome as an attribute — so what is rendered can be read
 		without depending on the wording above it.
+
+		The row is a labelled `role="group"` because the live region announces its
+		own text and nothing else: two identical cards would tell a screen-reader
+		user that one provider is signed out without saying which, which is the one
+		wrong answer a re-authentication cannot be aimed at.
 	-->
 	<span class="state" role="status" data-state={state.valid ? "signed-in" : "signed-out"}>
 		{state.valid ? "Signed in" : "Not signed in"}

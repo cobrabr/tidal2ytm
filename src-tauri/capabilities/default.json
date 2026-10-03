@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Base capability. tidal2ytm grants no plugin permissions: the sidecar is spawned from Rust, and every command the frontend calls is a custom #[tauri::command] that needs no permission.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

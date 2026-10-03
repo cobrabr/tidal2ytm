@@ -40,6 +40,9 @@ def _tidal_state() -> dict[str, Any]:
         cached = _cached(auth.paths.TIDAL_TOKEN_FILE)
         return {
             "valid": auth.tidal_cache_valid(auth.paths.TIDAL_TOKEN_FILE),
+            # `auth.py` writes this as an ISO string already, so it is reported
+            # as it stands. Only YouTube Music needs normalising; see
+            # `auth.ytm_expiry_iso`.
             "expires_at": cached.get("expiry_time"),
         }
     except _CACHE_READ_ERRORS as exc:
@@ -51,7 +54,10 @@ def _ytm_state() -> dict[str, Any]:
         cached = _cached(auth.paths.YTM_AUTH_FILE)
         return {
             "valid": auth.ytm_cache_valid(auth.paths.YTM_AUTH_FILE),
-            "expires_at": cached.get("expires_at"),
+            # Normalised rather than passed through: `ytmusicapi` stores epoch
+            # seconds, and a raw integer fails the host's `expires_at` and takes
+            # Tidal's status down with it.
+            "expires_at": auth.ytm_expiry_iso(cached.get("expires_at")),
         }
     except _CACHE_READ_ERRORS as exc:
         return _signed_out(exc)

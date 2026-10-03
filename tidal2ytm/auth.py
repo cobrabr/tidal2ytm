@@ -109,6 +109,31 @@ def ytm_cache_valid(auth_file: Path) -> bool:
     return isinstance(refresh, str) and bool(refresh.strip())
 
 
+def ytm_expiry_iso(raw: object) -> str | None:
+    """Render YouTube Music's cached `expires_at` as an ISO-8601 UTC string.
+
+    `ytmusicapi` records it as epoch seconds, and that is not what the GUI's field
+    means. `contracts/auth_status.json` declares `expires_at` a string or null,
+    `src/lib/types.ts` widens it to `string | null`, and the Tidal token's
+    `expiry_time` is already an ISO string — so the two providers reach one field
+    in two formats. Reporting the raw integer made the Rust host refuse the whole
+    answer (`invalid type: integer, expected a string`), and a signed-in YouTube
+    Music user saw an error on the only screen the application had.
+
+    `None` for anything that is not a number, including `bool`, which is an `int`
+    and would otherwise be read as the epoch second 0 or 1.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        return None
+    try:
+        return datetime.datetime.fromtimestamp(raw, tz=datetime.UTC).isoformat()
+    except (OSError, OverflowError, ValueError):
+        # An epoch the platform cannot represent is a fact about the cache file,
+        # not a transport or programming bug: report no expiry and leave
+        # `ytm_cache_valid` to decide what it means for the session.
+        return None
+
+
 def read_client_secret(data_dir: Path) -> tuple[str, str]:
     """Read the single `client_secret_*.json` in `data_dir`, sorted and strict."""
     files = sorted(data_dir.glob("client_secret_*.json"))

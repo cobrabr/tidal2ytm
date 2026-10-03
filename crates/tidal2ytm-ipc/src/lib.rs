@@ -5,7 +5,9 @@
 //! that test is what proves the boundary works on a headless Linux runner.
 
 pub mod client;
+pub mod interpreter;
 pub mod protocol;
 
 pub use client::{LOG_LEVELS, SidecarClient, SidecarConfig, log_level_env};
+pub use interpreter::sidecar_python;
 pub use protocol::{ErrorKind, IpcError};

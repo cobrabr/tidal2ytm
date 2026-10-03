@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::Value;
-use tidal2ytm_ipc::{ErrorKind, IpcError, SidecarClient, SidecarConfig, log_level_env};
+use tidal2ytm_ipc::{
+    ErrorKind, IpcError, SidecarClient, SidecarConfig, log_level_env, sidecar_python,
+};
 
 /// The repository root, derived from this crate's manifest so the test does
 /// not depend on the working directory cargo happened to choose. Walking up
@@ -22,33 +24,6 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// The interpreter to run the sidecar with.
-///
-/// `TIDAL2YTM_SIDECAR_PYTHON` wins. Otherwise the uv venv is preferred, because
-/// `uv sync --all-groups` builds the only interpreter that carries the sidecar's
-/// dependencies and it is *not* on `PATH`: `python`/`python3` is the system or
-/// per-user install, which has neither `tidal2ytm_sidecar` nor `tidalapi`/
-/// `ytmusicapi`, and the sidecar dies on its first import. The bare name stays
-/// as the fallback so a checkout with no `.venv` still has something to try.
-fn interpreter(root: &Path) -> String {
-    if let Ok(explicit) = std::env::var("TIDAL2YTM_SIDECAR_PYTHON") {
-        return explicit;
-    }
-    let venv = if cfg!(windows) {
-        root.join(".venv").join("Scripts").join("python.exe")
-    } else {
-        root.join(".venv").join("bin").join("python")
-    };
-    if venv.is_file() {
-        return venv.to_string_lossy().into_owned();
-    }
-    if cfg!(windows) {
-        "python".to_string()
-    } else {
-        "python3".to_string()
-    }
-}
-
 fn config() -> SidecarConfig {
     let root = repo_root();
     let package_root = root.join("sidecar");
@@ -58,7 +33,7 @@ fn config() -> SidecarConfig {
     // this test depends on it.
     let (_level, value) = log_level_env("INFO").expect("INFO is a valid level");
     SidecarConfig {
-        program: interpreter(&root).into(),
+        program: sidecar_python(&root),
         args: vec!["-m".to_string(), "tidal2ytm_sidecar".to_string()],
         // `tidal2ytm.paths.DATA_DIR` is the relative `data`, so the token caches
         // resolve here and not the developer's real ones. `sidecar/data` does not

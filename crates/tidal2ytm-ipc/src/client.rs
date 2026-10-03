@@ -467,6 +467,7 @@ fn to_result(op: &str, response: Response) -> Result<Value, IpcError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sidecar_python;
     use serde_json::json;
     use std::time::Duration;
 
@@ -489,7 +490,7 @@ mod tests {
 
     fn config(script: &str) -> SidecarConfig {
         SidecarConfig {
-            program: interpreter().into(),
+            program: sidecar_python(&repo_root()),
             args: vec!["-c".to_string(), script.to_string()],
             cwd: std::env::temp_dir(),
             env: vec![("TIDAL2YTM_LOG_LEVEL".to_string(), "INFO".to_string())],
@@ -497,15 +498,14 @@ mod tests {
         }
     }
 
-    fn interpreter() -> String {
-        if let Ok(explicit) = std::env::var("TIDAL2YTM_TEST_PYTHON") {
-            return explicit;
-        }
-        if cfg!(windows) {
-            "python".to_string()
-        } else {
-            "python3".to_string()
-        }
+    /// The repository root, derived from this crate's manifest so the tests do
+    /// not depend on the working directory cargo happened to choose.
+    fn repo_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("the crate lives two levels below the workspace root")
+            .to_path_buf()
     }
 
     #[tokio::test]

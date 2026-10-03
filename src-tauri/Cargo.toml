@@ -2,8 +2,29 @@
 name = "tidal2ytm"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
+description = "Tauri host for tidal2ytm. Owns the domain core and the sidecar."
 
 [lib]
 name = "tidal2ytm_host"
-crate-type = ["rlib"]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }
+
+[dependencies]
+# Pinned to the `@tauri-apps/cli` version in package.json. The two are released
+# in lockstep and a caret on either lets a routine `cargo update` drift them.
+tauri = { version = "2.12.1", features = [] }
+# The host's log facade. Phase 4 replaces the sink with the per-run log file;
+# the facade is what makes "log this at DEBUG" expressible in the meantime.
+log = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+tidal2ytm-ipc = { path = "../crates/tidal2ytm-ipc" }
+# `sync` for the mutex that serialises a respawn. The runtime itself belongs to
+# Tauri, and the other features this crate would ask for are already enabled by
+# `tidal2ytm-ipc`; naming them here would claim a use that does not exist.
+tokio = { version = "1.53.1", features = ["sync"] }
