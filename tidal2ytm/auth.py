@@ -109,16 +109,39 @@ def ytm_cache_valid(auth_file: Path) -> bool:
     return isinstance(refresh, str) and bool(refresh.strip())
 
 
+def tidal_expiry_iso(raw: object) -> str | None:
+    """The Tidal token's `expiry_time`, but only when it is one the GUI can use.
+
+    `expiry_time` is written as an ISO string, so this is a guard rather than a
+    conversion, and the string is returned as it stands rather than re-rendered:
+    re-rendering would drop the microseconds the writer emits and change an
+    answer that was already correct.
+
+    `parse_token_expiry` is the one place that decides what a Tidal expiry string
+    is, so anything it cannot read is `None` here too. That matters because the
+    two providers reach one wire field, and an `expiry_time` holding a number or a
+    nested object would be forwarded verbatim — failing the host's `expires_at`
+    and taking YouTube Music's status down with the answer.
+    """
+    if isinstance(raw, str) and parse_token_expiry(raw) is not None:
+        return raw
+    return None
+
+
 def ytm_expiry_iso(raw: object) -> str | None:
     """Render YouTube Music's cached `expires_at` as an ISO-8601 UTC string.
 
     `ytmusicapi` records it as epoch seconds, and that is not what the GUI's field
-    means. `contracts/auth_status.json` declares `expires_at` a string or null,
-    `src/lib/types.ts` widens it to `string | null`, and the Tidal token's
-    `expiry_time` is already an ISO string — so the two providers reach one field
-    in two formats. Reporting the raw integer made the Rust host refuse the whole
-    answer (`invalid type: integer, expected a string`), and a signed-in YouTube
-    Music user saw an error on the only screen the application had.
+    means. The contract records the *signed-out* sample, so its `expires_at` is
+    `null`; the `string` half of the wire's type comes from `Widen` in
+    `src/lib/types.ts` and from `Option<String>` in the host's `AuthStatus` — the
+    contract fixes the key set, not the values. So the wire says string-or-null,
+    and this is the half of that contract YouTube Music does not meet on its own:
+    `tidal_expiry_iso` is its counterpart for the Tidal side.
+
+    Reporting the raw integer made the Rust host refuse the whole answer
+    (`invalid type: integer, expected a string`), and a signed-in YouTube Music
+    user saw an error on the only screen the application had.
 
     `None` for anything that is not a number, including `bool`, which is an `int`
     and would otherwise be read as the epoch second 0 or 1.

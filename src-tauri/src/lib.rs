@@ -25,6 +25,11 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Start the sidecar, supervise it, and expose the commands.
 pub fn run() {
+    // Before anything can emit. `AppState::start` drains the sidecar's stderr
+    // into the `log` facade, and a facade with no sink is a no-op call, so a
+    // record from the process most likely to be complaining arrives nowhere.
+    logging::install_debug_logger();
+
     let app = tauri::Builder::default()
         .setup(|app| {
             let launch = sidecar_path::resolve(app.handle())?;

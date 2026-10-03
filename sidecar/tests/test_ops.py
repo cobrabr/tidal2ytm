@@ -78,6 +78,33 @@ def test_auth_status_survives_a_corrupt_tidal_token(isolated_data_dir: Path) -> 
     assert ops.auth_status()["tidal"] == _SIGNED_OUT
 
 
+# The Tidal side of the same hole YouTube Music had. `expiry_time` is written as
+# an ISO string, so a number in it is implausible — but it reaches one wire
+# field, and forwarding it verbatim fails the host's `expires_at`, which takes
+# YouTube Music's status down with the answer. `auth.tidal_expiry_iso` is the
+# guard; this is what says it is still there.
+def test_auth_status_does_not_forward_a_non_string_tidal_expiry(isolated_data_dir: Path) -> None:
+    (isolated_data_dir / "tidal_token.json").write_text(
+        json.dumps(
+            {
+                "token_type": "Bearer",
+                "access_token": "a",
+                "refresh_token": "r",
+                "expiry_time": 4102444800,
+                "user_id": 1,
+                "country_code": "US",
+            }
+        ),
+        encoding="utf-8",
+    )
+    tidal = ops.auth_status()["tidal"]
+    assert tidal["valid"] is False
+    assert tidal["expires_at"] is None
+    # The other provider is unaffected: one unusable number in one cache file
+    # must not cost the user the provider that is fine.
+    assert ops.auth_status()["ytm"] == _SIGNED_OUT
+
+
 def test_auth_status_survives_a_corrupt_ytm_token(isolated_data_dir: Path) -> None:
     (isolated_data_dir / "ytm_auth.json").write_text("{{{{", encoding="utf-8")
     assert ops.auth_status()["ytm"] == _SIGNED_OUT

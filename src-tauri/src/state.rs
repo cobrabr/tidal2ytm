@@ -106,29 +106,53 @@ async fn spawn(config: &SidecarConfig) -> Result<SidecarClient, String> {
     Ok(client)
 }
 
+/// The advice that accompanies a failure the sidecar produced for itself.
+///
+/// The process wrote this to stderr and nobody will ever read it again, so the
+/// only way to see it is to run the command. Nothing else in the message can do
+/// that job.
+const RUN_IT_YOURSELF: &str =
+    "Whatever it wrote to stderr went with it — run that command in a terminal to see why.";
+
+/// What a person should be told to do about a startup failure, or `None` when
+/// there is nothing to run and so nothing to advise.
+///
+/// Split out of `describe` because *which* failures carry advice is a decision
+/// about the two cases rather than about any wording, and it is the part a
+/// reader acts on: telling someone to inspect a stderr that was never written
+/// sends them looking for a file that cannot exist.
+fn remedy(error: &IpcError) -> Option<&'static str> {
+    match error {
+        // The operating system refused to start the process, so it wrote
+        // nothing anywhere.
+        IpcError::Spawn { .. } => None,
+        // Every other variant means the child ran and then stopped answering.
+        _ => Some(RUN_IT_YOURSELF),
+    }
+}
+
 /// A startup failure, in terms a person can act on.
 ///
-/// `Spawn` means the operating system refused to start the process, so there
-/// was never a stderr to read and naming the command is the whole of the help.
-/// Every other variant means the child ran and then stopped answering, and the
-/// diagnostics it wrote are gone with it: `SidecarClient::spawn` hands its
-/// stderr to the caller, and a caller that never receives a client never gets
-/// to drain them. Saying so is the difference between "it would not start" and
-/// "run this and read this".
+/// The command is named in both arms because it is the one fact that is always
+/// actionable, and the advice is attached by `remedy` so the two cases cannot
+/// drift into telling the reader the wrong thing.
+///
+/// `IpcError::Spawn`'s own `Display` already opens with "could not start the
+/// sidecar", so this arm uses the inner message rather than repeating it.
 fn describe(error: &IpcError, config: &SidecarConfig) -> String {
     let command = std::iter::once(config.program.display().to_string())
         .chain(config.args.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
-    match error {
-        IpcError::Spawn { .. } => {
-            format!("could not start the sidecar with `{command}`: {error}")
+    let what = match error {
+        IpcError::Spawn { message } => {
+            format!("could not start the sidecar with `{command}`: {message}")
         }
-        _ => format!(
-            "the sidecar started as `{command}` and then stopped: {error}. \
-             Whatever it wrote to stderr went with it — run that command in a \
-             terminal to see why."
-        ),
+        other => format!("the sidecar started as `{command}` and then stopped: {other}"),
+    };
+    match remedy(error) {
+        Some(advice) => format!("{what}. {advice}"),
+        None => what,
     }
 }
 
@@ -162,6 +186,104 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect()
+    }
+
+    /// A command with an argument, so the assertions can tell "the command is
+    /// missing" from "one word of it is missing".
+    fn config() -> SidecarConfig {
+        SidecarConfig {
+            program: std::path::PathBuf::from("sidecars/tidal2ytm-sidecar.exe"),
+            args: vec!["-m".to_string(), "tidal2ytm_sidecar".to_string()],
+            cwd: std::env::temp_dir(),
+            env: Vec::new(),
+            handshake_timeout: std::time::Duration::from_secs(20),
+        }
+    }
+
+    /// The wording the operating system gives when the sidecar's working
+    /// directory does not exist. Fixture and assertion share one owner so the
+    /// test is not a lock on wording: what is checked is that the cause the OS
+    /// gave reaches the reader, not how it is phrased around it.
+    const REFUSED: &str = "The directory name is invalid. (os error 267)";
+
+    fn assert_names_the_command(message: &str, config: &SidecarConfig) {
+        assert!(
+            message.contains(&config.program.display().to_string()),
+            "the command is missing the program: {message}"
+        );
+        for arg in &config.args {
+            assert!(
+                message.contains(arg),
+                "the command omits `{arg}`: {message}"
+            );
+        }
+    }
+
+    fn refused() -> IpcError {
+        IpcError::Spawn {
+            message: REFUSED.to_string(),
+        }
+    }
+
+    // A refusal has no stderr to look at: the operating system never started the
+    // process, so it wrote nothing. Telling the reader to inspect a diagnostic
+    // that cannot exist sends them hunting for a file that was never made, which
+    // is how "it would not start" becomes an afternoon.
+    #[test]
+    fn a_spawn_refusal_names_the_command_and_carries_no_advice() {
+        let config = config();
+        let message = describe(&refused(), &config);
+
+        assert_names_the_command(&message, &config);
+        assert!(
+            !message.contains(RUN_IT_YOURSELF),
+            "a process that never started has no diagnostics to run a command for: {message}"
+        );
+    }
+
+    // The other arm is the one where the diagnostics existed and are gone, so it
+    // has to say both that and what to do about it. Without the second half the
+    // reader is told something was lost and given no way to see it.
+    #[test]
+    fn a_sidecar_that_stopped_names_the_command_and_how_to_see_the_diagnostics() {
+        let config = config();
+        let message = describe(&IpcError::SidecarLost, &config);
+
+        assert_names_the_command(&message, &config);
+        assert!(
+            message.contains(RUN_IT_YOURSELF),
+            "the reader is not told how to see the diagnostics that were lost: {message}"
+        );
+    }
+
+    // The two arms exist because the two failures are different, and swapping
+    // them is the regression: each arm read plausibly on its own. Comparing the
+    // two is what catches it, and it also catches both arms losing whatever told
+    // them apart — a rewrite that flattened them into one sentence passes both
+    // tests above.
+    #[test]
+    fn the_two_failures_do_not_produce_the_same_message() {
+        let config = config();
+        let refusal = describe(&refused(), &config);
+        let stopped = describe(&IpcError::SidecarLost, &config);
+
+        assert_ne!(
+            refusal, stopped,
+            "a refusal and a crash must not read the same to whoever sees them"
+        );
+        assert!(
+            !refusal.contains(RUN_IT_YOURSELF) && stopped.contains(RUN_IT_YOURSELF),
+            "the advice belongs on exactly the arm that lost diagnostics"
+        );
+    }
+
+    // The cause the operating system gave is the actionable half of this message
+    // — everything else in it is the host describing its own plumbing. Dropping
+    // it leaves a reader who knows only that "the sidecar" would not start.
+    #[test]
+    fn a_spawn_refusal_keeps_the_operating_systems_own_wording() {
+        let message = describe(&refused(), &config());
+        assert!(message.contains(REFUSED), "the cause is dropped: {message}");
     }
 
     // The gap this file exists for. `src/lib/types.ts` derives from the
