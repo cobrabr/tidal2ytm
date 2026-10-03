@@ -10,10 +10,16 @@
 # Prettier both skip the subtree, so every gate reads green with the whole feature
 # missing.
 #
-# `__pycache__/` and `node_modules/` are the deliberate exceptions and stay
-# unanchored: a directory by either name is by definition generated output, never
-# source, so shadowing cannot hide anything worth tracking, and a nested instance
-# of either is still junk.
+# Four rules are the deliberate exceptions and stay unanchored: `__pycache__/`,
+# `node_modules/`, `*.egg-info/` and `.ipynb_checkpoints`. Each is generated
+# output by name - Python's bytecode cache, pnpm's install tree, the
+# `<package>.egg-info` metadata setuptools and hatchling write beside a
+# pyproject.toml, IPython's checkpoint backups - so no directory anyone would
+# write source into carries one of these four names, and a nested instance of
+# any of them is still junk. The last two stay unanchored because anchoring
+# them would be wrong rather than redundant: egg metadata is written next to
+# whichever manifest declared it, and a notebook is not necessarily at the
+# repository root.
 
 ### Python ###
 # Python bytecode cache directory

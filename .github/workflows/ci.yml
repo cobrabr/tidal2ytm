@@ -65,8 +65,13 @@ jobs:
       # to install it today through the `dev` group entry in `pyproject.toml`.
       # `--locked` for the reason given on the `check` job's line above.
       - run: uv sync --all-packages --locked
-      - name: locate the sidecar interpreter
-        run: echo "TIDAL2YTM_SIDECAR_PYTHON=$(uv run python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+      # No step to locate the interpreter. `interpreter.rs` prefers
+      # `<root>/.venv/{bin/python,Scripts/python.exe}`, which the `uv sync` above
+      # creates on both platforms, and `round_trip.rs` passes with
+      # `TIDAL2YTM_SIDECAR_PYTHON` unset - verified, not assumed. Pinning it
+      # here to whatever `uv run python` resolves would hide that fallback from
+      # the one thing it exists for: a checkout whose `PATH` python has neither
+      # the sidecar nor `tidalapi` in it.
       - run: cargo fmt --all --check
       - run: cargo clippy -p tidal2ytm-core -p tidal2ytm-ipc --all-targets -- -D warnings
       - run: cargo test -p tidal2ytm-core -p tidal2ytm-ipc
@@ -77,14 +82,28 @@ jobs:
     # Everything this job builds or executes. `contracts/**` because
     # `state.rs`'s tests read `auth_status.json`; the frontend config files
     # because `pnpm build` loads them; `.npmrc` because it is what makes
-    # `pnpm install` refuse the wrong Node. Lint-only and formatting-only
-    # frontend config (`.prettierrc.toml`, `.prettierignore`, `eslint.config.ts`,
+    # `pnpm install` refuse the wrong Node. `crates/**` because `src-tauri` is a
+    # consumer of `tidal2ytm-ipc` and this job is the only one that compiles it
+    # or runs its ten tests: `rust`'s share of a crate is clippy, that crate's
+    # own tests, and a workspace-wide `cargo fmt --all --check`, and none of
+    # those three compiles `src-tauri` - renaming `IpcError::Spawn`'s field
+    # leaves `cargo fmt --all --check` at exit 0 while `cargo test -p
+    # tidal2ytm` will not compile. A rename the round trip happens to import
+    # turns `rust` red as well, so this entry is not the only thing between a
+    # crate change and a red run; it is the only thing between a crate change
+    # and a host that was built at all. `sidecar/**` because `sidecar_path.rs`
+    # requires `sidecar/tidal2ytm_sidecar/__init__.py` to exist for the
+    # checkout fallback and its own test asserts it does; rename or move that
+    # one file and this job is red. Lint-only and formatting-only frontend
+    # config (`.prettierrc.toml`, `.prettierignore`, `eslint.config.ts`,
     # `vitest.setup.ts`) cannot break this job and are left to `frontend`.
     paths:
       - 'src-tauri/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'crates/**'
       - 'contracts/**'
+      - 'sidecar/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.npmrc'
