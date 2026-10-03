@@ -2,38 +2,45 @@ import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import AuthStatus from "./AuthStatus.svelte";
 
-// A component that reports a signed-in state from the presence of an expiry
-// string is the failure this file exists to catch. The sidecar sends
-// `expires_at` for a cached token whether or not that token still works, so
-// branching on the field's presence would report an expired session as a
-// working one and send the user into a transfer that cannot authenticate.
+// These assert the rendered outcome through `role="status"`'s `data-state` and
+// through whether a `<time>` element exists, never through the wording. Rewording
+// either string cannot break this file, which is the point: five screens are about
+// to copy the pattern, and copy assertions do not survive being copied.
+//
+// The three cases are the three cells of the (valid, has expiry) truth table that
+// disagree with each other, each catching a one-sided mistake the other two cannot.
 describe("AuthStatus", () => {
-	it("reports signed out when the token is expired even though an expiry is present", () => {
-		render(AuthStatus, {
+	// A signed-in state derived from the presence of an expiry string is the failure
+	// this file exists to catch: the sidecar sends `expires_at` for a cached token
+	// whether or not that token still works, so a user told "signed in" walks into a
+	// transfer that cannot authenticate.
+	it("reports an expired token as signed out and shows no expiry", () => {
+		const { container } = render(AuthStatus, {
 			props: { label: "Tidal", state: { valid: false, expires_at: "2020-01-01T00:00:00Z" } },
 		});
-		expect(screen.getByText("Not signed in")).toBeTruthy();
+		expect(screen.getByRole("status").dataset.state).toBe("signed-out");
+		expect(container.querySelector("time")).toBeNull();
 	});
 
-	it("reports signed in for a valid token and shows the expiry", () => {
-		render(AuthStatus, {
+	// Without this the card cannot answer the only question that matters once the
+	// status is green: how long is that true? A dropped or mis-sourced expiry is
+	// silent, so it is pinned here rather than left to review.
+	it("reports a valid token as signed in and dates its expiry", () => {
+		const { container } = render(AuthStatus, {
 			props: { label: "Tidal", state: { valid: true, expires_at: "2099-01-01T00:00:00Z" } },
 		});
-		expect(screen.getByText("Signed in")).toBeTruthy();
-		expect(screen.getByText(/2099-01-01/)).toBeTruthy();
+		expect(screen.getByRole("status").dataset.state).toBe("signed-in");
+		expect(container.querySelector("time")?.getAttribute("datetime")).toBe("2099-01-01T00:00:00Z");
 	});
 
-	it("reports signed in without an expiry when the provider reports none", () => {
-		render(AuthStatus, {
+	// The mirror image of the first case: a provider that reports no expiry is still
+	// signed in. A component that required an expiry to show one would report a
+	// working YouTube Music token as broken and send the user to re-authenticate.
+	it("reports a valid token as signed in when the provider sends no expiry", () => {
+		const { container } = render(AuthStatus, {
 			props: { label: "YouTube Music", state: { valid: true, expires_at: null } },
 		});
-		expect(screen.getByText("Signed in")).toBeTruthy();
-	});
-
-	it("names the provider it is reporting on", () => {
-		render(AuthStatus, {
-			props: { label: "Tidal", state: { valid: false, expires_at: null } },
-		});
-		expect(screen.getByText("Tidal")).toBeTruthy();
+		expect(screen.getByRole("status").dataset.state).toBe("signed-in");
+		expect(container.querySelector("time")).toBeNull();
 	});
 });

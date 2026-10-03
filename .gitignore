@@ -162,7 +162,9 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Runtime data (tokens, state, review queue)
-data/
+# Root-anchored like `/lib/` above: an unanchored rule also matched
+# `src/lib/data/`, which is frontend source a fetch/cache layer will want.
+/data/
 
 # Agent execution scratch (ledgers, briefs, review packages)
 .superpowers/

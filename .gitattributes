@@ -1,0 +1,8 @@
+# Check out LF everywhere, on every platform, whatever `core.autocrlf` says.
+#
+# Without this, a Windows checkout at `core.autocrlf=true` rewrites text files
+# to CRLF, which Prettier (whose `endOfLine` default is "lf") rejects on a
+# `git checkout`, `switch`, `rebase`, `stash pop`, `merge` or a
+# conflict-resolving `pull` — a failure on a file nobody edited and whose diff
+# is empty. The index is already LF, so this changes the working tree only.
+* text=auto eol=lf

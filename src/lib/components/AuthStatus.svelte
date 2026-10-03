@@ -15,12 +15,16 @@
 		`state.valid` is the only thing that decides this. `expires_at` is present
 		for a cached token whether or not that token still works, so branching on
 		its presence would report an expired session as a working one.
+
+		`role="status"` is the live region the async load in Task 9 will update, and
+		`data-state` is the outcome as an attribute — so what is rendered can be read
+		without depending on the wording above it.
 	-->
-	<span class="state" class:ok={state.valid} class:bad={!state.valid}>
+	<span class="state" role="status" data-state={state.valid ? "signed-in" : "signed-out"}>
 		{state.valid ? "Signed in" : "Not signed in"}
 	</span>
 	{#if state.valid && state.expires_at}
-		<span class="expiry">{state.expires_at}</span>
+		<time class="expiry" datetime={state.expires_at}>{state.expires_at}</time>
 	{/if}
 </div>
 
@@ -34,10 +38,10 @@
 		color: var(--text-1);
 		min-width: 10rem;
 	}
-	.state.ok {
+	.state[data-state="signed-in"] {
 		color: var(--ok);
 	}
-	.state.bad {
+	.state[data-state="signed-out"] {
 		color: var(--bad);
 	}
 	.expiry {
