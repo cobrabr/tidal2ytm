@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # Security updates only. Version updates are driven by hand - see the
+  # "Dependency updates" section in AGENTS.md for the procedure and for why
+  # each ecosystem is treated separately. Every dependency in this repository is
+  # pinned exactly, so a bot that rewrites a range is a bot that breaks the
+  # TypeScript 6.0.3 ceiling this project depends on.
+  - package-ecosystem: npm
+    directory: /
+    applies-to: security-updates
+    schedule:
+      interval: daily
+
+  - package-ecosystem: cargo
+    directory: /
+    applies-to: security-updates
+    schedule:
+      interval: daily
+
+  # The uv ecosystem is comparatively new in Dependabot (astral-sh/uv#2512 tracks
+  # the known gaps). A failed uv run is a Dependabot problem rather than a broken
+  # pyproject.toml, so check this repository's Dependabot run log before touching
+  # the lockfile.
+  - package-ecosystem: uv
+    directory: /
+    applies-to: security-updates
+    schedule:
+      interval: daily

@@ -11,6 +11,32 @@ repos:
       - id: check-toml
   - repo: local
     hooks:
+      # Triggers only, never arguments: `pass_filenames: false` below means the
+      # entry runs bare and the pattern merely decides whether it runs at all.
+      # `.gitignore` and `.gitattributes` are here because Prettier reads the
+      # first and its `endOfLine` default is `"lf"`, so editing either can change
+      # which files pass `pnpm format:check`. `types_or: [javascript,
+      # typescript]` would be wrong: pre-commit-identify classifies neither
+      # `.svelte` nor these `.toml`/dotfiles that way, so a `types_or` filter
+      # would silently exclude every component from formatting - a gate that
+      # looks installed and never runs.
+      - id: prettier
+        name: prettier
+        entry: pnpm format
+        language: system
+        files: '^(src/.*|index\.html|package\.json|tsconfig\.json|svelte\.config\.ts|vite\.config\.ts|vitest\.setup\.ts|eslint\.config\.ts|\.prettierrc\.toml|\.prettierignore|\.gitignore)$'
+        pass_filenames: false
+      # `eslint .` lints the root config files as well as `src/**`, so each of
+      # them is a trigger: changing `eslint.config.ts` changes what `pnpm lint`
+      # says. `--fix` rewrites and continues, matching the tool policy; CI's
+      # `pnpm lint` is the backstop for anything it cannot fix.
+      - id: eslint-fix
+        name: eslint
+        entry: pnpm lint:fix
+        language: system
+        files: '^(src/.*|eslint\.config\.ts|svelte\.config\.ts|vite\.config\.ts|vitest\.setup\.ts)$'
+        pass_filenames: false
+        require_serial: true
       - id: pyright
         name: pyright
         entry: uv run pyright
@@ -23,5 +49,32 @@ repos:
         entry: uv run pytest -q -x --cov --cov-fail-under=80
         language: system
         types: [python]
+        stages: [pre-push]
+        pass_filenames: false
+      # None of the three hooks below compiles `src-tauri`: they name only the
+      # two `default-members` crates, and `cargo fmt` reads manifests rather than
+      # building. That is why none of them has to create
+      # `src-tauri/binaries/tidal2ytm-sidecar-<triple>` and why the host is not
+      # in the pre-push set - it is the one crate that needs a webkit toolchain.
+      # Its tests run in the `host` CI job instead.
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all
+        language: system
+        types: [rust]
+        stages: [pre-push]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy -p tidal2ytm-core -p tidal2ytm-ipc --all-targets --fix --allow-dirty -- -D warnings
+        language: system
+        types: [rust]
+        stages: [pre-push]
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test -p tidal2ytm-core -p tidal2ytm-ipc
+        language: system
+        types: [rust]
         stages: [pre-push]
         pass_filenames: false

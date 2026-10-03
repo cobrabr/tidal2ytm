@@ -19,6 +19,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 ├── pyproject.toml        # uv-managed project; tidal2ytm = "tidal2ytm.cli:main"
 ├── .pre-commit-config.yaml
 ├── .github/workflows/ci.yml
+├── .github/dependabot.yml # security updates only; see "Dependency updates"
 ├── README.md
 ├── data/                 # runtime state (git-ignored)
 │   ├── transfer_plan.toml            # source of truth
@@ -60,9 +61,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 
 ## Quality gates
 
-`pyproject.toml` defines `tool.ruff`, `tool.pyright` (`typeCheckingMode = "strict"`, `reportMissingImports = false`), `tool.pytest`, and `tool.coverage` with an enforced `fail_under = 80` gate (pre-push hook runs `pytest -q -x --cov --cov-fail-under=80`; CI runs `pytest --cov --cov-fail-under=80 ...`).
-
-The pre-commit, pre-push, and GitHub Actions workflows exercise these tools. Reproduce them locally with:
+`pyproject.toml` defines `tool.ruff`, `tool.pyright` (`typeCheckingMode = "strict"`, `reportMissingImports = false`), `tool.pytest`, and `tool.coverage` with an enforced `fail_under = 80` gate over both workspace members. The pre-commit, pre-push, and GitHub Actions workflows exercise these tools. Reproduce them locally with:
 
 - `uv run ruff check .`
 - `uv run ruff format --check .`
@@ -70,14 +69,34 @@ The pre-commit, pre-push, and GitHub Actions workflows exercise these tools. Rep
 - `uv run pytest -q`
 - `uv run pytest --cov --cov-report=term-missing -q`
 - `pnpm format` → `pnpm lint:fix` → `pnpm lint` → `pnpm format:check` → `pnpm check` → `pnpm test` → `pnpm build`
-- `cargo fmt --all --check` · `cargo clippy -p tidal2ytm-core -p tidal2ytm-ipc --all-targets -- -D warnings` · `cargo clippy -p tidal2ytm --all-targets -- -D warnings` · `cargo test -p tidal2ytm`
+- `cargo fmt --all --check` · `cargo clippy -p tidal2ytm-core -p tidal2ytm-ipc --all-targets -- -D warnings` · `cargo test -p tidal2ytm-core -p tidal2ytm-ipc`
+- `cargo clippy -p tidal2ytm --all-targets -- -D warnings` · `cargo test -p tidal2ytm` — the host's own pair, and **not** runnable until `src-tauri/binaries/tidal2ytm-sidecar-<triple><.exe>` and `dist/` exist (see the build invariant below). `cargo fmt --all --check` is workspace-wide, so it gates `src-tauri/` from either job.
 
 Tests use fictional artist/track names and synthetic IDs only, never real catalogue data.
 
+## Dependency updates
+
+Three ecosystems, three lockfiles, three commands. Dependabot opens security pull requests and nothing else — see `.github/dependabot.yml`. Everything else is deliberate, one ecosystem at a time, because a bulk upgrade that breaks CI is indistinguishable from a bulk upgrade that found a real incompatibility.
+
+| Ecosystem | Command | Updates |
+| --- | --- | --- |
+| Python | `uv lock --upgrade` | `uv.lock`, within the ranges `pyproject.toml` declares |
+| Frontend | `pnpm update --latest` | `pnpm-lock.yaml` and the exact pins in `package.json` |
+| Rust | `cargo update` | `Cargo.lock` only — a version in `Cargo.toml` is a hand edit |
+
+Every one of these is followed by the full gate set and a single-purpose commit. Bump one ecosystem per commit; a three-ecosystem diff is unreviewable. Check the resulting diff for a `^` or `~` appearing in `package.json`: every pin here is exact, and a range is how a release someone else published becomes this project's outage.
+
+`uv lock --check` is the local form of what CI's `uv sync --locked` asserts. Use `--locked`, never `--frozen`, in CI: `--frozen` installs whatever `uv.lock` says and never compares it to `pyproject.toml`, so a manifest edit that was never re-locked goes green and every Python gate then runs against a dependency set the manifest does not describe.
+
+Two pins are not "latest wins". The `tauri` crate and `@tauri-apps/cli` are released in lockstep and must always match, so they move together. `typescript` is pinned to `6.0.3` because that is the ceiling, not the floor: it is the last pure-JS TypeScript, and both `svelte-check` and `typescript-eslint` drive TypeScript through the JS compiler API that the native TypeScript 7 does not ship. When a release lifts those peer ranges to include 7, take it deliberately, with `svelte-check` and `typescript-eslint` in the same commit — never as a side effect of `pnpm update --latest`.
+
+After any bump, re-read the peer constraints rather than trusting the resolver: `pnpm install` failing on a peer conflict means the answer is a different version, not `--force`.
+
 ## CI parity (CI is Linux-only; dev is usually Windows)
 
-- CI (`.github/workflows/ci.yml`, ubuntu-latest) runs `check-toml`, `ruff check`, `ruff format --check`, `pyright`, then the full suite as `uv run pytest --cov --cov-fail-under=80 --cov-report=xml --cov-report=term-missing` (no `-x`, no `-q`). Run that exact sequence before pushing — the pre-push hook's `pytest -q -x` can hide order-dependent and coverage-path failures.
-- Platform-branched code (`os.name`, `termios`/`msvcrt` guards) has a path CI exercises that Windows never does: force both branches in tests (monkeypatch `os.name`, stub the guarded import), because a green local run proves nothing about the Linux path.
+- CI (`.github/workflows/ci.yml`, ubuntu-latest) has four path-filtered jobs, and `check` is the only one with no filter so it runs for every non-markdown change. `check` runs `check-toml`, `ruff check`, `ruff format --check`, `pyright`, then the full suite as `uv run pytest --cov --cov-fail-under=80 --cov-report=xml --cov-report=term-missing` (no `-x`, no `-q`) — `uv sync --all-groups` already installs the `sidecar` workspace member through the `dev` group, so the sidecar's 34 tests are in that suite. `rust` runs `cargo fmt --all --check`, clippy, and `cargo test` for `crates/tidal2ytm-core` + `crates/tidal2ytm-ipc`, and does `uv sync --all-packages` **before** `cargo test` because `crates/tidal2ytm-ipc/tests/round_trip.rs` spawns the real Python sidecar and would otherwise degrade to a bare `python3`. `host` builds the frontend, then runs clippy and `cargo test -p tidal2ytm`. `frontend` runs the seven `pnpm` gates. Run the exact sequence before pushing — the pre-push hook's `pytest -q -x` can hide order-dependent and coverage-path failures.
+- **A CI job's `paths` must list every path that can make that job fail**, and a job cannot be dropped from a list to save a runner: `crates/**` was missing from `rust`, and `src-tauri/` is outside `Cargo.toml`'s `default-members`, so nothing else compiled or tested the host's crates at all. The `host` job also runs `cargo fmt --all --check` because `rust` is filtered out of `src-tauri/**` and `cargo fmt` is workspace-wide. Job-level filters are evaluated per job, so an overlapping path runs both jobs; that is the intended cost, not a bug to optimise away.
+- Platform-branched code (`os.name`, `termios`/`msvcrt` guards) has a path CI exercises that Windows never does: force both branches in tests (monkeypatch `os.name`, stub the guarded import), because a green local run proves nothing about the Linux path. `sidecar/tidal2ytm_sidecar/runner.py:47`'s `for line in stdin` over a real pipe has never run on Linux — pytest feeds it a `StringIO` — and it is the most likely place a Windows-green test goes red on ubuntu-latest.
 - Test doubles must implement the full interface production code touches (a stdin stand-in needs `fileno()` when the reader calls it); never stub narrower than the real collaborator. When production branches on a capability (`termios` import, `isatty`), the double must drive the same branch CI will take.
 - **ALWAYS watch the CI run after a `git push`**: `gh run list` to find it, `gh run watch <run-id> --exit-status` to block on it. The pre-push hook runs on the dev platform, so local green proves nothing. Markdown-only pushes queue no run (`paths-ignore: ['**.md']`), so there's nothing to watch.
 
@@ -120,7 +139,10 @@ Tests use fictional artist/track names and synthetic IDs only, never real catalo
 - `SidecarClient::spawn` hands the child's stderr to its caller and nobody else can drain it. Dropping that receiver does not close the pipe: the sidecar blocks writing its own diagnostics once the OS buffer fills, and every request it owed then times out with no cause. The host takes it and holds it for the process's life; a spawn that fails takes the child's diagnostics with it, so the failure message names the command it tried.
 - The host respawns on `IpcError::SidecarLost` — the error the client reports once it has seen EOF — and never on `is_alive`, which is still `true` in the window between the child dying and that EOF arriving. Identity (`Arc::ptr_eq`), not a flag, decides whether a respawn is needed, which is also what keeps a burst of failed calls from spawning one sidecar each.
 - `sidecar_path::resolve` looks for `tidal2ytm-sidecar.exe` **without** a target triple: `tauri_build` strips the triple from the name it copies next to the binary, so a `binaries/tidal2ytm-sidecar-<triple>.exe` candidate can never exist. A directory handed to a child as its working directory must exist first — `app_data_dir()` does not on a first run, and a missing one fails the spawn with `os error 267`, which names neither the path nor the reason.
-- Building the host needs `dist/` and a `src-tauri/binaries/tidal2ytm-sidecar-<triple>.exe` placeholder on disk: `tauri_build` refuses a config whose `frontendDist` is missing and an `externalBin` whose file is absent, and `icons/icon.ico` is required on Windows. Run `pnpm build` first, and create the placeholder as an empty file that is never committed (`.gitignore` already excludes `src-tauri/binaries/`).
+- Building the host needs `dist/` and a `src-tauri/binaries/tidal2ytm-sidecar-<triple><.exe>` placeholder on disk: `tauri_build` refuses a config whose `frontendDist` is missing and an `externalBin` whose file is absent, and `icons/icon.ico` is required on Windows. Run `pnpm build` first, and create the placeholder as an empty file that is never committed (`.gitignore` already excludes `src-tauri/binaries/`). The triple comes from `rustc -vV`'s `host:` field, because the build script reads cargo's `TARGET` and no `--target` is passed; a job that adds `--target` must derive that triple instead. **Any job or hook that compiles the host must create the placeholder first**, or it fails inside the build script before compiling a line of host code — which is how six `state.rs` tests and four startup-failure contract tests came to have no executor at all.
+- Every directory rule in `.gitignore` is root-anchored (`/name/`), because an unanchored `name/` also matches that directory under `src/`, where a frontend or Rust source directory of that name becomes untrackable — `git add src` commits zero files, reports success, and every gate reads green with the feature missing. `__pycache__/` and `node_modules/` are the only exceptions and stay unanchored: a directory by either name is generated output by definition, so it cannot hide source, and a nested instance is still junk. Before adding an ignore rule, check `git check-ignore -v --no-index -- src/lib/<name>/probe.ts` against the plausible name.
+- `.github/` and `.pre-commit-config.yaml` are Prettier-ignored, so CI and hook YAML is owned by no formatter. Hand-format it; a `pnpm format` pass will not catch a mistake there.
+- `[tool.coverage.run] source` lists both workspace members. Adding a member without adding it there puts its production modules outside the `fail_under = 80` gate while its tests still run, so a total regression in them is invisible.
 
 ## Disclosed reference
 

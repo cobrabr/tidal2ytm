@@ -42,7 +42,10 @@ testpaths = ["tests", "sidecar/tests"]
 addopts = "-q --strict-markers"
 
 [tool.coverage.run]
-source = ["tidal2ytm"]
+# Both workspace members. `tidal2ytm_sidecar` was outside this list while its
+# tests ran, so every regression in the sidecar's five production modules was
+# invisible to the `fail_under` gate below.
+source = ["tidal2ytm", "sidecar/tidal2ytm_sidecar"]
 branch = true
 [tool.coverage.report]
 fail_under = 80
