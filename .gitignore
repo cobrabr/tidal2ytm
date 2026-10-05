@@ -2,24 +2,29 @@
 # Created: 2025-08-01 14:32:42 UTC
 # Technologies: Python
 #
-# Every directory rule below is root-anchored (`/name/`), because an unanchored
-# `name/` matches that directory at *any* depth - including under `src/`, where a
-# frontend or Rust source directory of that name would be silently untrackable.
-# The failure is silent and total: `git add src` commits zero files and reports
-# success, `git status` shows nothing, and ESLint (via `includeIgnoreFile`) and
-# Prettier both skip the subtree, so every gate reads green with the whole feature
-# missing.
+# Anchoring is the default: every directory rule below is root-anchored
+# (`/name/`), because an unanchored `name/` matches that directory at *any*
+# depth - including under `src/`, where a frontend or Rust source directory of
+# that name would be silently untrackable. The failure is silent and total:
+# `git add src` commits zero files and reports success, `git status` shows
+# nothing, and ESLint (via `includeIgnoreFile`) and Prettier both skip the
+# subtree, so every gate reads green with the whole feature missing.
 #
-# Four rules are the deliberate exceptions and stay unanchored: `__pycache__/`,
-# `node_modules/`, `*.egg-info/` and `.ipynb_checkpoints`. Each is generated
-# output by name - Python's bytecode cache, pnpm's install tree, the
+# A rule stays unanchored when the name is generated output, because no
+# directory anyone would write source into carries such a name and a nested
+# instance of it is still junk. `__pycache__/`, `node_modules/`, `*.egg-info/`
+# and `.ipynb_checkpoints` are the deliberate cases and must stay unanchored on
+# purpose: Python's bytecode cache, pnpm's install tree, the
 # `<package>.egg-info` metadata setuptools and hatchling write beside a
-# pyproject.toml, IPython's checkpoint backups - so no directory anyone would
-# write source into carries one of these four names, and a nested instance of
-# any of them is still junk. The last two stay unanchored because anchoring
-# them would be wrong rather than redundant: egg metadata is written next to
-# whichever manifest declared it, and a notebook is not necessarily at the
-# repository root.
+# pyproject.toml, IPython's checkpoint backups. The last two are unanchored
+# because anchoring them would be wrong rather than redundant: egg metadata is
+# written next to whichever manifest declared it, and a notebook is not
+# necessarily at the repository root. The template's own tool caches
+# (`.webassets-cache`, `.scrapy`, `.ropeproject`) are unanchored for that same
+# reason and need no decision of their own, so this header is not an inventory:
+# before anchoring one of them or adding a rule, check the name against
+# `git check-ignore -v --no-index -- src/lib/<name>/probe.ts`, and only a name a
+# source directory could have is a defect.
 
 ### Python ###
 # Python bytecode cache directory

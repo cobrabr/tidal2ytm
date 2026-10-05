@@ -12,35 +12,63 @@ repos:
   # both gates run whatever it resolves to.
   - repo: local
     hooks:
-      # No `args` and no `--fix`: this hook reports, and `ruff-format` below is
-      # the one that rewrites. CI's whole-tree `ruff check .` is the backstop
-      # for a file this per-staged-file pass never saw.
+      # `files`, not `types:`, for every hook below. pre-commit ANDs the two
+      # filters, and pre-commit-identify tags `pyproject.toml` as `pyproject`
+      # and `Cargo.toml` as `cargo` — neither `python` nor `rust` — so a
+      # `types:` filter skipped every hook on a manifest-only commit, and
+      # `pyproject.toml` is where `[tool.ruff]`, `[tool.ruff.format]`,
+      # `[tool.ruff.lint]`, `[tool.pyright]`, `[tool.pytest.ini_options]` and
+      # `[tool.coverage.run]` all live. `contracts/**` is named by the two
+      # suites that read it; pre-commit-identify calls it `json`, which is not a
+      # Python or a Rust file either.
+      #
+      # `pass_filenames: false` wherever the entry takes no path argument, so it
+      # runs bare and `files` decides only whether it runs at all. On the two
+      # ruff hooks that is also what lets a config-only commit *fail*:
+      # `uv run ruff check --force-exclude pyproject.toml` exits 0 without
+      # evaluating any config against any code, so `files` on its own would have
+      # built a hook that fires and always passes.
       - id: ruff
         name: ruff
         entry: uv run ruff check --force-exclude
         language: system
-        types: [python]
-        require_serial: true
+        files: '\.(py|pyi)$|^pyproject\.toml$'
+        pass_filenames: false
+      # No `args` and no `--fix`: this hook reports, and `ruff-format` below is
+      # the one that rewrites. Both now run bare over the whole tree, with the
+      # same ruff and the same `pyproject.toml` that CI's `ruff check .` and
+      # `ruff format --check .` use, so the only difference from CI is *when*
+      # they run: a commit touching Python or `pyproject.toml`, rather than every
+      # non-markdown commit. CI stays the backstop for the commits that skip
+      # them.
+      #
+      # Bare `ruff format` also rewrites the Python code blocks inside `AGENTS.md`
+      # and `README.md`, since ruff 0.16 formats Markdown. That is the same
+      # scope CI's `ruff format --check .` already gates, so the hook and the
+      # job agree instead of the hook being narrower. `docs/superpowers/**` is
+      # excluded in `[tool.ruff.format]`.
       - id: ruff-format
         name: ruff format
         entry: uv run ruff format --force-exclude
         language: system
-        types: [python]
-        require_serial: true
+        files: '\.(py|pyi)$|^pyproject\.toml$'
+        pass_filenames: false
       # Triggers only, never arguments: `pass_filenames: false` below means the
       # entry runs bare and the pattern merely decides whether it runs at all.
-      # `.gitignore` and `.gitattributes` are here because Prettier reads the
-      # first and its `endOfLine` default is `"lf"`, so editing either can change
-      # which files pass `pnpm format:check`. `types_or: [javascript,
-      # typescript]` would be wrong: pre-commit-identify classifies neither
-      # `.svelte` nor these `.toml`/dotfiles that way, so a `types_or` filter
-      # would silently exclude every component from formatting - a gate that
-      # looks installed and never runs.
+      # `.gitignore` and `.gitattributes` are here for two different reasons.
+      # Prettier reads the first, because `includeIgnoreFile` walks it. It does
+      # not read the second; what `.gitattributes` does is let git write CRLF
+      # into the working tree, and Prettier's `endOfLine` default is `"lf"`, so
+      # editing either file can change which files pass `pnpm format:check`.
+      # `types_or: [javascript, typescript]` would be wrong: pre-commit-identify
+      # gives `.svelte` a tag of its own and these `.toml`/dotfiles only `toml`,
+      # so a `types_or` filter would silently exclude every component from
+      # formatting — a gate that looks installed and never runs.
       - id: prettier
         name: prettier
         entry: pnpm format
         language: system
-        files: '^(src/.*|index\.html|package\.json|tsconfig\.json|svelte\.config\.ts|vite\.config\.ts|vitest\.setup\.ts|eslint\.config\.ts|\.prettierrc\.toml|\.prettierignore|\.gitignore)$'
+        files: '^(src/.*|index\.html|package\.json|tsconfig\.json|svelte\.config\.ts|vite\.config\.ts|vitest\.setup\.ts|eslint\.config\.ts|\.prettierrc\.toml|\.prettierignore|\.gitignore|\.gitattributes)$'
         pass_filenames: false
       # `eslint .` lints the root config files as well as `src/**`, so each of
       # them is a trigger: changing `eslint.config.ts` changes what `pnpm lint`
@@ -52,22 +80,13 @@ repos:
         language: system
         files: '^(src/.*|eslint\.config\.ts|svelte\.config\.ts|vite\.config\.ts|vitest\.setup\.ts)$'
         pass_filenames: false
-        require_serial: true
-      # `files`, not `types: [python]`, for every hook below, because the file a
-      # tool *owns* is not always one it *runs on* and pre-commit ANDs the two
-      # filters. pre-commit-identify tags `pyproject.toml` as `pyproject` and
-      # `Cargo.toml` as `cargo`, neither of which is `python` or `rust`, so a
-      # manifest-only commit ran neither a Python nor a cargo gate — and
-      # `pyproject.toml` is where `[tool.pyright]`, `[tool.pytest.ini_options]`
-      # and `[tool.coverage.run]` all live. `contracts/**` is named by the two
-      # suites that read it; pre-commit-identify calls it `json`, which is not a
-      # Python or a Rust file either.
-      #
-      # `require_serial` on the two `uv run` hooks because they share one
-      # environment: pre-commit runs distinct hooks concurrently, and four of
-      # them asking uv to sync the same `.venv` at once is a lock fight over a
-      # directory the commit is about to be made in. The cargo hooks below need
-      # no equivalent — cargo locks its own target directory.
+      # No hook here sets `require_serial`, and none should. pre-commit runs
+      # distinct hooks one after another (`pre_commit/commands/run.py` is a plain
+      # `for hook in hooks:`), so there is never more than one of these entries
+      # live at a time. `require_serial` sets `jobs = 1` for the parallelism
+      # *within* one hook across its file batches, and `pass_filenames: false`
+      # leaves each of them with no files to batch — `xargs.partition` returns a
+      # single command — so the setting could not change what any of them does.
       - id: pyright
         name: pyright
         entry: uv run pyright
@@ -75,7 +94,6 @@ repos:
         files: '\.(py|pyi)$|^pyproject\.toml$'
         stages: [pre-push]
         pass_filenames: false
-        require_serial: true
       - id: pytest-push
         name: pytest
         entry: uv run pytest -q -x --cov --cov-fail-under=80
@@ -83,7 +101,6 @@ repos:
         files: '\.(py|pyi)$|^pyproject\.toml$|^contracts/.*\.json$'
         stages: [pre-push]
         pass_filenames: false
-        require_serial: true
       # None of the three hooks below compiles `src-tauri`: they name only the
       # two `default-members` crates, and `cargo fmt` reads manifests rather than
       # building. That is why none of them has to create
