@@ -56,10 +56,13 @@ repos:
       # Triggers only, never arguments: `pass_filenames: false` below means the
       # entry runs bare and the pattern merely decides whether it runs at all.
       # `.gitignore` and `.gitattributes` are here for two different reasons.
-      # Prettier reads the first, because `includeIgnoreFile` walks it. It does
-      # not read the second; what `.gitattributes` does is let git write CRLF
-      # into the working tree, and Prettier's `endOfLine` default is `"lf"`, so
-      # editing either file can change which files pass `pnpm format:check`.
+      # Prettier reads the first through its own default `--ignore-path`, which
+      # is `.gitignore` and `.prettierignore`; `includeIgnoreFile` is
+      # `@eslint/compat`'s and only `eslint.config.ts` uses it. Prettier never
+      # reads the second — `* text=auto eol=lf` is what forbids CRLF in the
+      # working tree, and Prettier's `endOfLine` default is `"lf"`, so the two
+      # agree today and an `eol=crlf` would put every file out of format. Either
+      # file can therefore change which files pass `pnpm format:check`.
       # `types_or: [javascript, typescript]` would be wrong: pre-commit-identify
       # gives `.svelte` a tag of its own and these `.toml`/dotfiles only `toml`,
       # so a `types_or` filter would silently exclude every component from

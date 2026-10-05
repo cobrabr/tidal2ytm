@@ -37,13 +37,17 @@ jobs:
     # compiles `src-tauri` or runs its ten tests, so a crate change runs this job
     # for the crates themselves and `host` for what consumes them. A rename the
     # round-trip suite also imports turns both red - neither entry is the only
-    # thing between a crate change and a red run - but drop this one and no job
-    # runs `cargo clippy` or `cargo test` for the two crates at all: `host`'s
-    # share of a crate is compiling it and testing the host, and `check` has no
-    # Rust steps. `contracts/**` is read by `protocol.rs` and `round_trip.rs`,
-    # and `sidecar/**` is spawned by `round_trip.rs`, so both can turn this job
-    # red without touching Rust. `pyproject.toml`/`uv.lock` gate the `uv sync`
-    # that provides the venv the round trip launches.
+    # thing between a crate change and a red run - but drop this one and the two
+    # crates' own tests stop running anywhere: `host` runs the host's ten tests,
+    # not theirs, and `check` has no Rust steps. `host` still compiles and lints
+    # them, because `cargo clippy -p tidal2ytm` reaches `tidal2ytm-ipc` as a
+    # workspace dependency, but that is the library only - not
+    # `tidal2ytm-core`, which is outside that dependency graph, and not a test
+    # target, which is where `round_trip.rs` lives. `contracts/**` is read by
+    # `protocol.rs` and `round_trip.rs`, and `sidecar/**` is spawned by
+    # `round_trip.rs`, so both can turn this job red without touching Rust.
+    # `pyproject.toml`/`uv.lock` gate the `uv sync` that provides the venv the
+    # round trip launches.
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
