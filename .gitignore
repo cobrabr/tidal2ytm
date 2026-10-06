@@ -79,6 +79,8 @@ MANIFEST
 *.manifest
 # PyInstaller spec file
 *.spec
+# PyInstaller spec for the sidecar is source, not a build artefact.
+!sidecar/tidal2ytm-sidecar.spec
 # pip installation log
 pip-log.txt
 # pip marker file
