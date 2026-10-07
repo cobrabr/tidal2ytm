@@ -100,23 +100,6 @@ tidal2ytm status
 uv tool update tidal2ytm
 ```
 
-### Building the desktop app
-
-The GUI lives in this branch and is built with [Tauri 2](https://tauri.app). It needs Rust, Node 24, pnpm, and uv.
-
-```pwsh
-uv sync --all-groups
-pnpm install
-pwsh sidecar/build_sidecar.ps1   # Windows; builds the Python sidecar
-pnpm tauri build
-```
-
-The sidecar has to be built before the app: `bundle.externalBin` names a binary that Tauri copies into the bundle, so `pnpm tauri build` fails without it. The script writes it to `src-tauri/binaries/` with the host target triple, which `tauri_build` strips again when it stages the file next to the app.
-
-During development, `pnpm tauri dev` starts the window and a Vite dev server. The sidecar is spawned by the Rust host, never by the frontend.
-
-The Python CLI is still present and is still the supported interface for anything not yet moved into the GUI. Phase 6 of `docs/superpowers/specs/2026-09-29-desktop-gui-migration-design.md` removes it.
-
 ## Usage
 
 The workflow consists of three steps: planning what to match, reviewing/resolving low-confidence matches, and executing the transfer.
@@ -243,6 +226,23 @@ uv run pytest --cov --cov-report=term-missing -q
 ```
 
 `pyright` runs in strict mode and must report zero errors. Coverage is report-only. Tests live in `tests/` and use fictional artist/track names and synthetic IDs only — never real catalogue data. Pre-commit and pre-push hooks run the same gates locally (ruff check-only, `uv run pyright`, pytest).
+
+### Building the desktop app
+
+The GUI lives in this branch and is built with [Tauri 2](https://tauri.app). It needs Rust, Node 24, pnpm, and uv.
+
+```pwsh
+uv sync --all-groups
+pnpm install
+pwsh sidecar/build_sidecar.ps1   # Windows; builds the Python sidecar
+pnpm tauri build
+```
+
+The sidecar has to be built before the app: `bundle.externalBin` names a binary that Tauri copies into the bundle, so `pnpm tauri build` fails without it. The script writes it to `src-tauri/binaries/` with the host target triple, which `tauri_build` strips again when it stages the file next to the app.
+
+During development, `pnpm tauri dev` starts the window and a Vite dev server. The sidecar is spawned by the Rust host, never by the frontend.
+
+The Python CLI is still present and is still the supported interface for anything not yet moved into the GUI. Phase 6 of `docs/superpowers/specs/2026-09-29-desktop-gui-migration-design.md` removes it.
 
 ## Notes
 

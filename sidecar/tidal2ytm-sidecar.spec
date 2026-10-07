@@ -11,13 +11,17 @@
 
 from pathlib import Path
 
-# `SPECPATH` is this spec's own directory (`sidecar/`), not the repository root.
-# PyInstaller runs a spec with the working directory set there, so the script
-# path below is relative to `sidecar/` too: written as `sidecar/...` it is
-# looked for at `sidecar/sidecar/...` and the build fails. `tidal2ytm_sidecar`
-# resolves from this directory; `tidal2ytm` resolves from the editable install in
-# the uv-managed venv, which is what the `hiddenimports` entries below rely on
-# too.
+# `SPECPATH` is this spec's own directory (`sidecar/`), not the repository root,
+# and it is what makes the script path below relative to `sidecar/`. Only that
+# path resolution is spec-relative: `build_main.py` joins a relative script onto
+# `spec_dir`, so written as `sidecar/...` the path is looked for at
+# `sidecar/sidecar/...` and the build fails. The working directory is *not*
+# changed — PyInstaller never chdirs — so `distpath` and `workpath` still resolve
+# against the invoking directory, which is why build_sidecar.ps1 passes them
+# explicitly and where it puts them matters.
+# `tidal2ytm_sidecar` resolves from this directory; `tidal2ytm` resolves from the
+# editable install in the uv-managed venv, which is what the `hiddenimports`
+# entries below rely on too.
 #
 # The entry script is `tidal2ytm_sidecar_entry.py` rather than the package's own
 # `__main__.py`: PyInstaller freezes the entry script as a bare `__main__` with no
@@ -39,8 +43,16 @@ analysis = Analysis(  # noqa: F821 - injected by PyInstaller
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # The sidecar never touches a terminal UI, and PyInstaller cannot see
-        # that these are dead because the CLI imports them behind a flag.
+        # The sidecar answers questions about the outside world and nothing
+        # else, so nothing in the frozen graph reaches a terminal UI today.
+        # This is a belt-and-braces assertion of that, and it stays cheap: the
+        # build already excludes these, so the assertion costs a few lines
+        # rather than a few megabytes. It is here because the *cost* of being
+        # wrong is not cheap — a onefile build excludes modules a larger import
+        # graph would have pulled in, so if a later op reaches `cli.py` the
+        # build stays green and the missing import surfaces at sidecar runtime
+        # on the user's machine. PyInstaller does follow function-level
+        # imports, so this is not about hiding imports from the analyser.
         "rich",
         "readchar",
         "tkinter",
@@ -58,6 +70,13 @@ executable = EXE(  # noqa: F821
     analysis.datas,
     [],
     name="tidal2ytm-sidecar",
+    # Load-bearing for Phase 2, and not a leftover from the CLI. `state::spawn`
+    # hands the sidecar's stderr to the log facade `run()` installed, and that
+    # drain is the only way a forwarded diagnostic reaches the host's log file.
+    # A GUI-subsystem build has no console to drain, so "tidying" this to False
+    # for a desktop app would silently lose every forwarded record while all
+    # thirteen gates stayed green. Phase 7 revisits it once the host writes its
+    # own log file rather than depending on the child's stderr.
     console=True,
     exclude_binaries=False,
     upx=False,

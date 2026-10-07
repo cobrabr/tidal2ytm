@@ -16,11 +16,19 @@ $target = Join-Path $repo 'src-tauri\binaries'
 # go under `sidecar/`, which is what `.gitignore` already ignores.
 $dist = Join-Path $repo 'sidecar\dist'
 $work = Join-Path $repo 'sidecar\build'
-# A onefile build writes one executable at the distpath root. The path a onedir
-# build would use (`dist\tidal2ytm-sidecar\tidal2ytm-sidecar.exe`) is exactly the
-# layout this spec drops `COLLECT` to avoid, so a match here is a sign the spec
-# regressed rather than that the build is good.
+# A onefile build writes one executable at the distpath root. A onedir build
+# would write it to `dist\tidal2ytm-sidecar\tidal2ytm-sidecar.exe` and leave
+# nothing at $built, which is what the `Test-Path` below is for.
 $built = Join-Path $dist 'tidal2ytm-sidecar.exe'
+
+# Clear both output directories before building. `--noconfirm` removes only the
+# output PyInstaller is about to write, so on a onedir regression the previous
+# good `dist\tidal2ytm-sidecar.exe` would survive untouched and the `Test-Path`
+# below would pass on a stale binary, staging a sidecar that no longer matches
+# the source. `-PathType Leaf` is in that check too: plain `Test-Path` returns
+# true for a directory, which would accept a `COLLECT`'s output directory as the
+# executable.
+Remove-Item -Recurse -Force $dist, $work -ErrorAction SilentlyContinue
 
 Push-Location $repo
 try {
@@ -30,7 +38,7 @@ finally {
     Pop-Location
 }
 
-if (-not (Test-Path $built)) {
+if (-not (Test-Path -PathType Leaf $built)) {
     throw "PyInstaller did not produce $built"
 }
 
