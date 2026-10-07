@@ -34,11 +34,11 @@ jobs:
     runs-on: ubuntu-latest
     # Every path that can make this job fail. `crates/**` is the job's reason to
     # exist, and `host` below lists it too because `host` is the only job that
-    # compiles `src-tauri` or runs its ten tests, so a crate change runs this job
+    # compiles `src-tauri` or runs its tests, so a crate change runs this job
     # for the crates themselves and `host` for what consumes them. A rename the
     # round-trip suite also imports turns both red - neither entry is the only
     # thing between a crate change and a red run - but drop this one and the two
-    # crates' own tests stop running anywhere: `host` runs the host's ten tests,
+    # crates' own tests stop running anywhere: `host` runs the host's tests,
     # not theirs, and `check` has no Rust steps. `host` still compiles and lints
     # them, because `cargo clippy -p tidal2ytm` reaches `tidal2ytm-ipc` as a
     # workspace dependency, but that is the library only - not
@@ -92,7 +92,7 @@ jobs:
     # because `pnpm build` loads them; `.npmrc` because it is what makes
     # `pnpm install` refuse the wrong Node. `crates/**` because `src-tauri` is a
     # consumer of `tidal2ytm-ipc` and this job is the only one that compiles it
-    # or runs its ten tests: `rust`'s share of a crate is clippy, that crate's
+    # or runs its tests: `rust`'s share of a crate is clippy, that crate's
     # own tests, and a workspace-wide `cargo fmt --all --check`, and none of
     # those three compiles `src-tauri` - renaming `IpcError::Spawn`'s field
     # leaves `cargo fmt --all --check` at exit 0 while `cargo test -p
