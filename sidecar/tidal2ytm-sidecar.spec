@@ -73,10 +73,13 @@ executable = EXE(  # noqa: F821
     # Load-bearing for Phase 2, and not a leftover from the CLI. `state::spawn`
     # hands the sidecar's stderr to the log facade `run()` installed, and that
     # drain is the only way a forwarded diagnostic reaches the host's log file.
-    # A GUI-subsystem build has no console to drain, so "tidying" this to False
-    # for a desktop app would silently lose every forwarded record while all
-    # thirteen gates stayed green. Phase 7 revisits it once the host writes its
-    # own log file rather than depending on the child's stderr.
+    # The host drains a pipe, not a console, so `False` costs it nothing by
+    # itself -- but `False` swaps in the windowed bootloader, which diverts an
+    # unhandled exception's traceback into a window instead of stderr
+    # (`disable_windowed_traceback` defaults to False, so the dump is on). So
+    # "tidying" this to False for a desktop app would move the sidecar's crash
+    # diagnostics off the pipe while all thirteen gates stayed green. Phase 7
+    # revisits it once the host writes its own log file.
     console=True,
     exclude_binaries=False,
     upx=False,
