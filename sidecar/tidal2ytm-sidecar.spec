@@ -72,13 +72,17 @@ executable = EXE(  # noqa: F821
     name="tidal2ytm-sidecar",
     # Load-bearing for Phase 2, and not a leftover from the CLI. `state::spawn`
     # hands the sidecar's stderr to the log facade `run()` installed, and that
-    # drain is the only way a forwarded diagnostic reaches the host's log file.
+    # drain is the only route a forwarded diagnostic has to the host's log
+    # file -- which Phase 4 creates; until then a release build installs no sink
+    # at all (`logging.rs` returns early unless `debug_assertions`) and drops the
+    # lines. The route is what has to survive the change, not the destination.
     # The host drains a pipe, not a console, so `False` costs it nothing by
     # itself -- but `False` swaps in the windowed bootloader, which diverts an
     # unhandled exception's traceback into a window instead of stderr
     # (`disable_windowed_traceback` defaults to False, so the dump is on). So
     # "tidying" this to False for a desktop app would move the sidecar's crash
-    # diagnostics off the pipe while all thirteen gates stayed green. Phase 7
+    # diagnostics off the pipe while every gate stayed green -- no gate reads a
+    # .spec file, so flipping this one exercises nothing anywhere. Phase 4
     # revisits it once the host writes its own log file.
     console=True,
     exclude_binaries=False,

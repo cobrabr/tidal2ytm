@@ -32,7 +32,7 @@ Remove-Item -Recurse -Force $dist, $work -ErrorAction SilentlyContinue
 
 Push-Location $repo
 try {
-    uv run --with pyinstaller pyinstaller sidecar\tidal2ytm-sidecar.spec --noconfirm --distpath $dist --workpath $work
+    uv run --group build pyinstaller sidecar\tidal2ytm-sidecar.spec --noconfirm --distpath $dist --workpath $work
 }
 finally {
     Pop-Location

@@ -88,7 +88,7 @@ jobs:
     name: host
     runs-on: ubuntu-latest
     # Everything this job builds or executes. `contracts/**` because
-    # `state.rs`'s tests read `auth_status.json`; the frontend config files
+    # `state.rs`'s tests read `auth_status.json`; the build config files
     # because `pnpm build` loads them; `.npmrc` because it is what makes
     # `pnpm install` refuse the wrong Node. `crates/**` because `src-tauri` is a
     # consumer of `tidal2ytm-ipc` and this job is the only one that compiles it
@@ -147,8 +147,8 @@ jobs:
       # and refuses to compile at all when that file is absent. It is gitignored,
       # so every checkout has to recreate it. An empty file is enough: the build
       # script copies it beside the binary and nothing here runs it. Bundling a
-      # real executable is a later phase's job, and this step is deliberately not
-      # that.
+      # real executable is `sidecar/build_sidecar.ps1`, which runs PyInstaller
+      # and is Windows-only, so this step deliberately does not run it.
       #
       # `rustc -vV`'s host is what the build script reads, because no `--target`
       # is passed to cargo here. If a `--target` is ever added to this job, derive

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use tidal2ytm_ipc::{
-    ErrorKind, IpcError, SidecarClient, SidecarConfig, log_level_env, sidecar_python,
+    ErrorKind, IpcError, LOG_LEVELS, SidecarClient, SidecarConfig, log_level_env, sidecar_python,
 };
 
 /// The repository root, derived from this crate's manifest so the test does
@@ -72,6 +72,49 @@ fn keys_of<'a>(value: &'a Value, what: &str) -> std::collections::BTreeSet<&'a s
         .keys()
         .map(String::as_str)
         .collect()
+}
+
+/// `config`, with the host's level set to `level` and everything else identical.
+///
+/// Built by mapping over `config`'s own `env` rather than by replacing it, so the
+/// level is provably the only thing that differs from the spawn the other tests
+/// here make. Overwriting `env` wholesale would drop `PYTHONPATH` — harmless
+/// today, since `cwd` already puts the package on `sys.path[0]` — and "harmless
+/// today" is the kind of difference that stops being harmless on the runner where
+/// it is not.
+fn config_at_level(level: &str) -> SidecarConfig {
+    // Through `log_level_env`, not the raw string: that is the function whose
+    // `LOG_LEVELS` list the test is about, so a name it refuses never reaches
+    // the sidecar and the test cannot silently prove something weaker than it
+    // looks like it proves.
+    let (_name, value) =
+        log_level_env(level).unwrap_or_else(|e| panic!("{level:?} is offered: {e}"));
+    let SidecarConfig {
+        program,
+        args,
+        cwd,
+        env,
+        handshake_timeout,
+    } = config();
+    let mut env = env;
+    let mut replaced = false;
+    for pair in &mut env {
+        if pair.0 == "TIDAL2YTM_LOG_LEVEL" {
+            pair.1 = value.clone();
+            replaced = true;
+        }
+    }
+    // Without this the loop is a no-op that leaves the default level in place,
+    // and the test would go on passing while asserting nothing about the name it
+    // was given.
+    assert!(replaced, "config() no longer sets TIDAL2YTM_LOG_LEVEL");
+    SidecarConfig {
+        program,
+        args,
+        cwd,
+        env,
+        handshake_timeout,
+    }
 }
 
 async fn spawn_or_explain(config: &SidecarConfig) -> SidecarClient {
@@ -169,6 +212,41 @@ async fn the_real_sidecar_refuses_an_op_it_does_not_implement() {
     );
 
     client.shutdown().await.expect("sidecar shuts down");
+}
+
+// `client::LOG_LEVELS` and `tidal2ytm.logging_setup.LOG_LEVELS` are two copies of
+// one cross-language vocabulary, and nothing else ties them together: every other
+// test in this file sends `INFO`, which both sides happen to accept. Add
+// `TRACE` to the Rust side alone and the sidecar's `level_from_env` raises
+// `ValueError` before it handshakes, `runner.main` returns exit 2, and the host
+// reports a startup failure naming the log level instead of the version skew —
+// on a user's machine, with every build gate green.
+//
+// So this spawns the real sidecar once per name the host considers valid, with
+// that name in the environment. It is not testing "the host sends a level": it
+// is testing that **every name in `LOG_LEVELS` is one the sidecar accepts**, and
+// it fails on either side drifting, which is the contract `contracts/` exists to
+// protect for everything else on this wire.
+//
+// Six spawns, and the suite already spawns the process four times, so this is not
+// a cost worth redesigning around. The level is read once at startup, so the
+// names cannot be swept within one process — each needs its own child.
+#[tokio::test]
+async fn every_level_the_host_offers_starts_the_real_sidecar() {
+    for name in LOG_LEVELS {
+        let config = config_at_level(name);
+        let client = match SidecarClient::spawn(&config).await {
+            Ok(client) => client,
+            // Named here rather than left to `spawn_or_explain`'s generic advice:
+            // the interesting case is exactly the one that is not a `Spawn`
+            // error — the interpreter ran, and the sidecar refused to start.
+            Err(error) => panic!(
+                "the host offers {name:?} but the sidecar refused it: {error}\n\
+                 `client::LOG_LEVELS` and `tidal2ytm.logging_setup.LOG_LEVELS` have drifted."
+            ),
+        };
+        client.shutdown().await.expect("sidecar shuts down");
+    }
 }
 
 // Closing stdin is the whole shutdown mechanism, and nothing shorter of the

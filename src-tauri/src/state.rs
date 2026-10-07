@@ -106,6 +106,26 @@ async fn spawn(config: &SidecarConfig) -> Result<SidecarClient, String> {
     Ok(client)
 }
 
+/// The advice for a child that started, answered, and was then killed for what
+/// it answered.
+///
+/// Its stderr is not where the answer is: the mismatch is between the `hello` it
+/// sent and the one this build reads, and rerunning the command in a terminal
+/// would start a *different* sidecar — the source one, through the checkout
+/// fallback — which very likely works. The fix is to rebuild and restage, not to
+/// go looking in a pipe.
+const WRONG_BUILD: &str = "The sidecar answered but this host cannot read the answer — that is a version \
+     mismatch or a missing capability, so the packaged sidecar is stale or wrong. \
+     Rebuild it with `pwsh sidecar/build_sidecar.ps1` and restart the app.";
+
+/// The advice for a child that never said anything within the handshake timeout.
+///
+/// Nothing was written to stderr, so there is nothing to read and nothing to run
+/// the command for; a slow start and a wedged one are indistinguishable from out
+/// here.
+const SAID_NOTHING: &str = "The sidecar produced no output at all within the handshake timeout — it may be \
+     slow to start, or wedged; nothing was written to stderr.";
+
 /// The advice that accompanies a failure the sidecar produced for itself.
 ///
 /// The process wrote this to stderr and nobody will ever read it again, so the
@@ -118,27 +138,53 @@ const RUN_IT_YOURSELF: &str =
 /// there is nothing to run and so nothing to advise.
 ///
 /// Split out of `describe` because *which* failures carry advice is a decision
-/// about the two cases rather than about any wording, and it is the part a
-/// reader acts on: telling someone to inspect a stderr that was never written
-/// sends them looking for a file that cannot exist.
+/// about the four kinds of failure rather than about any wording, and it is the
+/// part a reader acts on: telling someone to inspect a stderr that was never
+/// written sends them looking for a file that cannot exist, and telling them to
+/// rerun the command for a failure the rerun cannot reproduce sends them
+/// somewhere useless.
+///
+/// The four kinds are distinguished by how much the child actually did, because
+/// that is what decides where the answer is:
+///
+/// - `Spawn` — the command never ran. No advice; there is no output to read.
+/// - `SidecarLost` — the child ran and stopped answering. Its stderr is gone with
+///   it, so the reader has to produce it again by running the command.
+/// - `MalformedResponse`, `ProtocolMismatch`, `MissingCapability` — the child ran
+///   *and* completed a handshake this build then refused. The answer is on stdout
+///   and already reported; stderr is beside the point.
+/// - `Timeout` — the child produced no output within the timeout. Named by `op`,
+///   because `SidecarClient::call` reports the same variant for a request that
+///   went unanswered and only a startup failure ever reaches here. Nothing was
+///   written, so neither of the other two advices applies.
 fn remedy(error: &IpcError) -> Option<&'static str> {
     match error {
         // The operating system refused to start the process, so it wrote
         // nothing anywhere.
         IpcError::Spawn { .. } => None,
-        // Every other variant means the child ran and then stopped answering.
-        _ => Some(RUN_IT_YOURSELF),
+        IpcError::SidecarLost => Some(RUN_IT_YOURSELF),
+        IpcError::ProtocolMismatch { .. }
+        | IpcError::MissingCapability { .. }
+        | IpcError::MalformedResponse { .. } => Some(WRONG_BUILD),
+        // Only a `Timeout` on `hello` reaches this function; `Sidecar`'s own
+        // errors are reported by `call`, not by startup.
+        IpcError::Timeout { op, .. } if op == "hello" => Some(SAID_NOTHING),
+        _ => None,
     }
 }
 
 /// A startup failure, in terms a person can act on.
 ///
-/// The command is named in both arms because it is the one fact that is always
-/// actionable, and the advice is attached by `remedy` so the two cases cannot
-/// drift into telling the reader the wrong thing.
+/// The command is named in every arm because it is the one fact that is always
+/// actionable, and the advice is attached by `remedy` so the two cannot drift
+/// into telling the reader the wrong thing.
 ///
 /// `IpcError::Spawn`'s own `Display` already opens with "could not start the
-/// sidecar", so this arm uses the inner message rather than repeating it.
+/// sidecar", so that arm uses the inner message rather than repeating it. The
+/// other arms split on whether the child *answered*, for the same reason
+/// `remedy` does: "started and then stopped" is false of a child that completed
+/// a handshake this host refused to read, and the difference is the difference
+/// between advice that helps and advice that wastes an afternoon.
 fn describe(error: &IpcError, config: &SidecarConfig) -> String {
     let command = std::iter::once(config.program.display().to_string())
         .chain(config.args.iter().cloned())
@@ -148,6 +194,11 @@ fn describe(error: &IpcError, config: &SidecarConfig) -> String {
         IpcError::Spawn { message } => {
             format!("could not start the sidecar with `{command}`: {message}")
         }
+        IpcError::ProtocolMismatch { .. }
+        | IpcError::MissingCapability { .. }
+        | IpcError::MalformedResponse { .. } => format!(
+            "the sidecar started as `{command}` and answered, but this host refused the answer: {error}"
+        ),
         other => format!("the sidecar started as `{command}` and then stopped: {other}"),
     };
     match remedy(error) {
@@ -275,6 +326,131 @@ mod tests {
             !refusal.contains(RUN_IT_YOURSELF) && stopped.contains(RUN_IT_YOURSELF),
             "the advice belongs on exactly the arm that lost diagnostics"
         );
+    }
+
+    // The defect this prevents: a sidecar that starts, handshakes cleanly, and
+    // is killed for reporting protocol version 2 is the stale-packaged-sidecar
+    // case, and the advice that sends the reader to a terminal is worse than none
+    // — rerunning there starts the *source* sidecar through the checkout
+    // fallback, which works, so the reader is told to verify a failure they
+    // cannot reproduce. Its stderr is beside the point: the mismatch is in the
+    // `hello` already reported above.
+    #[test]
+    fn a_sidecar_that_answered_with_something_unreadable_is_blamed_on_the_build_not_its_stderr() {
+        let config = config();
+        for error in [
+            IpcError::ProtocolMismatch {
+                expected: 1,
+                got: 2,
+            },
+            IpcError::MissingCapability {
+                name: "auth.status".to_string(),
+            },
+            IpcError::MalformedResponse {
+                line: "{\"event\":\"hello\"".to_string(),
+            },
+        ] {
+            let message = describe(&error, &config);
+
+            assert_names_the_command(&message, &config);
+            assert!(
+                !message.contains(RUN_IT_YOURSELF),
+                "the child answered, so stderr is not where its problem is: {message}"
+            );
+            assert!(
+                message.contains(WRONG_BUILD),
+                "the reader is not told to rebuild the packaged sidecar: {message}"
+            );
+        }
+    }
+
+    // The defect this prevents: the handshake timeout covers a sidecar that is
+    // merely slow, and a slow one wrote nothing to stderr. Both `RUN_IT_YOURSELF`
+    // arms assert that diagnostics existed and are gone, which is false here —
+    // the reader goes to a terminal, runs a sidecar that starts perfectly, and
+    // concludes the app is wrong.
+    #[test]
+    fn a_handshake_that_timed_out_says_nothing_was_written() {
+        let config = config();
+        let message = describe(
+            &IpcError::Timeout {
+                op: "hello".to_string(),
+                ms: 20_000,
+            },
+            &config,
+        );
+
+        assert_names_the_command(&message, &config);
+        assert!(
+            !message.contains(RUN_IT_YOURSELF) && !message.contains(WRONG_BUILD),
+            "neither of the advice sentences fits a child that never spoke: {message}"
+        );
+        assert!(
+            message.contains(SAID_NOTHING),
+            "the reader is not told that no output was produced at all: {message}"
+        );
+    }
+
+    // Four kinds of failure, four different next steps. Collapsing any two of them
+    // into one message passes the per-arm tests above — each asserts only that its
+    // own advice is present and the other two are absent, so a rewrite that
+    // flattened, say, the handshake timeout into "read its stderr" would satisfy
+    // each in turn while being wrong in all of them at once.
+    #[test]
+    fn each_kind_of_startup_failure_gets_its_own_message() {
+        let config = config();
+        let refused = describe(&refused(), &config);
+        let lost = describe(&IpcError::SidecarLost, &config);
+        let unreadable = describe(
+            &IpcError::ProtocolMismatch {
+                expected: 1,
+                got: 2,
+            },
+            &config,
+        );
+        let silent = describe(
+            &IpcError::Timeout {
+                op: "hello".to_string(),
+                ms: 20_000,
+            },
+            &config,
+        );
+
+        for (first, second) in [
+            (&refused, &lost),
+            (&refused, &unreadable),
+            (&refused, &silent),
+            (&lost, &unreadable),
+            (&lost, &silent),
+            (&unreadable, &silent),
+        ] {
+            assert_ne!(
+                first, second,
+                "two different startup failures must not read the same"
+            );
+        }
+    }
+
+    // A child that read our request and answered with a failure is not a startup
+    // problem and never reaches `describe`, but the guard is one word wide, so
+    // assert it stays that way: widening it to cover `Timeout` for any op would
+    // have this function attribute a hung *request* to startup.
+    #[test]
+    fn a_timeout_on_another_op_carries_no_startup_advice() {
+        let message = describe(
+            &IpcError::Timeout {
+                op: "favorites.list".to_string(),
+                ms: 30_000,
+            },
+            &config(),
+        );
+
+        for advice in [RUN_IT_YOURSELF, WRONG_BUILD, SAID_NOTHING] {
+            assert!(
+                !message.contains(advice),
+                "a non-handshake timeout is not a startup failure: {message}"
+            );
+        }
     }
 
     // The cause the operating system gave is the actionable half of this message

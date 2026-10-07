@@ -30,6 +30,12 @@ dev = [
     # sidecar tests unable to import their own package.
     "tidal2ytm-sidecar",
 ]
+# `sidecar/build_sidecar.ps1` builds the frozen sidecar. Exact, like every other
+# pin here, and resolved through `uv.lock` rather than left to a second owner:
+# `uv run --with` re-resolves from the index on every invocation, so the tool
+# would be whatever is newest on the day, under a `.spec` file that documents the
+# behaviour of the version that builds it. Windows-only, and no gate runs it.
+build = ["pyinstaller==6.22.3"]
 
 [tool.uv.workspace]
 members = ["sidecar"]

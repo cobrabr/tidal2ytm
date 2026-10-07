@@ -35,8 +35,22 @@ irm https://astral.sh/uv/install.ps1 | iex
 ```pwsh
 git clone https://github.com/cobrabr/tidal2ytm.git
 cd tidal2ytm
-uv sync --frozen
+uv sync --locked
 ```
+
+### Bare install (recommended for daily use)
+
+Instead of step 2, install the command into an environment of its own so daily use does not depend on the checkout:
+
+```pwsh
+uv tool install --from . tidal2ytm
+tidal2ytm --help
+tidal2ytm status
+# update later:
+uv tool update tidal2ytm
+```
+
+You still need the clone — `uv tool install --from .` builds from this directory — so run it after step 2 and authenticate as in step 3. Reach for `uv sync` instead when you intend to work on the code: the hooks, the test suite and the desktop build all read `.venv`.
 
 ### 3. Authenticate (once)
 
@@ -89,16 +103,6 @@ What to expect:
 - If no `data/client_secret_*.json` is present and you do not pass `--client-id`/`--client-secret`, the command prints the relevant gcloud or Console instructions and prompts for the ID and secret, saving a synthetic credentials file alongside your plan if you paste them in.
 - The YTM flow opens your browser to Google's sign-in page. The Tidal flow prints a URL and opens it in your browser; the CLI waits there until you grant access.
 - Subsequent runs of `tidal2ytm auth` reuse the cached tokens; you only need to re-auth when a token expires or is revoked.
-
-#### Bare install (recommended for daily use)
-
-```pwsh
-uv tool install --from . tidal2ytm
-tidal2ytm --help
-tidal2ytm status
-# update later:
-uv tool update tidal2ytm
-```
 
 ## Usage
 
@@ -212,7 +216,7 @@ Every run writes a timestamped log file to the `logs/` directory (git-ignored). 
 Requires Python ≥3.11 and [`uv`](https://docs.astral.sh/uv/getting-started/installation/). Install dependencies (including the dev group) with:
 
 ```pwsh
-uv sync --frozen
+uv sync --locked
 ```
 
 Run the quality gates before pushing:
