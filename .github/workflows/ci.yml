@@ -29,33 +29,120 @@ jobs:
       - run: uvx vulture tidal2ytm --min-confidence 80
         continue-on-error: true
 
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      host: ${{ steps.filter.outputs.host }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      # `dorny/paths-filter` lists changed files through the REST API on
+      # `pull_request`, and through `git` against the merge-base with the default
+      # branch on `push`. Only the second needs a workspace, so this checkout is
+      # here for the pushes and harmless on a pull request.
+      - uses: actions/checkout@v5
+      # The three filters below are the per-job `paths:` lists this workflow used
+      # to carry. `paths` is a trigger key, not a job key: a job-level one is
+      # rejected by GitHub's workflow schema and makes the whole file invalid, so
+      # GitHub creates no job at all and the run fails in 0 seconds with the file
+      # path as its name. The action computes the same decision once and the jobs
+      # read it through `if:`.
+      #
+      # `rust` is every path that can make the `rust` job fail. `crates/**` is
+      # the job's reason to exist, and `host` lists it too because `host` is the
+      # only job that compiles `src-tauri` or runs its tests, so a crate change
+      # runs `rust` for the crates themselves and `host` for what consumes them.
+      # A rename the round-trip suite also imports turns both red - neither
+      # entry is the only thing between a crate change and a red run - but drop
+      # this one and the two crates' own tests stop running anywhere: `host` runs
+      # the host's tests, not theirs, and `check` has no Rust steps. `host` still
+      # compiles and lints them, because `cargo clippy -p tidal2ytm` reaches
+      # `tidal2ytm-ipc` as a workspace dependency, but that is the library only -
+      # not `tidal2ytm-core`, which is outside that dependency graph, and not a
+      # test target, which is where `round_trip.rs` lives. `contracts/**` is read
+      # by `protocol.rs` and `round_trip.rs`, and `sidecar/**` is spawned by
+      # `round_trip.rs`, so both can turn this job red without touching Rust.
+      # `pyproject.toml`/`uv.lock` gate the `uv sync` that provides the venv the
+      # round trip launches.
+      #
+      # `host` is everything that job builds or executes. `contracts/**` because
+      # `state.rs`'s tests read `auth_status.json`; the build config files
+      # because `pnpm build` loads them; `.npmrc` because it is what makes
+      # `pnpm install` refuse the wrong Node. `crates/**` because `src-tauri` is
+      # a consumer of `tidal2ytm-ipc` and this job is the only one that compiles
+      # it or runs its tests: `rust`'s share of a crate is clippy, that crate's
+      # own tests, and a workspace-wide `cargo fmt --all --check`, and none of
+      # those three compiles `src-tauri` - renaming `IpcError::Spawn`'s field
+      # leaves `cargo fmt --all --check` at exit 0 while `cargo test -p
+      # tidal2ytm` will not compile. A rename the round trip happens to import
+      # turns `rust` red as well, so this entry is not the only thing between a
+      # crate change and a red run; it is the only thing between a crate change
+      # and a host that was built at all. `sidecar/**` because `sidecar_path.rs`
+      # requires `sidecar/tidal2ytm_sidecar/__init__.py` to exist for the
+      # checkout fallback and its own test asserts it does; rename or move that
+      # one file and this job is red. Lint-only and formatting-only frontend
+      # config (`.prettierrc.toml`, `.prettierignore`, `eslint.config.ts`,
+      # `vitest.setup.ts`) cannot break this job and are left to `frontend`.
+      #
+      # `frontend` is every path that can make that job fail. `.gitignore` and
+      # `.gitattributes` are here because Prettier reads the former and its
+      # `endOfLine` default is `"lf"`, so a change to either changes which files
+      # pass `format:check`. `contracts/**` because `src/lib/types.ts` imports
+      # it, so a rename there is a type error. `vitest.config.ts` is deliberately
+      # absent: Task 9 folded it into `vite.config.ts`, which is listed.
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'contracts/**'
+              - 'sidecar/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            host:
+              - 'src-tauri/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'contracts/**'
+              - 'sidecar/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.npmrc'
+              - 'svelte.config.ts'
+              - 'vite.config.ts'
+              - 'tsconfig.json'
+              - 'index.html'
+              - 'src/**'
+            frontend:
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.npmrc'
+              - '.gitignore'
+              - '.gitattributes'
+              - '.prettierrc.toml'
+              - '.prettierignore'
+              - 'svelte.config.ts'
+              - 'vite.config.ts'
+              - 'vitest.setup.ts'
+              - 'tsconfig.json'
+              - 'eslint.config.ts'
+              - 'contracts/**'
+              - 'index.html'
+              - 'src/**'
+
   rust:
     name: rust
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' }}
     runs-on: ubuntu-latest
-    # Every path that can make this job fail. `crates/**` is the job's reason to
-    # exist, and `host` below lists it too because `host` is the only job that
-    # compiles `src-tauri` or runs its tests, so a crate change runs this job
-    # for the crates themselves and `host` for what consumes them. A rename the
-    # round-trip suite also imports turns both red - neither entry is the only
-    # thing between a crate change and a red run - but drop this one and the two
-    # crates' own tests stop running anywhere: `host` runs the host's tests,
-    # not theirs, and `check` has no Rust steps. `host` still compiles and lints
-    # them, because `cargo clippy -p tidal2ytm` reaches `tidal2ytm-ipc` as a
-    # workspace dependency, but that is the library only - not
-    # `tidal2ytm-core`, which is outside that dependency graph, and not a test
-    # target, which is where `round_trip.rs` lives. `contracts/**` is read by
-    # `protocol.rs` and `round_trip.rs`, and `sidecar/**` is spawned by
-    # `round_trip.rs`, so both can turn this job red without touching Rust.
-    # `pyproject.toml`/`uv.lock` gate the `uv sync` that provides the venv the
-    # round trip launches.
-    paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'crates/**'
-      - 'contracts/**'
-      - 'sidecar/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -86,40 +173,9 @@ jobs:
 
   host:
     name: host
+    needs: changes
+    if: ${{ needs.changes.outputs.host == 'true' }}
     runs-on: ubuntu-latest
-    # Everything this job builds or executes. `contracts/**` because
-    # `state.rs`'s tests read `auth_status.json`; the build config files
-    # because `pnpm build` loads them; `.npmrc` because it is what makes
-    # `pnpm install` refuse the wrong Node. `crates/**` because `src-tauri` is a
-    # consumer of `tidal2ytm-ipc` and this job is the only one that compiles it
-    # or runs its tests: `rust`'s share of a crate is clippy, that crate's
-    # own tests, and a workspace-wide `cargo fmt --all --check`, and none of
-    # those three compiles `src-tauri` - renaming `IpcError::Spawn`'s field
-    # leaves `cargo fmt --all --check` at exit 0 while `cargo test -p
-    # tidal2ytm` will not compile. A rename the round trip happens to import
-    # turns `rust` red as well, so this entry is not the only thing between a
-    # crate change and a red run; it is the only thing between a crate change
-    # and a host that was built at all. `sidecar/**` because `sidecar_path.rs`
-    # requires `sidecar/tidal2ytm_sidecar/__init__.py` to exist for the
-    # checkout fallback and its own test asserts it does; rename or move that
-    # one file and this job is red. Lint-only and formatting-only frontend
-    # config (`.prettierrc.toml`, `.prettierignore`, `eslint.config.ts`,
-    # `vitest.setup.ts`) cannot break this job and are left to `frontend`.
-    paths:
-      - 'src-tauri/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'crates/**'
-      - 'contracts/**'
-      - 'sidecar/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.npmrc'
-      - 'svelte.config.ts'
-      - 'vite.config.ts'
-      - 'tsconfig.json'
-      - 'index.html'
-      - 'src/**'
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -175,29 +231,9 @@ jobs:
 
   frontend:
     name: frontend
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
-    # Every path that can make this job fail. `.gitignore` and `.gitattributes`
-    # are here because Prettier reads the former and its `endOfLine` default is
-    # `"lf"`, so a change to either changes which files pass `format:check`.
-    # `contracts/**` because `src/lib/types.ts` imports it, so a rename there is
-    # a type error. `vitest.config.ts` is deliberately absent: Task 9 folded it
-    # into `vite.config.ts`, which is listed.
-    paths:
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.npmrc'
-      - '.gitignore'
-      - '.gitattributes'
-      - '.prettierrc.toml'
-      - '.prettierignore'
-      - 'svelte.config.ts'
-      - 'vite.config.ts'
-      - 'vitest.setup.ts'
-      - 'tsconfig.json'
-      - 'eslint.config.ts'
-      - 'contracts/**'
-      - 'index.html'
-      - 'src/**'
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

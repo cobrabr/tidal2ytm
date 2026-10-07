@@ -3,6 +3,24 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-toml
+  # `check-github-workflows` validates `.github/workflows/*.yml` against the
+  # SchemaStore GitHub Actions schema. `actionlint` is the usual choice and does
+  # more, but its pre-commit hooks need Go or Docker (`language: golang`, or
+  # `actionlint-docker`) and neither is installed on the machines this runs on,
+  # so that hook would be installed and never run. This one needs nothing but
+  # Python, which pre-commit already manages for `check-toml` above.
+  #
+  # It exists because a job-level `paths:` key is invalid — `paths` is a trigger
+  # key, not a job key — and GitHub answers by creating no job at all and
+  # failing the run in 0 seconds with the workflow file path as its name, which
+  # looks nothing like a schema error. Nothing else catches it: `.github/` is
+  # Prettier-ignored, and CI cannot be the backstop for this one, because an
+  # invalid `ci.yml` means CI never starts to report it. This hook is the only
+  # gate over the workflow files, so it runs at commit time.
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.2
+    hooks:
+      - id: check-github-workflows
   # ruff is the project's own, from `uv.lock`, in the hook and in CI alike. It
   # used to be a `ruff-pre-commit` repo with its own `rev`, which is a second
   # owner for one gate: the hook's binary and the `check` job's were seven minor
