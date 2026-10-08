@@ -37,7 +37,7 @@ Five input classes or conditions the spec implies that no single task's tests ob
 
 ## Deviations from the spec's letter
 
-Planning found four places where the spec does not match the code as written. Each is decided here, and each needs the reviewer's eye.
+Planning found six places where the spec does not match the code as written. Each is decided here, and each needs the reviewer's eye.
 
 1. **`search.albums`, `search.songs` and `album.fetch` are not dispatched in Phase 3.** The spec says their output shape changes, but they do not exist: `sidecar/tidal2ytm_sidecar/ops.py` is 70 lines, implements only `auth_status`, and the sidecar has no YTM client. Phase 3 fixes their *shapes* (the normalizers, the contracts and the Rust types) so Phase 4 can implement the calls without a second contract change. Consequently `protocol::REQUIRED_CAPABILITIES` **stays `["auth.status"]`** — adding the three names would make the handshake fail against a sidecar that does not advertise them.
 2. **A third contract type, `AlbumDetail`.** `_best_track_fit` and `_map_winner_tracks` consume an album's fetched tracklist, and `_dedupe_details` and `_harvest_sibling_candidates` consume its `other_versions` shelf. There is nowhere else for that shape to be fixed, so `AlbumDetail { summary: AlbumSummary, tracks: Vec<Candidate>, other_versions: Vec<AlbumSummary> }` is added alongside the two types the spec names.
