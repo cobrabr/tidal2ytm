@@ -71,6 +71,7 @@ Python CLI (`tidal2ytm`) that transfers Tidal liked tracks to YouTube Music — 
 - `pnpm format` → `pnpm lint:fix` → `pnpm lint` → `pnpm format:check` → `pnpm check` → `pnpm test` → `pnpm build`
 - `cargo fmt --all --check` · `cargo clippy -p tidal2ytm-core -p tidal2ytm-ipc --all-targets -- -D warnings` · `cargo test -p tidal2ytm-core -p tidal2ytm-ipc`
 - `cargo clippy -p tidal2ytm --all-targets -- -D warnings` · `cargo test -p tidal2ytm` — the host's own pair, and **not** runnable until `src-tauri/binaries/tidal2ytm-sidecar-<triple><.exe>` and `dist/` exist (see the build invariant below). `cargo fmt --all --check` is workspace-wide, so it gates `src-tauri/` from either job.
+- The golden corpus the `crates/tidal2ytm-core` parity tests replay is regenerated with `uv run python crates/tidal2ytm-core/tools/generate_fixtures.py`, never by CI, so the fixture diff is the review artifact for an intentional rule change.
 
 Tests use fictional artist/track names and synthetic IDs only, never real catalogue data.
 

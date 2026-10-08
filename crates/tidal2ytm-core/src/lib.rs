@@ -4,4 +4,5 @@
 //! `cargo test` runs on a bare Linux runner. Anything that needs a process, a
 //! network, or a window belongs in `tidal2ytm-ipc` or the `tidal2ytm` host.
 
+pub mod text;
 pub mod video_id;

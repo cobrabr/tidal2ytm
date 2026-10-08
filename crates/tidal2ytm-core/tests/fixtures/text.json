@@ -1,0 +1,233 @@
+[
+  {
+    "input": "",
+    "expected": ""
+  },
+  {
+    "input": "a",
+    "expected": "a"
+  },
+  {
+    "input": " \t\n ",
+    "expected": ""
+  },
+  {
+    "input": "!@#$%^&*()-_=+[]{};':\",./<>?",
+    "expected": ""
+  },
+  {
+    "input": "\u1e9e",
+    "expected": ""
+  },
+  {
+    "input": "Aurora Drift (Live at Reykjavik)",
+    "expected": "aurora drift live at reykjavik"
+  },
+  {
+    "input": "Caf\u00e9 M\u00fcnster \u2014 R\u00e9my 2024",
+    "expected": "cafe munster  remy 2024"
+  },
+  {
+    "input": "S\u00f8lvi Br\u00e5ker",
+    "expected": "slvi braker"
+  },
+  {
+    "input": "\ud55c\uad6d \u30ab\u30e9\u30aa\u30b1",
+    "expected": ""
+  },
+  {
+    "input": "Caf\u00e9 S\u00f8lvi \ud55c\uad6d",
+    "expected": "cafe slvi"
+  },
+  {
+    "input": "                                                                                                                                                                                                                                                          Aurora Drift                                                                                                                                                                                                                                                          ",
+    "expected": "aurora drift"
+  },
+  {
+    "input": "auroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauro",
+    "expected": "auroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauroraauro"
+  },
+  {
+    "input": "Line\tOne\nLine Two\r\nThree",
+    "expected": "line\tone\nline two\r\nthree"
+  },
+  {
+    "input": "\u0301\u0302\u0303\u0308",
+    "expected": ""
+  },
+  {
+    "input": [
+      "",
+      ""
+    ],
+    "expected": 0.0
+  },
+  {
+    "input": [
+      "",
+      "Aurora Drift"
+    ],
+    "expected": 0.0
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      ""
+    ],
+    "expected": 0.0
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "Aurora Drift"
+    ],
+    "expected": 1.0
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "Aurora Driftz"
+    ],
+    "expected": 0.96
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "Aurora Drifts"
+    ],
+    "expected": 0.96
+  },
+  {
+    "input": [
+      "Amber Tide",
+      "Ambre Tide"
+    ],
+    "expected": 0.9
+  },
+  {
+    "input": [
+      "aAurora Drift",
+      "Aurora Drift"
+    ],
+    "expected": 0.96
+  },
+  {
+    "input": [
+      "aAurora Drift",
+      "aAurora Drift"
+    ],
+    "expected": 1.0
+  },
+  {
+    "input": [
+      "aaaaaAurora Drift",
+      "Aurora Drift"
+    ],
+    "expected": 0.8275862068965517
+  },
+  {
+    "input": [
+      "aaaaaAurora Drift",
+      "aaaaaAurora Drift"
+    ],
+    "expected": 1.0
+  },
+  {
+    "input": [
+      "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzAurora Drift",
+      "Aurora Drift"
+    ],
+    "expected": 0.32432432432432434
+  },
+  {
+    "input": [
+      "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzAurora Drift",
+      "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzAurora Drift"
+    ],
+    "expected": 1.0
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "Aurora Drift Revisited"
+    ],
+    "expected": 0.7058823529411765
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "The Aurora Drift"
+    ],
+    "expected": 0.8571428571428571
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "Aurora Aurora Drift"
+    ],
+    "expected": 0.7741935483870968
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "The Aurora Aurora Drift"
+    ],
+    "expected": 0.6857142857142857
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "Aurora Drift Reprise"
+    ],
+    "expected": 0.75
+  },
+  {
+    "input": [
+      "the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from ",
+      "the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the sqore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from "
+    ],
+    "expected": 0.9957081545064378
+  },
+  {
+    "input": [
+      "the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from ",
+      "the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the s hore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from "
+    ],
+    "expected": 0.9978586723768736
+  },
+  {
+    "input": [
+      "the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from ",
+      "tt hh ee hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from "
+    ],
+    "expected": 0.9893842887473461
+  },
+  {
+    "input": [
+      "the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from ",
+      "Midnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight Aurora"
+    ],
+    "expected": 0.2469733656174334
+  },
+  {
+    "input": [
+      "midnight aurora drive",
+      "midnight auroradrive"
+    ],
+    "expected": 0.975609756097561
+  },
+  {
+    "input": [
+      "Aurora Drift",
+      "\ud55c\uad6d"
+    ],
+    "expected": 0.0
+  },
+  {
+    "input": [
+      "Caf\u00e9 Drift",
+      "cafe drift"
+    ],
+    "expected": 1.0
+  }
+]
