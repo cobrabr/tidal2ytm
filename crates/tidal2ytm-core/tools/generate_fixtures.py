@@ -82,9 +82,9 @@ def normalize_cases() -> list[dict[str, object]]:
         "single character": "a",
         "whitespace only": " \t\n ",
         "punctuation only": "!@#$%^&*()-_=+[]{};':\",./<>?",
-        # `ẞ`.lower() is `ß`, which has no ASCII form, so the string lowercases
-        # to nothing rather than merely losing its case.
-        "lowercases to nothing": "\u1e9e",
+        # NFKD leaves `ẞ` as `U+1E9E` — it has no decomposition — so the ASCII-ignore
+        # encode drops it whole and nothing survives to reach `.lower()`.
+        "uppercase letter with no ascii form": "\u1e9e",
         "plain ascii text": "Aurora Drift (Live at Reykjavik)",
         "accented latin, decomposes": "Caf\u00e9 M\u00fcnster \u2014 R\u00e9my 2024",
         "accented latin, no decomposition": "S\u00f8lvi Br\u00e5ker",
@@ -93,6 +93,13 @@ def normalize_cases() -> list[dict[str, object]]:
         "autojunk length, padded by spaces": " " * 250 + TITLE + " " * 250,
         "autojunk length, single token": ("aurora" * 42)[:250],
         "tabs and newlines": "Line\tOne\nLine Two\r\nThree",
+        # Python's `\s` accepts five more ASCII code points than Rust's
+        # `is_ascii_whitespace`, and `str.strip()` accepts four that Unicode's
+        # `White_Space` rejects. Both reach this function because the
+        # ASCII-ignore encode runs first, so the filter only ever sees ASCII.
+        "python whitespace the rust predicates reject": "a\u000bb\u001cc\u001dd\u001ee\u001ff",
+        "same, at the edges where strip applies": "\u000bab\u001c",
+        "same, trailing edge": "ab\u000b\u001c",
         "combining marks only": "\u0301\u0302\u0303\u0308",
     }
     return [{"input": value, "expected": normalize(value)} for value in rows.values()]
@@ -139,8 +146,13 @@ def similarity_cases() -> list[dict[str, object]]:
         # The one case where the port's `autojunk=False` actually changes the
         # answer: 0.989384 with it honoured, 0.985138 with difflib's default.
         "over 200 characters, fragmented match": (LONG_TITLE, "tt hh ee " + LONG_TITLE[4:]),
-        "over 200 characters, unrelated": (LONG_TITLE, OTHER_TITLE * 12),
+        "long, and disjoint": (LONG_TITLE, (OTHER_TITLE + " ") * 14),
         "differs by one space": ("midnight aurora drive", "midnight auroradrive"),
+        # If the port's whitespace class were `char::is_ascii_whitespace`, these two
+        # operands would each lose their `0x0B` and the `0x1C` respectively, and
+        # the pairs would score 0.5 and 0.0 instead.
+        "differs only by vertical tab": ("a\u000bb", "a\u000bc"),
+        "differs only by file separator": ("a\u001cb", "a\u001cc"),
         "second operand empty after normalization": (TITLE, "\ud55c\uad6d"),
         "case and accent differ only": ("Caf\u00e9 Drift", "cafe drift"),
     }

@@ -15,6 +15,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 # `float_roundtrip` makes the parser round decimal floats to the nearest
 # representable double instead of being up to one ULP out, which the golden
 # corpus needs: it stores values Python printed at full precision, and the
-# parity tests compare them exactly.
+# parity tests compare them exactly. It is on the workspace dependency rather
+# than on one crate's dev-dependencies because Cargo unifies features across the
+# graph, so the narrower declaration would state a smaller blast radius without
+# being one, and `tidal2ytm-ipc` parses `f64` fields out of sidecar payloads and
+# wants the correctly-rounded parser too.
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 thiserror = "2.0.21"

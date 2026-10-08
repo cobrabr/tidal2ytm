@@ -7,8 +7,27 @@ use std::collections::HashMap;
 
 use unicode_normalization::UnicodeNormalization as _;
 
+/// The ASCII code points Python's `\s` matches inside `[^a-z0-9\s]`.
+///
+/// This is wider than `char::is_ascii_whitespace`, which omits `0x0B` and
+/// `0x1C`–`0x1F`. Python's `\s` and `str.isspace()` both accept those, and
+/// `text.py`'s pipeline makes them reachable: the ASCII-ignore encode runs
+/// before the filter, so the operand reaching the filter is already pure ASCII
+/// and only this set can be matched. Using the Rust predicate instead would
+/// delete a code point Python keeps, shortening the string `similarity` then
+/// divides by.
+const PYTHON_ASCII_WHITESPACE: &[char] = &[
+    '\u{09}', '\u{0a}', '\u{0b}', '\u{0c}', '\u{0d}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{1f}',
+    '\u{20}',
+];
+
+/// Whether Python's `[^a-z0-9\s]` keeps `c`.
+fn survives_the_alnum_filter(c: char) -> bool {
+    c.is_ascii_lowercase() || c.is_ascii_digit() || PYTHON_ASCII_WHITESPACE.contains(&c)
+}
+
 /// Reduce `value` to the alphabet the matcher compares on: lowercase ASCII
-/// letters, digits and spaces.
+/// letters, digits and Python's ASCII whitespace.
 ///
 /// The pipeline is NFKD first and an ASCII filter second, and the order is the
 /// whole subtlety. Decomposition turns `é` into `e` plus a combining accent, so
@@ -25,12 +44,15 @@ pub fn normalize(value: &str) -> String {
         .collect::<String>()
         .to_lowercase()
         .chars()
-        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c.is_ascii_whitespace())
+        .filter(|c| survives_the_alnum_filter(*c))
         .collect::<String>()
-        // Python's `str.strip()` strips Unicode whitespace, as does Rust's
-        // `trim()`, and only ASCII can survive the filter above, so the two
-        // agree on every string this function can produce.
-        .trim()
+        // `str.strip()` strips whatever `str.isspace()` accepts, and Rust's
+        // `trim()` strips Unicode's `White_Space`. Those disagree on
+        // `0x1C`–`0x1F`: Python accepts them, Unicode does not, so `trim()`
+        // would leave them where `strip()` removes them. Trimming against the
+        // same set the filter keeps makes the two agree on every string this
+        // function can produce.
+        .trim_matches(|c| PYTHON_ASCII_WHITESPACE.contains(&c))
         .to_string()
 }
 

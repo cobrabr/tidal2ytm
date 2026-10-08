@@ -52,6 +52,18 @@
     "expected": "line\tone\nline two\r\nthree"
   },
   {
+    "input": "a\u000bb\u001cc\u001dd\u001ee\u001ff",
+    "expected": "a\u000bb\u001cc\u001dd\u001ee\u001ff"
+  },
+  {
+    "input": "\u000bab\u001c",
+    "expected": "ab"
+  },
+  {
+    "input": "ab\u000b\u001c",
+    "expected": "ab"
+  },
+  {
     "input": "\u0301\u0302\u0303\u0308",
     "expected": ""
   },
@@ -205,9 +217,9 @@
   {
     "input": [
       "the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from the hollow lantern festival at the edge of the sleeping sea, where every year the tide forgets the shore it came from ",
-      "Midnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight AuroraMidnight Aurora"
+      "Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora Midnight Aurora "
     ],
-    "expected": 0.2469733656174334
+    "expected": 0.22807017543859648
   },
   {
     "input": [
@@ -215,6 +227,20 @@
       "midnight auroradrive"
     ],
     "expected": 0.975609756097561
+  },
+  {
+    "input": [
+      "a\u000bb",
+      "a\u000bc"
+    ],
+    "expected": 0.6666666666666666
+  },
+  {
+    "input": [
+      "a\u001cb",
+      "a\u001cc"
+    ],
+    "expected": 0.6666666666666666
   },
   {
     "input": [
