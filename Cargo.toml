@@ -1,7 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["crates/tidal2ytm-core", "crates/tidal2ytm-ipc", "src-tauri"]
-default-members = ["crates/tidal2ytm-core", "crates/tidal2ytm-ipc"]
+members = [
+    "crates/tidal2ytm-core",
+    "crates/tidal2ytm-ipc",
+    "crates/tidal2ytm-store",
+    "src-tauri",
+]
+# `tidal2ytm-store` is in `default-members` so a bare `cargo test` compiles and
+# tests it, which is what keeps libsql linked and exercised on a runner with no
+# webkit. Without that entry the crate would only ever be built as a dependency
+# of the host, and a host that needs webkit is the one configuration CI cannot
+# reach.
+default-members = ["crates/tidal2ytm-core", "crates/tidal2ytm-ipc", "crates/tidal2ytm-store"]
 
 [workspace.package]
 version = "0.7.0"

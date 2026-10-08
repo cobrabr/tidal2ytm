@@ -1,0 +1,24 @@
+[package]
+name = "tidal2ytm-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Schema, migrations and every SQL statement for tidal2ytm. No Tauri."
+
+[dependencies]
+# libsql's default feature set is `[core, replication, remote, sync, tls]`, which
+# drags the whole Turso network stack — hrana over HTTP, tonic/gRPC replication,
+# hyper, rustls — into a single-user desktop application that never contacts a
+# server. `core` is the embedded SQLite engine alone, which is all this crate
+# uses. Narrowing it also keeps the feature set honest: nothing here can reach a
+# remote database, so a future change that tried would fail to compile rather
+# than ship a network path nobody reviewed.
+libsql = { version = "0.9.30", default-features = false, features = ["core"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tidal2ytm-core = { path = "../tidal2ytm-core" }
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["macros", "rt"] }

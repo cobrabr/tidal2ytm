@@ -153,7 +153,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./crates/tidal2ytm-core,./crates/tidal2ytm-ipc
+          workspaces: ./crates/tidal2ytm-core,./crates/tidal2ytm-ipc,./crates/tidal2ytm-store
       # `--all-packages`, not `--all-groups`: this job needs the *workspace
       # member* `tidal2ytm_sidecar` importable for `round_trip.rs`, and
       # `--all-packages` is what installs a member. `--all-groups` only happens
@@ -168,8 +168,14 @@ jobs:
       # the one thing it exists for: a checkout whose `PATH` python has neither
       # the sidecar nor `tidalapi` in it.
       - run: cargo fmt --all --check
-      - run: cargo clippy -p tidal2ytm-core -p tidal2ytm-ipc --all-targets -- -D warnings
-      - run: cargo test -p tidal2ytm-core -p tidal2ytm-ipc
+      # `tidal2ytm-store` is named here for the same reason `tidal2ytm-ipc` is:
+      # without it the new crate is compiled as a dependency of the host but
+      # never linted, which is the same class of omission as a path-filter entry
+      # left out — the gate looks complete and covers less than it appears to. No
+      # `paths-filter` change is needed, because the `rust` filter already lists
+      # `crates/**`.
+      - run: cargo clippy -p tidal2ytm-core -p tidal2ytm-ipc -p tidal2ytm-store --all-targets -- -D warnings
+      - run: cargo test -p tidal2ytm-core -p tidal2ytm-ipc -p tidal2ytm-store
 
   host:
     name: host
