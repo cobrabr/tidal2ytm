@@ -648,5 +648,46 @@
       "tracks": []
     },
     "expected": []
+  },
+  {
+    "input": {
+      "op": "ordered",
+      "tracks": [
+        {
+          "tidal_id": 100007,
+          "title": "First Light",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 300007,
+          "album_year": 2015,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100008,
+          "title": "Zero Hour",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Zero Hour",
+          "album_id": 300008,
+          "album_year": 0,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
   }
 ]

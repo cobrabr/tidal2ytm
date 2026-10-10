@@ -1480,7 +1480,15 @@ def merge_ordered_cases() -> list[dict[str, object]]:
             100_006, "Second Light", "Odell Marsh", "Tidal Algebra", album_year=2015, track_num=2
         ),
     }
-    selections = [mixed, {key: mixed[key] for key in (100_003,)}, {}]
+    # A year of `0` is falsy, so Python's `t.album_year or 9999` sorts that album
+    # with the undated ones: the dated sibling of the same artist comes first.
+    zero_year: dict[int, SourceTrack] = {
+        100_007: library_track(
+            100_007, "First Light", "Odell Marsh", "Tidal Algebra", album_year=2015
+        ),
+        100_008: library_track(100_008, "Zero Hour", "Odell Marsh", "Zero Hour", album_year=0),
+    }
+    selections = [mixed, {key: mixed[key] for key in (100_003,)}, {}, zero_year]
     cases: list[dict[str, object]] = []
     for selection in selections:
         ordered = iter_selection_ordered(selection)

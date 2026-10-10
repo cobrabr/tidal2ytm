@@ -9,9 +9,11 @@
 //! an `album_slug`.
 //!
 //! `to_lowercase` stands in for Python's `str.casefold` in the selection sort
-//! key. The two agree on every name a real catalogue produces and differ only on
-//! `ß` (→ `ss`), `ﬁ` (→ `fi`) and a final sigma (`ς` → `σ`); that deviation is
-//! accepted here once rather than repeated per call.
+//! key. The two agree on most names but diverge on case-folding special cases,
+//! where full folding expands where a simple lowercase mapping does not: `ß`
+//! (→ `ss`), the `ﬁ` ligature (→ `fi`), a final sigma (`ς` → `σ`), and several
+//! hundred further code points concentrated in Cherokee, Greek Extended and
+//! Adlam. That deviation is accepted here once rather than repeated per call.
 
 use std::collections::BTreeMap;
 
@@ -181,11 +183,12 @@ pub fn ordered_selection(selection: &BTreeMap<i64, SourceTrack>) -> Vec<usize> {
 type SortKey = (String, i64, String, i64, i64);
 
 /// An unknown year sorts as `9999`, which puts an album with no known year after
-/// every album that has one.
+/// every album that has one. Python's `or 9999` treats a year of `0` as absent
+/// too, so a zero year is filtered out here rather than kept.
 fn sort_key(track: &SourceTrack) -> SortKey {
     (
         track.artist.to_lowercase(),
-        track.album_year.unwrap_or(9999),
+        track.album_year.filter(|year| *year != 0).unwrap_or(9999),
         track.album.to_lowercase(),
         track.disc_num,
         track.track_num,
