@@ -1,6 +1,7 @@
 dist/
 node_modules/
 src-tauri/
+crates/
 coverage/
 pnpm-lock.yaml
 Cargo.lock
