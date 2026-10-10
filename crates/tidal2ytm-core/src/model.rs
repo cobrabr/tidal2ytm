@@ -2,12 +2,16 @@
 //!
 //! `TrackStatus` and `MatchMethod` are the Rust side of the schema's `CHECK`
 //! constraints: each variant's `as_str()` returns exactly one of the literals
-//! the DDL permits, so a value that reaches the database is always one the
-//! constraint would have accepted. `ConfidenceBreakdown` is the port of
+//! the DDL permits, and their serde names are the same literals, so a value
+//! that reaches the database is always one the constraint would have accepted
+//! however it got there. `ConfidenceBreakdown` is the port of
 //! `tidal2ytm.models.ConfidenceBreakdown`, the score components the matcher
-//! computes and `match_confidence` stores.
+//! computes and `match_confidence` stores. `SourceTrack` and `MatchResult` are
+//! the ports of the two dataclasses the matcher returns.
 
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
 
 /// Where a track sits in the transfer workflow.
 ///
@@ -18,7 +22,8 @@ use std::str::FromStr;
 /// `Ord` exists because `status_counts` returns a `BTreeMap` keyed by this
 /// type: the counts have to come back in a defined order, and the declaration
 /// order is the workflow's own order, earliest first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TrackStatus {
     Pending,
     Transferred,
@@ -57,7 +62,13 @@ impl FromStr for TrackStatus {
 }
 
 /// How a track came to be paired with a YouTube video.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// The serde names are the schema's `CHECK` literals, exactly as `as_str()`
+/// returns them. `rename_all` lowercases every variant the DDL spells in lower
+/// case; the per-variant rename on `NoMatch` overrides the `no_match` that
+/// `snake_case` would otherwise produce, because the persisted string is `none`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MatchMethod {
     Duration,
     Fuzzy,
@@ -66,6 +77,7 @@ pub enum MatchMethod {
     /// a `None` variant would shadow `Option::None` in any `match` that also
     /// handles an absent match. It serializes as `"none"`, and so does its
     /// `FromStr`.
+    #[serde(rename = "none")]
     NoMatch,
     /// A human pasted the video ID. It was previously indistinguishable from
     /// `NoMatch`, which left the review queue unable to tell an override from
@@ -119,6 +131,50 @@ pub struct ConfidenceBreakdown {
     pub summary: Option<String>,
 }
 
+/// One track as Tidal reports it, after normalization.
+///
+/// There is deliberately no `from_dict` here. The Python dataclass has one
+/// because Tidal's payload reaches it as an untyped dictionary and the
+/// coercions — `int()` on an id, a string coerced to a one-element artist list —
+/// have to happen exactly once, at the boundary. On the Rust side of the wire
+/// nothing is untyped: `sidecar/tidal2ytm_sidecar/envelope.py` has already
+/// turned every field into its declared type, so a second set of coercions here
+/// would be a second place for the same rule to be wrong, reached by no input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceTrack {
+    pub tidal_id: i64,
+    pub title: String,
+    pub artist: String,
+    pub artists: Vec<String>,
+    pub album: String,
+    pub album_id: i64,
+    pub album_year: Option<i64>,
+    pub duration_sec: i64,
+    pub track_num: i64,
+    pub disc_num: i64,
+    pub version: Option<String>,
+}
+
+/// One track's match, and everything the review queue needs to judge it.
+///
+/// `yt_video_id` is a bare 11-character id and never a URL, for the same reason
+/// `SourceTrack` is addressed by `tidal_id`: a URL has three spellings per video
+/// and every one of them would need normalizing before it could be compared.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchResult {
+    pub source: SourceTrack,
+    pub yt_video_id: Option<String>,
+    pub yt_title: Option<String>,
+    pub yt_artist: Option<String>,
+    pub yt_album: Option<String>,
+    pub yt_album_track_num: Option<i64>,
+    pub yt_duration_sec: Option<i64>,
+    pub match_method: MatchMethod,
+    pub confidence: ConfidenceBreakdown,
+    pub status: TrackStatus,
+    pub review_reason: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +223,44 @@ mod tests {
             MatchMethod::from_str("guesswork"),
             Err("guesswork".to_string())
         );
+    }
+
+    #[test]
+    fn serde_writes_the_same_literal_as_str_for_every_variant() {
+        // `as_str()` and serde's renames are two declarations of the schema's
+        // `CHECK` list, and `tidal2ytm-store`'s constraint test exercises only
+        // the first. Two mistakes have to be absent at once: without
+        // `rename_all`, every variant emits its Rust name (`"Duration"`), and
+        // with `snake_case` alone `NoMatch` emits `"no_match"`. Either one is a
+        // literal the database would reject and every other gate here accepts.
+        let statuses = [
+            TrackStatus::Pending,
+            TrackStatus::Transferred,
+            TrackStatus::Skip,
+            TrackStatus::Failed,
+            TrackStatus::NeedsReview,
+        ];
+        for status in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            // `json` is the serialized form, quotes included, so the literal it
+            // carries is the inner text; comparing it to the bare `as_str()`
+            // would be comparing a quoted string to an unquoted one.
+            assert_eq!(json, format!("\"{}\"", status.as_str()));
+            assert_eq!(serde_json::from_str::<TrackStatus>(&json).unwrap(), status);
+        }
+
+        let methods = [
+            MatchMethod::Duration,
+            MatchMethod::Fuzzy,
+            MatchMethod::Album,
+            MatchMethod::NoMatch,
+            MatchMethod::Manual,
+        ];
+        for method in methods {
+            let json = serde_json::to_string(&method).unwrap();
+            assert_eq!(json, format!("\"{}\"", method.as_str()));
+            assert_eq!(serde_json::from_str::<MatchMethod>(&json).unwrap(), method);
+        }
     }
 
     #[test]

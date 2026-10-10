@@ -1,0 +1,1079 @@
+[
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 120,
+      "candidate_sec": 123
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 120,
+      "candidate_sec": 124
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 120,
+      "candidate_sec": 125
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 120,
+      "candidate_sec": 117
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 333,
+      "candidate_sec": 336
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 333,
+      "candidate_sec": 337
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 333,
+      "candidate_sec": 338
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 333,
+      "candidate_sec": 339
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 333,
+      "candidate_sec": 340
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 349,
+      "candidate_sec": 356
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 0,
+      "candidate_sec": 9999
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 0,
+      "candidate_sec": null
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "duration_ok",
+      "source_sec": 120,
+      "candidate_sec": null
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Southern Static",
+        "album_track_num": 3,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.6,
+      "version_similarity": 1.0,
+      "track_num_match": true,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Southern Static",
+        "album_track_num": 2,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.92,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.6,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 0,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Southern Static",
+        "album_track_num": 0,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.92,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.6,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Southern Static",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.92,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.6,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal Echo",
+        "album_track_num": 3,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.8571428571428571,
+      "version_similarity": 1.0,
+      "track_num_match": true,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal Echo",
+        "album_track_num": 2,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.9714285714285714,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.8571428571428571,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": null,
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.8,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.8,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 0.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay",
+          "Iris Vale"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Iris Vale"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Iris Vale",
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay",
+          "Iris Vale"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Odell Marsh",
+          "Iris Vale"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.8,
+      "title_similarity": 1.0,
+      "artist_similarity": 0.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "",
+        "artists": [],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.8,
+      "title_similarity": 1.0,
+      "artist_similarity": 0.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift (Live)",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.9100000000000001,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 0.4,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift (Live)",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift [LIVE]",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift (Live)",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift [Radio Edit]",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.9100000000000001,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 0.4,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": "Remastered"
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift [Remastered]",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": "Live"
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.9100000000000001,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 0.4,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift (Acoustic)",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": "Live"
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.9100000000000001,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 0.4,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": null
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": null
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 260
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 60
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Aurora Drift",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_track_num": null,
+        "duration_sec": 140
+      }
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 60
+    }
+  },
+  {
+    "input": {
+      "op": "score",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "video_id": "9aB3xQ1lZ7c",
+        "title": "Kelpline Static",
+        "artists": [
+          "Odell Marsh"
+        ],
+        "album": "Tidal Algebra",
+        "album_track_num": 9,
+        "duration_sec": 200
+      }
+    },
+    "expected": {
+      "overall": 0.291991341991342,
+      "title_similarity": 0.14814814814814814,
+      "artist_similarity": 0.09090909090909091,
+      "album_similarity": 0.2857142857142857,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0
+    }
+  }
+]

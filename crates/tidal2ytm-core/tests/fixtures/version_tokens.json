@@ -1,0 +1,336 @@
+[
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift"
+    },
+    "expected": [
+      "Aurora Drift",
+      []
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift (Live)"
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "live"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift [Remastered 2011]"
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "remastered 2011"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift (Live) [Remastered 2011]"
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "live",
+        "remastered 2011"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift (Live)(Radio Edit)"
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "live",
+        "radio edit"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "(Live)"
+    },
+    "expected": [
+      "",
+      [
+        "live"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "  Aurora Drift (  Live  )  "
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "live"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift () [Solo]"
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "solo"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift (Drift Live) Reprise"
+    },
+    "expected": [
+      "Aurora Drift  Reprise",
+      [
+        "drift live"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift (Live]"
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "live"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift (Live\nReprise)"
+    },
+    "expected": [
+      "Aurora Drift (Live\nReprise)",
+      []
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Aurora Drift (LiVe)"
+    },
+    "expected": [
+      "Aurora Drift",
+      [
+        "live"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "split",
+      "text": "Caf\u00e9 Drift (\u00c9dition)"
+    },
+    "expected": [
+      "Caf\u00e9 Drift",
+      [
+        "\u00e9dition"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [],
+      "target": []
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [],
+      "target": [
+        "live"
+      ]
+    },
+    "expected": 0.4
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": []
+    },
+    "expected": 0.4
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": [
+        "live"
+      ]
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live",
+        "remastered 2011"
+      ],
+      "target": [
+        "remastered 2011",
+        "live"
+      ]
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": [
+        "live",
+        "remastered 2011"
+      ]
+    },
+    "expected": 0.7
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": [
+        "acoustic"
+      ]
+    },
+    "expected": 0.4
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live",
+        "remastered 2011"
+      ],
+      "target": [
+        "live",
+        "radio edit"
+      ]
+    },
+    "expected": 0.6
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": [
+        "LIVE"
+      ]
+    },
+    "expected": 0.4
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": [
+        " live "
+      ]
+    },
+    "expected": 0.4
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live",
+        "live"
+      ],
+      "target": [
+        "live",
+        "radio edit"
+      ]
+    },
+    "expected": 0.7
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": [
+        "live",
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"
+      ]
+    },
+    "expected": 0.4857142857142857
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live",
+        "remix"
+      ],
+      "target": [
+        "live",
+        "a",
+        "b",
+        "c",
+        "d"
+      ]
+    },
+    "expected": 0.5
+  },
+  {
+    "input": {
+      "op": "qualify",
+      "source": [
+        "live"
+      ],
+      "target": [
+        "live",
+        "a",
+        "b"
+      ]
+    },
+    "expected": 0.6
+  }
+]

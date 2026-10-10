@@ -6,5 +6,8 @@
 
 pub mod candidate;
 pub mod model;
+pub mod search;
 pub mod text;
+pub mod track_scoring;
+pub mod version_tokens;
 pub mod video_id;

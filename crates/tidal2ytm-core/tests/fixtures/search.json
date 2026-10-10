@@ -1,0 +1,1525 @@
+[
+  {
+    "input": {
+      "op": "haystacks",
+      "track": {
+        "tidal_id": 1,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      }
+    },
+    "expected": [
+      [
+        "title",
+        "Aurora Drift"
+      ],
+      [
+        "artist",
+        "Halcyon Bay"
+      ],
+      [
+        "artist0",
+        "Halcyon Bay"
+      ],
+      [
+        "album",
+        "Northern Signal"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "haystacks",
+      "track": {
+        "tidal_id": 1,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay",
+          "Iris Vale",
+          "Odell Marsh"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      }
+    },
+    "expected": [
+      [
+        "title",
+        "Aurora Drift"
+      ],
+      [
+        "artist",
+        "Halcyon Bay"
+      ],
+      [
+        "artist0",
+        "Halcyon Bay"
+      ],
+      [
+        "artist1",
+        "Iris Vale"
+      ],
+      [
+        "artist2",
+        "Odell Marsh"
+      ],
+      [
+        "album",
+        "Northern Signal"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "haystacks",
+      "track": {
+        "tidal_id": 1,
+        "title": "Aurora Drift",
+        "artist": "",
+        "artists": [
+          "Iris Vale"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      }
+    },
+    "expected": [
+      [
+        "title",
+        "Aurora Drift"
+      ],
+      [
+        "artist0",
+        "Iris Vale"
+      ],
+      [
+        "album",
+        "Northern Signal"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "haystacks",
+      "track": {
+        "tidal_id": 1,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      }
+    },
+    "expected": [
+      [
+        "title",
+        "Aurora Drift"
+      ],
+      [
+        "artist",
+        "Halcyon Bay"
+      ],
+      [
+        "artist0",
+        "Halcyon Bay"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "haystacks",
+      "track": {
+        "tidal_id": 1,
+        "title": "Aurora Drift",
+        "artist": "",
+        "artists": [],
+        "album": "",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      }
+    },
+    "expected": [
+      [
+        "title",
+        "Aurora Drift"
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "haystacks",
+      "track": {
+        "tidal_id": 1,
+        "title": "",
+        "artist": "",
+        "artists": [],
+        "album": "",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      }
+    },
+    "expected": []
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": ""
+    },
+    "expected": {
+      "indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "   \t "
+    },
+    "expected": {
+      "indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "aurora drift"
+    },
+    "expected": {
+      "indices": [
+        0,
+        3
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "aurora"
+    },
+    "expected": {
+      "indices": [
+        0,
+        1,
+        3
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "odell marsh"
+    },
+    "expected": {
+      "indices": [
+        1,
+        2
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "zzzqqq wibble"
+    },
+    "expected": {
+      "indices": [],
+      "direct": false
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "kelpline static"
+    },
+    "expected": {
+      "indices": [
+        2
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 1,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale",
+            "Odell Marsh"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal Redux",
+          "album_id": 200004,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100005,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 200005,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100006,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200006,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "hollow bell"
+    },
+    "expected": {
+      "indices": [
+        5
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [],
+      "query": "aurora"
+    },
+    "expected": {
+      "indices": [],
+      "direct": false
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100009,
+          "title": "",
+          "artist": "",
+          "artists": [],
+          "album": "",
+          "album_id": 300009,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "aurora"
+    },
+    "expected": {
+      "indices": [],
+      "direct": false
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100009,
+          "title": "",
+          "artist": "",
+          "artists": [],
+          "album": "",
+          "album_id": 300009,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": ""
+    },
+    "expected": {
+      "indices": [
+        0
+      ],
+      "direct": true
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100013,
+          "title": "!!! ???",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Silence Deluxe",
+          "album_id": 300013,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100014,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Kelpline Sessions",
+          "album_id": 300014,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "kelplne statc"
+    },
+    "expected": {
+      "indices": [
+        1
+      ],
+      "direct": false
+    }
+  },
+  {
+    "input": {
+      "op": "search",
+      "tracks": [
+        {
+          "tidal_id": 100010,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Alpha Sessions",
+          "album_id": 300010,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100011,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Beta Sessions",
+          "album_id": 300011,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100012,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Gamma Sessions",
+          "album_id": 300012,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "query": "kelplne statc"
+    },
+    "expected": {
+      "indices": [
+        0,
+        1,
+        2
+      ],
+      "direct": false
+    }
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "https://tidal.com/track/123456"
+    },
+    "expected": [
+      "track",
+      123456
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "https://tidal.com/browse/album/654321"
+    },
+    "expected": [
+      "album",
+      654321
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "  https://listen.tidal.com/album/777  "
+    },
+    "expected": [
+      "album",
+      777
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "https://TIDAL.COM/Track/123456"
+    },
+    "expected": [
+      "track",
+      123456
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "HTTPS://TIDAL.COM/Browse/Album/42"
+    },
+    "expected": [
+      "album",
+      42
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "https://tidal.com/browse/track/42/"
+    },
+    "expected": [
+      "track",
+      42
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "see https://tidal.com/album/555 now"
+    },
+    "expected": [
+      "album",
+      555
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "tidal.com/nothing and tidal.com/album/556"
+    },
+    "expected": [
+      "album",
+      556
+    ]
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "https://tidal.com/track/"
+    },
+    "expected": null
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "https://tidal.com/artist/999"
+    },
+    "expected": null
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "https://example.com/track/123"
+    },
+    "expected": null
+  },
+  {
+    "input": {
+      "op": "parse_link",
+      "raw": "northern signal"
+    },
+    "expected": null
+  },
+  {
+    "input": {
+      "op": "resolve_album",
+      "tracks": [
+        {
+          "tidal_id": 100020,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100021,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100022,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100023,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200009,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "album_id": 200002
+    },
+    "expected": [
+      0
+    ]
+  },
+  {
+    "input": {
+      "op": "resolve_album",
+      "tracks": [
+        {
+          "tidal_id": 100020,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100021,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100022,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100023,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200009,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "album_id": 200003
+    },
+    "expected": [
+      1,
+      2
+    ]
+  },
+  {
+    "input": {
+      "op": "resolve_album",
+      "tracks": [
+        {
+          "tidal_id": 100020,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100021,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100022,
+          "title": "Kelpline Static",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100023,
+          "title": "Hollow Bell",
+          "artist": "",
+          "artists": [],
+          "album": "Quiet Rooms",
+          "album_id": 200009,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "album_id": 999999
+    },
+    "expected": []
+  },
+  {
+    "input": {
+      "op": "resolve_album",
+      "tracks": [],
+      "album_id": 200002
+    },
+    "expected": []
+  }
+]
