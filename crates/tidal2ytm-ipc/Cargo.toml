@@ -11,6 +11,16 @@ description = "NDJSON protocol and sidecar process client for tidal2ytm."
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# The arrow points from the protocol to the domain, and never the other way.
+# The envelope types live in `tidal2ytm-core` because they are domain shapes
+# that happen to travel over this wire; the alternative is putting them here,
+# which makes the pure core depend on the crate that spawns processes and
+# resolves interpreters, dragging sidecar-spawn code into a test binary with no
+# use for it. Nothing in the crate's production code reads them yet — the
+# operations they belong to are shaped but not dispatched — so this fixes the
+# direction in the manifest now rather than leaving the next implementer to
+# infer it and pick the other way.
+tidal2ytm-core = { path = "../tidal2ytm-core" }
 tokio = { workspace = true, features = [
     "io-util",
     "macros",

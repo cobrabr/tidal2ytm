@@ -8,9 +8,12 @@ publish.workspace = true
 description = "Domain logic for tidal2ytm. No Tauri, no I/O."
 
 [dependencies]
+# Not a dev-dependency: `candidate.rs` derives `Serialize` and `Deserialize`, so
+# the envelope types are part of what this crate publishes rather than something
+# its own tests borrow.
+serde = { workspace = true }
 thiserror.workspace = true
 unicode-normalization = "0.1.25"
 
 [dev-dependencies]
-serde = { workspace = true }
 serde_json = { workspace = true }

@@ -153,6 +153,7 @@ pub enum IpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tidal2ytm_core::candidate::{AlbumDetail, AlbumSummary, Candidate};
 
     fn fixture(name: &str) -> String {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -177,6 +178,102 @@ mod tests {
         let data = response.data.expect("ok responses carry data");
         assert_eq!(data["tidal"]["valid"], serde_json::json!(false));
         assert!(data["tidal"]["expires_at"].is_null());
+    }
+
+    /// The `data` of a success contract, read rather than restated: a fourth
+    /// copy of a shape would fail on a legitimate change with a diff pointing at
+    /// code that did not change.
+    fn contract_data(name: &str) -> Value {
+        let response: Response =
+            serde_json::from_str(&fixture(name)).unwrap_or_else(|e| panic!("{name} parses: {e}"));
+        assert!(response.ok, "{name} is a success envelope");
+        response
+            .data
+            .unwrap_or_else(|| panic!("{name} carries data"))
+    }
+
+    /// Parse `name`'s `data` as `T` and write it back out.
+    ///
+    /// The round trip is the assertion. Deserialising alone would pass for a
+    /// type that silently drops a field the contract writes — `serde` ignores
+    /// what it has no member for, and ignores what it has no member for on the
+    /// Python side too — so a renamed or deleted field would reach production
+    /// with both suites green. Writing the value back has to reproduce the
+    /// contract byte for byte.
+    fn assert_contract_round_trips<T>(name: &str) -> T
+    where
+        T: serde::de::DeserializeOwned + Serialize,
+    {
+        let data = contract_data(name);
+        let typed: T = serde_json::from_value(data.clone())
+            .unwrap_or_else(|e| panic!("{name} deserialises into the Rust type: {e}"));
+        let written = serde_json::to_value(&typed).expect("the type serialises");
+        assert_eq!(
+            written, data,
+            "{name} and the Rust type disagree on the key set"
+        );
+        typed
+    }
+
+    #[test]
+    fn the_candidate_contract_round_trips_through_the_rust_type() {
+        let candidate: Candidate = assert_contract_round_trips("candidate.json");
+        // The contract's whole point is that these are the domain's names, so
+        // spot-check that the values landed rather than arriving as defaults.
+        assert_eq!(candidate.video_id.len(), 11, "a video id is 11 characters");
+        assert_eq!(candidate.artists.len(), 2, "the contract lists two artists");
+        assert_eq!(candidate.album_track_num, Some(4));
+        assert_eq!(candidate.duration_sec, Some(217));
+    }
+
+    #[test]
+    fn the_album_summary_contract_round_trips_through_the_rust_type() {
+        let summary: AlbumSummary = assert_contract_round_trips("album_summary.json");
+        assert_eq!(summary.album_id, "MPREb_00000042");
+        assert_eq!(summary.year, Some(2014));
+    }
+
+    // One track and one sibling, so the sibling shape is exercised rather than
+    // merely declared: an `other_versions` that is always empty would satisfy
+    // any assertion that only reads `summary` and `tracks`.
+    #[test]
+    fn the_album_detail_contract_round_trips_through_the_rust_type() {
+        let detail: AlbumDetail = assert_contract_round_trips("album_detail.json");
+        assert_eq!(detail.tracks.len(), 1);
+        assert_eq!(detail.other_versions.len(), 1);
+        assert_eq!(
+            detail.other_versions[0].title, "Lantern Season (Deluxe)",
+            "the sibling is a summary, not a bare id"
+        );
+    }
+
+    // A YTM hit that leaves an optional field out has to arrive as `None`, and
+    // the way to guarantee that is to not default it: a `#[serde(default)]` here
+    // would let a renamed field deserialise into a plausible-looking value and
+    // score on it. No contract file carries a null, so this is the only place
+    // that says so. `auth_status.json` records its signed-out sample for the
+    // same reason.
+    #[test]
+    fn an_absent_optional_is_none_and_a_missing_required_field_is_refused() {
+        let no_optionals = serde_json::json!({
+            "video_id": "kQ7bZ3p1XtA",
+            "title": "Paper Tide",
+            "artists": [],
+        });
+        let candidate: Candidate = serde_json::from_value(no_optionals)
+            .expect("a candidate with no optional fields parses");
+        assert_eq!(candidate.album, None);
+        assert_eq!(candidate.album_track_num, None);
+        assert_eq!(candidate.duration_sec, None);
+
+        // The other half, and the reason for the first: a missing `title` is a
+        // payload this build does not understand, and it has to say so rather
+        // than hand back a Candidate that scores on an empty string.
+        let no_title = serde_json::json!({ "video_id": "kQ7bZ3p1XtA" });
+        assert!(
+            serde_json::from_value::<Candidate>(no_title).is_err(),
+            "a hit with no title must not deserialise"
+        );
     }
 
     #[test]

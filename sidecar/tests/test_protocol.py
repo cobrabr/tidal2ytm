@@ -61,6 +61,21 @@ def test_every_error_kind_is_accepted(kind: str) -> None:
     assert protocol.error_response(1, kind, "m")["error"]["kind"] == kind
 
 
+# The three normalized shapes, read here rather than restated so that a change
+# to either side's field names is a diff against `contracts/` instead of a
+# failure pointing at production code nobody thought to look at. `test_envelope.py`
+# is what proves the normalizers produce them; this proves the files exist in the
+# shape the Rust suite parses, which is a different failure and can be caught on
+# this side alone.
+def test_the_candidate_contracts_are_success_envelopes() -> None:
+    for name in ("candidate.json", "album_summary.json", "album_detail.json"):
+        contract = _contract(name)
+        assert contract["id"] == 1, name
+        assert contract["ok"] is True, name
+        assert isinstance(contract["data"], dict), name
+        assert "error" not in contract, name
+
+
 def test_error_response_matches_the_shared_contract() -> None:
     assert protocol.error_response(
         1, "auth_expired", "YouTube Music token expired; re-authenticate."
