@@ -41,6 +41,7 @@ fetched, so it moves nothing across the line. The impure half stays Python:
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -59,7 +60,12 @@ from tidal2ytm.album_matching import (
     _version_term,  # pyright: ignore[reportPrivateUsage]
     group_by_album_id,
 )
-from tidal2ytm.models import MatchResult, SourceTrack
+from tidal2ytm.matcher import CONFIDENCE_THRESHOLD, WRONG_ALBUM_THRESHOLD
+from tidal2ytm.models import MatchResult, SourceTrack, TrackStatus
+from tidal2ytm.planning_merge import (
+    classify_track,
+    iter_selection_ordered,
+)
 from tidal2ytm.planning_search import (
     # `_named_haystacks` is private to the module, and reaching for it is the
     # point: the fixture has to freeze what that exact function returns, not a
@@ -1277,6 +1283,220 @@ def album_map_cases() -> list[dict[str, object]]:
     ]
 
 
+# --- merge (Task 7) ---------------------------------------------------------
+#
+# `classify_track` and `iter_selection_ordered` are imported from
+# `planning_merge` and called directly, so those rows freeze the real Python.
+# `decide_status` has no Python function of its own: its decisions live inline
+# in `matcher.match_track`'s tail, so the helpers below transcribe that tail
+# exactly, the way `album_abstains` transcribes the abstention rule.
+
+# `matcher.match_track` writes this cutoff as a bare `0.3` inside its loop; there
+# is no Python constant to import. Recorded here so the corpus has one named
+# value for the port to compare against.
+DURATION_METHOD_CUTOFF = 0.3
+
+# 11-character synthetic video ids, never real catalogue ids.
+VIDEO_A = "AAAAAAAAAAA"
+VIDEO_B = "BBBBBBBBBBB"
+
+
+def merge_classify_cases() -> list[dict[str, object]]:
+    """One row per arm of `classify_track`, and per `None`/empty interaction.
+
+    `classify_track` flattens both ids with `or ""`, so `None` and `""` are the
+    same value on either side. The rows that pair an empty stored id with an
+    absent new one (and vice versa) are what prove the port does the same.
+    """
+    transferred = TrackStatus.TRANSFERRED.value
+    pending = TrackStatus.PENDING.value
+    needs_review = TrackStatus.NEEDS_REVIEW.value
+    skip = TrackStatus.SKIP.value
+
+    def existing(status: str, yt_video_id: str | None) -> dict[str, object]:
+        return {"status": status, "yt_video_id": yt_video_id}
+
+    rows: list[tuple[dict[str, object] | None, str | None]] = [
+        # No stored row at all: a new track, whatever the fresh id is.
+        (None, None),
+        (None, ""),
+        (None, VIDEO_A),
+        # Transferred is sacred before either id is looked at.
+        (existing(transferred, None), None),
+        (existing(transferred, VIDEO_A), VIDEO_A),
+        (existing(transferred, VIDEO_A), VIDEO_B),
+        (existing(transferred, ""), VIDEO_A),
+        # Neither side has an id: an abstention, not an agreement.
+        (existing(pending, None), None),
+        (existing(pending, ""), None),
+        (existing(pending, None), ""),
+        (existing(pending, ""), ""),
+        # Exactly one side has an id: they cannot agree, so ask.
+        (existing(pending, VIDEO_A), None),
+        (existing(pending, None), VIDEO_A),
+        (existing(pending, ""), VIDEO_A),
+        (existing(pending, VIDEO_A), ""),
+        # Two ids, equal or not.
+        (existing(pending, VIDEO_A), VIDEO_A),
+        (existing(pending, VIDEO_A), VIDEO_B),
+        # A status other than transferred does not change the id rules.
+        (existing(needs_review, VIDEO_A), VIDEO_A),
+        (existing(skip, ""), ""),
+    ]
+    return [
+        {
+            "input": {"op": "classify", "existing": existing_row, "video_id": video_id},
+            "expected": classify_track(existing_row, video_id),
+        }
+        for existing_row, video_id in rows
+    ]
+
+
+def decide_method(method: str, album_similarity: float | None) -> str:
+    """The method a `decide_status` row expects.
+
+    Only the `duration`/`fuzzy` pair is ambiguous and gets recomputed from the
+    album similarity; `album`, `none` and `manual` are outcomes no threshold can
+    re-derive, so they pass through as the matcher set them.
+    """
+    if method in ("duration", "fuzzy"):
+        if album_similarity is not None and album_similarity < DURATION_METHOD_CUTOFF:
+            return "duration"
+        return "fuzzy"
+    return method
+
+
+def decide_status_expected(
+    video_id: str | None, overall: float, album_similarity: float | None
+) -> tuple[str, bool]:
+    """The status and whether a review reason exists, transcribed from the tail."""
+    wrong_album = album_similarity is not None and album_similarity < WRONG_ALBUM_THRESHOLD
+    needs_review = video_id is None or overall < CONFIDENCE_THRESHOLD or wrong_album
+    return ("needs_review" if needs_review else "pending", needs_review)
+
+
+def merge_decide_cases() -> list[dict[str, object]]:
+    """One row per status the machine can reach, per method, and per threshold edge.
+
+    The threshold rows sit exactly on each constant and one ULP either side,
+    because `<` versus `<=` is the whole decision and a value clearly above or
+    below never finds the off-by-one. The fixture records the decision, never
+    the reason's text.
+    """
+    pending = TrackStatus.PENDING.value
+    transferred = TrackStatus.TRANSFERRED.value
+
+    def existing(status: str, yt_video_id: str | None) -> dict[str, object]:
+        return {"status": status, "yt_video_id": yt_video_id}
+
+    below_conf = math.nextafter(CONFIDENCE_THRESHOLD, -math.inf)
+    above_conf = math.nextafter(CONFIDENCE_THRESHOLD, math.inf)
+    below_album = math.nextafter(WRONG_ALBUM_THRESHOLD, -math.inf)
+    above_album = math.nextafter(WRONG_ALBUM_THRESHOLD, math.inf)
+    below_cut = math.nextafter(DURATION_METHOD_CUTOFF, -math.inf)
+    above_cut = math.nextafter(DURATION_METHOD_CUTOFF, math.inf)
+
+    rows: list[tuple[str | None, str, float, float | None, dict[str, object] | None]] = [
+        # No candidate won: no method, no id, needs review.
+        (None, "none", 0.0, None, None),
+        (None, "none", 0.0, None, existing(transferred, VIDEO_A)),
+        # A confident match.
+        (VIDEO_A, "fuzzy", 0.9, 0.95, None),
+        (VIDEO_A, "duration", 0.9, 0.1, None),
+        (VIDEO_A, "album", 0.9, 0.95, None),
+        (VIDEO_A, "manual", 0.9, 0.95, None),
+        # A wrong album is needs_review even when the total is high.
+        (VIDEO_A, "fuzzy", 0.9, below_album, None),
+        # A total below the confidence threshold is needs_review.
+        (VIDEO_A, "fuzzy", below_conf, 0.95, None),
+        # The stored row decides the action.
+        (VIDEO_A, "fuzzy", 0.9, 0.95, existing(pending, VIDEO_A)),
+        (VIDEO_B, "fuzzy", 0.9, 0.95, existing(pending, VIDEO_A)),
+        # CONFIDENCE_THRESHOLD: at, one ULP below, one ULP above.
+        (VIDEO_A, "fuzzy", CONFIDENCE_THRESHOLD, 0.95, None),
+        (VIDEO_A, "fuzzy", below_conf, 0.95, None),
+        (VIDEO_A, "fuzzy", above_conf, 0.95, None),
+        # WRONG_ALBUM_THRESHOLD: at, one ULP below, one ULP above.
+        (VIDEO_A, "fuzzy", 0.9, WRONG_ALBUM_THRESHOLD, None),
+        (VIDEO_A, "fuzzy", 0.9, below_album, None),
+        (VIDEO_A, "fuzzy", 0.9, above_album, None),
+        # DURATION_METHOD_CUTOFF: at, one ULP below, one ULP above.
+        (VIDEO_A, "fuzzy", 0.9, DURATION_METHOD_CUTOFF, None),
+        (VIDEO_A, "fuzzy", 0.9, below_cut, None),
+        (VIDEO_A, "fuzzy", 0.9, above_cut, None),
+    ]
+
+    cases: list[dict[str, object]] = []
+    for video_id, method, overall, album_similarity, existing_row in rows:
+        status, reason_present = decide_status_expected(video_id, overall, album_similarity)
+        cases.append(
+            {
+                "input": {
+                    "op": "decide",
+                    "video_id": video_id,
+                    "method": method,
+                    "overall": overall,
+                    "album_similarity": album_similarity,
+                    "existing": existing_row,
+                },
+                "expected": {
+                    "action": classify_track(existing_row, video_id),
+                    "status": status,
+                    "match_method": decide_method(method, album_similarity),
+                    "review_reason_present": reason_present,
+                },
+            }
+        )
+    return cases
+
+
+def merge_ordered_cases() -> list[dict[str, object]]:
+    """One row per ordering rule, over selections keyed by an ascending Tidal id.
+
+    Keys are inserted in ascending order so the Python dict's insertion order
+    equals the `BTreeMap`'s key order: the two implementations then index the
+    same sequence, which is what lets one list of indices be the expectation for
+    both. A `SourceTrack` cannot be duplicated into a JSON expectation, so the
+    corpus records positions, exactly as the search corpus does.
+    """
+    mixed: dict[int, SourceTrack] = {
+        100_001: library_track(100_001, "Paper Tide", "Iris Vale", "Beta Light", album_year=2018),
+        100_002: library_track(
+            100_002, "Aurora Drift", "Halcyon Bay", "Northern Signal", album_year=2019
+        ),
+        # Same artist as 100_002 once lowercased and the same album as 100_004,
+        # but no year, so `9999` sorts it after every dated album of that artist.
+        100_003: library_track(
+            100_003, "Rose Window", "halcyon bay", "Alpha Rooms", album_year=None
+        ),
+        100_004: library_track(
+            100_004, "Hollow Bell", "Halcyon Bay", "Alpha Rooms", album_year=2019, disc_num=2
+        ),
+        # Two rows of one artist and album, separated only by disc then track.
+        100_005: library_track(
+            100_005, "First Light", "Odell Marsh", "Tidal Algebra", album_year=2015, track_num=1
+        ),
+        100_006: library_track(
+            100_006, "Second Light", "Odell Marsh", "Tidal Algebra", album_year=2015, track_num=2
+        ),
+    }
+    selections = [mixed, {key: mixed[key] for key in (100_003,)}, {}]
+    cases: list[dict[str, object]] = []
+    for selection in selections:
+        ordered = iter_selection_ordered(selection)
+        position = {id(track): index for index, track in enumerate(selection.values())}
+        cases.append(
+            {
+                "input": {
+                    "op": "ordered",
+                    "tracks": [asdict(track) for track in selection.values()],
+                },
+                "expected": [position[id(track)] for track in ordered],
+            }
+        )
+    return cases
+
+
 def main() -> None:
     write_fixture("text", normalize_cases() + similarity_cases())
     write_fixture(
@@ -1303,6 +1523,10 @@ def main() -> None:
         + album_rank_cases()
         + album_abstain_cases()
         + album_map_cases(),
+    )
+    write_fixture(
+        "merge",
+        merge_classify_cases() + merge_decide_cases() + merge_ordered_cases(),
     )
 
 

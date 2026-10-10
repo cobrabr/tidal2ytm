@@ -6,6 +6,7 @@
 
 pub mod album_match;
 pub mod candidate;
+pub mod merge;
 pub mod model;
 pub mod search;
 pub mod text;
