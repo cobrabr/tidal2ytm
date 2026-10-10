@@ -3458,7 +3458,6 @@ name = "tidal2ytm-store"
 version = "0.7.0"
 dependencies = [
  "libsql",
- "serde_json",
  "thiserror 2.0.21",
  "tidal2ytm-core",
  "tokio",

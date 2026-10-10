@@ -16,7 +16,6 @@ description = "Schema, migrations and every SQL statement for tidal2ytm. No Taur
 # remote database, so a future change that tried would fail to compile rather
 # than ship a network path nobody reviewed.
 libsql = { version = "0.9.30", default-features = false, features = ["core"] }
-serde_json.workspace = true
 thiserror.workspace = true
 tidal2ytm-core = { path = "../tidal2ytm-core" }
 

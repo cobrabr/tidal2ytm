@@ -193,11 +193,28 @@ impl Store {
     /// Insert the track, or update everything about it except its status, and
     /// return its id.
     ///
-    /// The conflict clause omits `status`, and that omission is the design.
-    /// `status` is written by exactly one function, [`Store::write_status`], and
-    /// a second writer is what would let a routine re-scan quietly un-transfer a
-    /// track. Making the upsert structurally unable to set it is stronger than
-    /// asking every caller to remember not to, and it costs one column's absence.
+    /// The conflict clause does not mention `status`, and a `WHERE` guard makes
+    /// it skip the whole update over a transferred row.
+    ///
+    /// Omitting `status` alone is not enough. A library re-scan calls this for
+    /// every Tidal track with a freshly computed match and `review_reason: None`,
+    /// so an unguarded update overwrites a human's review note, replaces
+    /// `yt_video_id` with whatever the new matcher found — or with nothing — and
+    /// leaves the row no longer corresponding to its own `transfer_attempt`. None
+    /// of that goes through [`Store::write_status`], so none of it would raise an
+    /// error or record an override. Guarding the clause is also what makes the
+    /// omission sufficient: with the guard in place `status` could be listed in
+    /// the `SET` without consequence, and leaving it out says so.
+    ///
+    /// `WHERE track.status <> 'transferred'` states that rule in one clause
+    /// instead of nine per-column `CASE` expressions, and a row it skips is
+    /// skipped entirely rather than half-updated.
+    ///
+    /// The cost is deliberate and is a behaviour change worth knowing: a Tidal
+    /// metadata correction no longer propagates into an already-transferred row.
+    /// Such a row is a frozen record of what was transferred, which is the same
+    /// reasoning `classify_track`'s `skip-transferred` arm applies before this
+    /// call is ever made.
     ///
     /// On insert the status is the literal `'pending'`, because a track that has
     /// never been examined cannot be anything else.
@@ -229,7 +246,8 @@ impl Store {
                    yt_duration_sec = excluded.yt_duration_sec,
                    match_method = excluded.match_method,
                    confidence_overall = excluded.confidence_overall,
-                   review_reason = excluded.review_reason",
+                   review_reason = excluded.review_reason
+                 WHERE track.status <> 'transferred'",
                 libsql::params![
                     row.album_id,
                     row.tidal_id,
@@ -256,11 +274,12 @@ impl Store {
 
     /// Write the track's status, and return.
     ///
-    /// This is the only function in the project that assigns `status`. Moving a
-    /// row away from `transferred` requires `over`, and the `transfer_attempt`
-    /// row it names is written in the same transaction — so an override cannot
-    /// be recorded without taking effect, or take effect without being
-    /// recorded.
+    /// This is the only function in the project that assigns the status of a row
+    /// that already exists. (`upsert_track` assigns the literal `'pending'`, and
+    /// only on insert.) Moving an existing row away from `transferred` requires
+    /// `over`, and the `transfer_attempt` row it names is written in the same
+    /// transaction — so an override cannot be recorded without taking effect, or
+    /// take effect without being recorded.
     ///
     /// An `over` handed to a write that does not need one is not an error and is
     /// not recorded: that audit row exists to explain a status moving *away from*
@@ -565,6 +584,84 @@ mod tests {
     /// statement string.
     const FIRST_TIDAL_ID: i64 = 1_234_567;
 
+    /// Every column `upsert_track` can write, so "the row is unchanged" can be
+    /// asserted rather than asserted-about. `f64` needs no `Eq` for that.
+    #[derive(Debug, PartialEq)]
+    struct TrackSnapshot {
+        album_id: i64,
+        tidal_id: i64,
+        title: String,
+        artist: String,
+        duration_sec: i64,
+        track_num: i64,
+        disc_num: i64,
+        version: Option<String>,
+        status: String,
+        yt_video_id: Option<String>,
+        yt_title: Option<String>,
+        yt_artist: Option<String>,
+        yt_album: Option<String>,
+        yt_album_track_num: Option<i64>,
+        yt_duration_sec: Option<i64>,
+        match_method: String,
+        confidence_overall: f64,
+        review_reason: Option<String>,
+    }
+
+    async fn whole_row(store: &Store, track_id: i64) -> TrackSnapshot {
+        let mut rows = store
+            .conn
+            .query(
+                "SELECT album_id, tidal_id, title, artist, duration_sec, track_num, disc_num,
+                        version, status, yt_video_id, yt_title, yt_artist, yt_album,
+                        yt_album_track_num, yt_duration_sec, match_method, confidence_overall,
+                        review_reason
+                 FROM track WHERE id = ?1",
+                [track_id],
+            )
+            .await
+            .expect("query");
+        let row = rows
+            .next()
+            .await
+            .expect("next")
+            .expect("the track still exists");
+        TrackSnapshot {
+            album_id: row.get(0).expect("album_id"),
+            tidal_id: row.get(1).expect("tidal_id"),
+            title: row.get(2).expect("title"),
+            artist: row.get(3).expect("artist"),
+            duration_sec: row.get(4).expect("duration_sec"),
+            track_num: row.get(5).expect("track_num"),
+            disc_num: row.get(6).expect("disc_num"),
+            version: row.get(7).expect("version"),
+            status: row.get(8).expect("status"),
+            yt_video_id: row.get(9).expect("yt_video_id"),
+            yt_title: row.get(10).expect("yt_title"),
+            yt_artist: row.get(11).expect("yt_artist"),
+            yt_album: row.get(12).expect("yt_album"),
+            yt_album_track_num: row.get(13).expect("yt_album_track_num"),
+            yt_duration_sec: row.get(14).expect("yt_duration_sec"),
+            match_method: row.get(15).expect("match_method"),
+            confidence_overall: row.get(16).expect("confidence_overall"),
+            review_reason: row.get(17).expect("review_reason"),
+        }
+    }
+
+    /// Assert that `error` is SQLite rejecting a constraint, and that the message
+    /// names `expected`.
+    ///
+    /// SQLite phrases these rejections differently — `FOREIGN KEY constraint
+    /// failed` for a reference, `CHECK constraint failed: transfer_attempt` for
+    /// a `CHECK` — so this pins the *reason* rather than the error variant. A bare
+    /// `Libsql(_)` pattern also matches a mistyped statement, which is a failure
+    /// this test would otherwise report as the constraint working.
+    fn assert_constraint(error: &StoreError, expected: &str) {
+        let text = error.to_string();
+        assert!(matches!(error, StoreError::Libsql(_)), "{text}");
+        assert!(text.contains(expected), "expected {expected:?} in {text:?}");
+    }
+
     async fn count(store: &Store, sql: &str) -> i64 {
         let mut rows = store.conn.query(sql, ()).await.expect("query");
         rows.next()
@@ -578,7 +675,10 @@ mod tests {
     #[tokio::test]
     async fn migrating_an_empty_database_creates_every_table() {
         let store = migrated().await;
-        assert_eq!(store.schema_version().await.expect("version"), 1);
+        assert_eq!(
+            store.schema_version().await.expect("version"),
+            SCHEMA_VERSION
+        );
 
         let mut names = scalars(
             &store,
@@ -610,17 +710,19 @@ mod tests {
         // were left alone rather than rebuilt.
         let store = migrated().await;
         let album = one_album(&store).await;
-        let id = store
-            .upsert_track(&track(album, 1_234_567))
+        store
+            .upsert_track(&track(album, FIRST_TIDAL_ID))
             .await
             .expect("track");
 
         store.migrate().await.expect("second migrate");
 
-        assert_eq!(store.schema_version().await.expect("version"), 1);
+        assert_eq!(
+            store.schema_version().await.expect("version"),
+            SCHEMA_VERSION
+        );
         assert_eq!(count(&store, "SELECT COUNT(*) FROM track").await, 1);
         assert_eq!(store.status_counts().await.expect("counts").len(), 1);
-        assert!(id > 0);
     }
 
     #[tokio::test]
@@ -645,13 +747,21 @@ mod tests {
         assert!(on, "PRAGMA foreign_keys did not take on this connection");
 
         let orphan = store
-            .upsert_track(&track(9_999, 1_234_567))
+            .upsert_track(&track(9_999, FIRST_TIDAL_ID))
             .await
             .expect_err("a track with no album must be rejected");
-        assert!(matches!(orphan, StoreError::Libsql(_)));
+        // Match the message, not merely the variant: a `Libsql(_)` pattern also
+        // matches a typo in the statement above, and this test would then pass
+        // for a reason that has nothing to do with foreign keys.
+        assert_constraint(&orphan, "FOREIGN KEY");
 
         let album = one_album(&store).await;
-        assert!(store.upsert_track(&track(album, 1_234_567)).await.is_ok());
+        assert!(
+            store
+                .upsert_track(&track(album, FIRST_TIDAL_ID))
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -756,37 +866,126 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upserting_a_transferred_track_leaves_its_status_alone() {
-        // The invariant asserted through the *absence* of another path. If
-        // someone later adds `status` to the upsert's conflict clause, this is
-        // the test that fails — a re-scan of the library silently un-transferring
-        // every track it touches.
+    async fn upserting_a_transferred_track_changes_nothing_at_all() {
+        // The invariant asserted through the *absence* of another path, and
+        // over the whole row rather than over `status` alone. Asserting only the
+        // status is what let an earlier version of this function through: it
+        // left `review_reason` and every `yt_*` column writable by a re-scan
+        // that passes `review_reason: None`, which erases a human's decision and
+        // points the row at a different video without any error.
         let store = migrated().await;
         let album = one_album(&store).await;
-        let id = store
-            .upsert_track(&track(album, 1_234_567))
-            .await
-            .expect("track");
+        let mut original = track(album, FIRST_TIDAL_ID);
+        original.review_reason = Some("Checked against the vinyl".to_string());
+        let id = store.upsert_track(&original).await.expect("track");
         store
             .write_status(id, TrackStatus::Transferred, None)
             .await
             .expect("transferred");
+        store
+            .insert_transfer_attempt(id, "CCCCCCCCCCC", "2026-10-07T00:00:00Z", "added")
+            .await
+            .expect("attempt");
+        let before = whole_row(&store, id).await;
 
-        let mut fresh = track(album, 1_234_567);
+        // A re-scan's row: a different matcher outcome, no review note, and a
+        // different video id — the three things that used to land silently.
+        let mut fresh = track(album, FIRST_TIDAL_ID);
         fresh.title = "Renamed Song".to_string();
         fresh.confidence_overall = 0.1;
+        fresh.match_method = MatchMethod::Fuzzy;
+        fresh.review_reason = None;
+        fresh.yt_video_id = Some("AAAAAAAAAAA".to_string());
         let again = store.upsert_track(&fresh).await.expect("re-upsert");
-        assert_eq!(again, id);
 
+        assert_eq!(again, id);
+        assert_eq!(whole_row(&store, id).await, before);
         assert_eq!(
             store.status_counts().await.expect("counts"),
             BTreeMap::from([(TrackStatus::Transferred, 1)])
         );
-        // The rest of the upsert did land, so this is not a test that passes
-        // because the second write did nothing at all.
+        // The attempt row still describes this row's video, which is the
+        // correspondence a rewritten `yt_video_id` would have quietly broken.
         assert_eq!(
-            scalars(&store, "SELECT title FROM track").await,
-            ["Renamed Song"]
+            scalars(&store, "SELECT yt_video_id FROM transfer_attempt").await,
+            ["CCCCCCCCCCC"]
+        );
+    }
+
+    #[tokio::test]
+    async fn upserting_a_merely_pending_track_does_update_it() {
+        // The other half of the guard: `WHERE track.status <> 'transferred'`
+        // must skip only transferred rows. A guard that skipped every existing
+        // row would satisfy the invariant test above and stop the store working.
+        let store = migrated().await;
+        let album = one_album(&store).await;
+        let id = store
+            .upsert_track(&track(album, FIRST_TIDAL_ID))
+            .await
+            .expect("track");
+
+        let mut fresh = track(album, FIRST_TIDAL_ID);
+        fresh.title = "Renamed Song".to_string();
+        fresh.confidence_overall = 0.1;
+        fresh.review_reason = Some("Needs a second look".to_string());
+        store.upsert_track(&fresh).await.expect("re-upsert");
+
+        let row = whole_row(&store, id).await;
+        assert_eq!(row.status, "pending");
+        assert_eq!(row.title, "Renamed Song");
+        assert_eq!(row.review_reason.as_deref(), Some("Needs a second look"));
+    }
+
+    #[tokio::test]
+    async fn every_match_method_is_accepted_by_the_check_constraint() {
+        // What is under test is the database *accepting* the value, not the
+        // value. `MatchMethod::as_str()` and the DDL's `CHECK` list are two
+        // declarations of the same set in two files, and nothing else in the
+        // suite ties them together: a variant added to `model.rs` without a
+        // matching literal passes every other test here and then fails in a
+        // user's database.
+        let store = migrated().await;
+        let album = one_album(&store).await;
+        let methods = [
+            MatchMethod::Album,
+            MatchMethod::Duration,
+            MatchMethod::Fuzzy,
+            MatchMethod::Manual,
+            MatchMethod::NoMatch,
+        ];
+        for (index, method) in methods.into_iter().enumerate() {
+            let mut row = track(album, FIRST_TIDAL_ID + index as i64);
+            row.match_method = method;
+            store
+                .upsert_track(&row)
+                .await
+                .unwrap_or_else(|e| panic!("the CHECK rejected {}: {e}", method.as_str()));
+        }
+        let stored = scalars(&store, "SELECT DISTINCT match_method FROM track ORDER BY 1").await;
+        assert_eq!(stored.len(), methods.len(), "{stored:?}");
+    }
+
+    #[tokio::test]
+    async fn every_transfer_outcome_is_accepted_by_the_check_constraint() {
+        // The same cross-file agreement as `MatchMethod`, for the outcome list.
+        // `write_status` validates `ReviewOverride::outcome` against its own
+        // copy of that list, so a literal added to the DDL but not to `OUTCOMES`
+        // is a row this crate cannot write at all.
+        let store = migrated().await;
+        let album = one_album(&store).await;
+        let id = store
+            .upsert_track(&track(album, FIRST_TIDAL_ID))
+            .await
+            .expect("track");
+        for outcome in ["started", "added", "already_present", "failed"] {
+            store
+                .insert_transfer_attempt(id, "CCCCCCCCCCC", "2026-10-07T00:00:00Z", outcome)
+                .await
+                .unwrap_or_else(|e| panic!("the CHECK rejected {outcome}: {e}"));
+        }
+        assert_eq!(
+            count(&store, "SELECT COUNT(*) FROM transfer_attempt").await,
+            4
         );
     }
 
@@ -849,7 +1048,7 @@ mod tests {
             .insert_transfer_attempt(id, "CCCCCCCCCCC", "2026-10-07T00:00:01Z", "banana")
             .await
             .expect_err("the CHECK constraint must reject this");
-        assert!(matches!(refused, StoreError::Libsql(_)));
+        assert_constraint(&refused, "CHECK constraint failed");
         assert_eq!(
             count(&store, "SELECT COUNT(*) FROM transfer_attempt").await,
             1
@@ -876,10 +1075,9 @@ mod tests {
             summary: None,
         };
 
-        let first = store.insert_candidate(id, &candidate).await.expect("first");
+        store.insert_candidate(id, &candidate).await.expect("first");
         assert!(store.insert_candidate(id, &candidate).await.is_err());
         assert_eq!(count(&store, "SELECT COUNT(*) FROM candidate").await, 1);
-        assert!(first > 0);
     }
 
     #[tokio::test]
@@ -888,7 +1086,13 @@ mod tests {
         // `open` creating the parent is load-bearing rather than a convenience,
         // and the data has to still be there on the next launch. Both are
         // invisible to an in-memory store, which is every other test's subject.
-        let root = std::env::temp_dir().join("tidal2ytm-store-open-test/nested");
+        // Unique per run: a fixed name collides when the suite is run twice at
+        // once, and the second run then fails in `open` for a reason that has
+        // nothing to do with what it is testing.
+        let root = std::env::temp_dir().join(format!(
+            "tidal2ytm-store-open-test-{}/nested",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         let path = root.join("transfer.db");
 
@@ -909,7 +1113,10 @@ mod tests {
 
         let reopened = Store::open(&path).await.expect("reopen");
         assert!(path.is_file());
-        assert_eq!(reopened.schema_version().await.expect("version"), 1);
+        assert_eq!(
+            reopened.schema_version().await.expect("version"),
+            SCHEMA_VERSION
+        );
         assert_eq!(
             reopened.status_counts().await.expect("counts"),
             BTreeMap::from([(TrackStatus::Transferred, 1)])

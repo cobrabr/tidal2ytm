@@ -19,11 +19,12 @@
 //!   the default — so every transaction here commits explicitly. A missing
 //!   `commit()` discards its work with no error to notice.
 //!
-//! The one invariant this crate exists to hold: `track.status` is written by
-//! exactly one function, [`store::Store::write_status`], and no other statement
-//! assigns it. Moving a row away from `transferred` requires an explicit
+//! The one invariant this crate exists to hold: no function assigns the status
+//! of a row that already exists except [`store::Store::write_status`], and
+//! moving such a row away from `transferred` requires an explicit
 //! [`store::ReviewOverride`], whose audit row is written in the same transaction
-//! as the status change it justifies.
+//! as the status change it justifies. `upsert_track` inserts new rows as
+//! `'pending'` and skips the update entirely over a transferred one.
 
 pub mod migrate;
 pub mod schema;
