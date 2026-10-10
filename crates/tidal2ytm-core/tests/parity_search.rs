@@ -7,59 +7,17 @@
 
 use std::fs;
 
-use serde::Deserialize;
 use serde_json::Value;
 use tidal2ytm_core::model::SourceTrack;
 use tidal2ytm_core::search;
+
+mod common;
+use common::track_from_value;
 
 #[derive(serde::Deserialize)]
 struct FixtureCase {
     input: Value,
     expected: Value,
-}
-
-/// The `SourceTrack` as a fixture row carries it.
-///
-/// `SourceTrack` derives no serde impls of its own, so this is where a committed
-/// row becomes the domain type. Every field is required: a row that omitted one
-/// would be asserting a default the port never had a rule for.
-#[derive(Deserialize)]
-struct SourceTrackRow {
-    tidal_id: i64,
-    title: String,
-    artist: String,
-    artists: Vec<String>,
-    album: String,
-    album_id: i64,
-    album_year: Option<i64>,
-    duration_sec: i64,
-    track_num: i64,
-    disc_num: i64,
-    version: Option<String>,
-}
-
-impl From<SourceTrackRow> for SourceTrack {
-    fn from(row: SourceTrackRow) -> Self {
-        Self {
-            tidal_id: row.tidal_id,
-            title: row.title,
-            artist: row.artist,
-            artists: row.artists,
-            album: row.album,
-            album_id: row.album_id,
-            album_year: row.album_year,
-            duration_sec: row.duration_sec,
-            track_num: row.track_num,
-            disc_num: row.disc_num,
-            version: row.version,
-        }
-    }
-}
-
-fn track_from_value(value: &Value, case: usize, what: &str) -> SourceTrack {
-    let row: SourceTrackRow = serde_json::from_value(value.clone())
-        .unwrap_or_else(|e| panic!("case {case}: {what} is a SourceTrack row: {e}"));
-    row.into()
 }
 
 fn cases() -> Vec<FixtureCase> {

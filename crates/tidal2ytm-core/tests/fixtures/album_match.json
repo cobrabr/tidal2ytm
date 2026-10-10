@@ -1,0 +1,2186 @@
+[
+  {
+    "input": {
+      "op": "group",
+      "tracks": [
+        {
+          "tidal_id": 100001,
+          "title": "Aurora Drift",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Midnight Aurora",
+          "artist": "Odell Marsh",
+          "artists": [
+            "Odell Marsh"
+          ],
+          "album": "Tidal Algebra",
+          "album_id": 200002,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100004,
+          "title": "Rose Window",
+          "artist": "Iris Vale",
+          "artists": [
+            "Iris Vale"
+          ],
+          "album": "Quiet Rooms",
+          "album_id": 200003,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ]
+    },
+    "expected": [
+      [
+        200001,
+        [
+          0,
+          2
+        ]
+      ],
+      [
+        200002,
+        [
+          1
+        ]
+      ],
+      [
+        200003,
+        [
+          3
+        ]
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "group",
+      "tracks": []
+    },
+    "expected": []
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [],
+      "cand": []
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [
+        "live"
+      ],
+      "cand": [
+        "live"
+      ]
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [
+        "live"
+      ],
+      "cand": []
+    },
+    "expected": 0.0
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [],
+      "cand": [
+        "live"
+      ]
+    },
+    "expected": 0.0
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [
+        "live",
+        "remastered"
+      ],
+      "cand": [
+        "live"
+      ]
+    },
+    "expected": 0.8
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [
+        "live"
+      ],
+      "cand": [
+        "live",
+        "remastered"
+      ]
+    },
+    "expected": 0.8
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [
+        "remix"
+      ],
+      "cand": [
+        "live"
+      ]
+    },
+    "expected": 0.2
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [
+        "deluxe version"
+      ],
+      "cand": [
+        "deluxe"
+      ]
+    },
+    "expected": 0.8
+  },
+  {
+    "input": {
+      "op": "version",
+      "source": [
+        "live"
+      ],
+      "cand": [
+        "live acoustic"
+      ]
+    },
+    "expected": 0.8
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal (Live)",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal (Live)",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal (Live)",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 0.7999999999999999
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal (Live)",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 0.7999999999999999
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal (Live)",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal (Live) (Deluxe)",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 0.96
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal (Live)",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal (Remix)",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 0.84
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": null,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 0.95
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": null
+      }
+    },
+    "expected": 0.95
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 1.0
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2020
+      }
+    },
+    "expected": 0.95
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2029
+      }
+    },
+    "expected": 0.909090909090909
+  },
+  {
+    "input": {
+      "op": "meta",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Aurora Drift",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Salt & Ember",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "candidate": {
+        "album_id": "MPREb_00000042",
+        "title": "Salt and Ember",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      }
+    },
+    "expected": 0.946
+  },
+  {
+    "input": {
+      "op": "sibling_year",
+      "sib": 2020,
+      "parent": 2019
+    },
+    "expected": 2020
+  },
+  {
+    "input": {
+      "op": "sibling_year",
+      "sib": null,
+      "parent": 2019
+    },
+    "expected": 2019
+  },
+  {
+    "input": {
+      "op": "sibling_year",
+      "sib": 2018,
+      "parent": 2019
+    },
+    "expected": 2018
+  },
+  {
+    "input": {
+      "op": "sibling_year",
+      "sib": null,
+      "parent": null
+    },
+    "expected": null
+  },
+  {
+    "input": {
+      "op": "sibling_entry",
+      "parent": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      },
+      "sib": {
+        "album_id": "MPREb_00000043",
+        "title": "Northern Signal (Deluxe)",
+        "artist": "Iris Vale",
+        "year": 2020
+      }
+    },
+    "expected": {
+      "album_id": "MPREb_00000043",
+      "title": "Northern Signal (Deluxe)",
+      "artist": "Iris Vale",
+      "year": 2020
+    }
+  },
+  {
+    "input": {
+      "op": "sibling_entry",
+      "parent": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      },
+      "sib": {
+        "album_id": "MPREb_00000043",
+        "title": "",
+        "artist": "Iris Vale",
+        "year": 2020
+      }
+    },
+    "expected": {
+      "album_id": "MPREb_00000043",
+      "title": "Northern Signal",
+      "artist": "Iris Vale",
+      "year": 2020
+    }
+  },
+  {
+    "input": {
+      "op": "sibling_entry",
+      "parent": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      },
+      "sib": {
+        "album_id": "MPREb_00000043",
+        "title": "Northern Signal (Deluxe)",
+        "artist": "",
+        "year": null
+      }
+    },
+    "expected": {
+      "album_id": "MPREb_00000043",
+      "title": "Northern Signal (Deluxe)",
+      "artist": "Halcyon Bay",
+      "year": 2019
+    }
+  },
+  {
+    "input": {
+      "op": "sibling_entry",
+      "parent": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      },
+      "sib": {
+        "album_id": "MPREb_00000043",
+        "title": "Northern Signal (Deluxe)",
+        "artist": "Iris Vale",
+        "year": null
+      }
+    },
+    "expected": {
+      "album_id": "MPREb_00000043",
+      "title": "Northern Signal (Deluxe)",
+      "artist": "Iris Vale",
+      "year": 2019
+    }
+  },
+  {
+    "input": {
+      "op": "sibling_entry",
+      "parent": {
+        "album_id": "MPREb_00000042",
+        "title": "Northern Signal",
+        "artist": "Halcyon Bay",
+        "year": 2019
+      },
+      "sib": {
+        "album_id": "MPREb_00000043",
+        "title": "Northern Signal (Deluxe)",
+        "artist": "",
+        "year": null
+      }
+    },
+    "expected": {
+      "album_id": "MPREb_00000043",
+      "title": "Northern Signal (Deluxe)",
+      "artist": "Halcyon Bay",
+      "year": 2019
+    }
+  },
+  {
+    "input": {
+      "op": "dedupe",
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      0
+    ]
+  },
+  {
+    "input": {
+      "op": "dedupe",
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "northern signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "northern signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      0
+    ]
+  },
+  {
+    "input": {
+      "op": "dedupe",
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Salt & Ember",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Salt & Ember",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Salt and Ember",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Salt and Ember",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      0
+    ]
+  },
+  {
+    "input": {
+      "op": "dedupe",
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern  Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern  Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      0
+    ]
+  },
+  {
+    "input": {
+      "op": "dedupe",
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Iris Vale",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Iris Vale",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "input": {
+      "op": "dedupe",
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Southern Static",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Southern Static",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      0,
+      1
+    ]
+  },
+  {
+    "input": {
+      "op": "dedupe",
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": [
+              {
+                "album_id": "MPREb_00000042",
+                "title": "Northern Signal",
+                "artist": "Halcyon Bay",
+                "year": null
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": null
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": null
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      0
+    ]
+  },
+  {
+    "input": {
+      "op": "fit",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "tracks": [
+        {
+          "video_id": "9aB3xQ1lZ7c",
+          "title": "Paper Tide",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": null,
+          "album_track_num": 1,
+          "duration_sec": 200
+        }
+      ],
+      "album_title": "Northern Signal"
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0,
+      "index": 0
+    }
+  },
+  {
+    "input": {
+      "op": "fit",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "tracks": [
+        {
+          "video_id": "9aB3xQ1lZ7c",
+          "title": "Paper Tide",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": null,
+          "album_track_num": 1,
+          "duration_sec": 250
+        }
+      ],
+      "album_title": "Northern Signal"
+    },
+    "expected": null
+  },
+  {
+    "input": {
+      "op": "fit",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "tracks": [
+        {
+          "video_id": "9aB3xQ1lZ7c",
+          "title": "Paper Tide",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": null,
+          "album_track_num": 1,
+          "duration_sec": 200
+        },
+        {
+          "video_id": "Zq4Wm8n2RtY",
+          "title": "Paper Tide",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": null,
+          "album_track_num": 1,
+          "duration_sec": 200
+        }
+      ],
+      "album_title": "Northern Signal"
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0,
+      "index": 0
+    }
+  },
+  {
+    "input": {
+      "op": "fit",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "tracks": [],
+      "album_title": "Northern Signal"
+    },
+    "expected": null
+  },
+  {
+    "input": {
+      "op": "fit",
+      "source": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "tracks": [
+        {
+          "video_id": "9aB3xQ1lZ7c",
+          "title": "Paper Tide",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "A Different Album",
+          "album_track_num": 1,
+          "duration_sec": 200
+        }
+      ],
+      "album_title": "Northern Signal"
+    },
+    "expected": {
+      "overall": 1.0,
+      "title_similarity": 1.0,
+      "artist_similarity": 1.0,
+      "album_similarity": 1.0,
+      "version_similarity": 1.0,
+      "track_num_match": false,
+      "duration_delta_sec": 0,
+      "index": 0
+    }
+  },
+  {
+    "input": {
+      "op": "rank",
+      "first": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "sources": [
+        {
+          "tidal_id": 100001,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Hollow Bell",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 210,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": 2019
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": 2019
+            },
+            "tracks": [
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Paper Tide",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 1,
+                "duration_sec": 200
+              },
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Hollow Bell",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 2,
+                "duration_sec": 210
+              }
+            ],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Southern Static",
+            "artist": "Odell Marsh",
+            "year": 2015
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Southern Static",
+              "artist": "Odell Marsh",
+              "year": 2015
+            },
+            "tracks": [
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Kelpline Static",
+                "artists": [
+                  "Odell Marsh"
+                ],
+                "album": null,
+                "album_track_num": 1,
+                "duration_sec": 200
+              },
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Rose Window",
+                "artists": [
+                  "Odell Marsh"
+                ],
+                "album": null,
+                "album_track_num": 2,
+                "duration_sec": 210
+              }
+            ],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      [
+        1.0,
+        0
+      ],
+      [
+        0.4580181818181818,
+        1
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "rank",
+      "first": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "sources": [
+        {
+          "tidal_id": 100001,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Hollow Bell",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 210,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Southern Static",
+            "artist": "Odell Marsh",
+            "year": 2015
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Southern Static",
+              "artist": "Odell Marsh",
+              "year": 2015
+            },
+            "tracks": [
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Kelpline Static",
+                "artists": [
+                  "Odell Marsh"
+                ],
+                "album": null,
+                "album_track_num": 1,
+                "duration_sec": 200
+              },
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Rose Window",
+                "artists": [
+                  "Odell Marsh"
+                ],
+                "album": null,
+                "album_track_num": 2,
+                "duration_sec": 210
+              }
+            ],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": 2019
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": 2019
+            },
+            "tracks": [
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Paper Tide",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 1,
+                "duration_sec": 200
+              },
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Hollow Bell",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 2,
+                "duration_sec": 210
+              }
+            ],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      [
+        1.0,
+        1
+      ],
+      [
+        0.4580181818181818,
+        0
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "rank",
+      "first": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "sources": [
+        {
+          "tidal_id": 100001,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Hollow Bell",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 210,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": 2019
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": 2019
+            },
+            "tracks": [
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Paper Tide",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 1,
+                "duration_sec": 200
+              },
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Hollow Bell",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 2,
+                "duration_sec": 210
+              }
+            ],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Northern Signal",
+            "artist": "Halcyon Bay",
+            "year": 2019
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Northern Signal",
+              "artist": "Halcyon Bay",
+              "year": 2019
+            },
+            "tracks": [
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Paper Tide",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 1,
+                "duration_sec": 200
+              },
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Hollow Bell",
+                "artists": [
+                  "Halcyon Bay"
+                ],
+                "album": null,
+                "album_track_num": 2,
+                "duration_sec": 210
+              }
+            ],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      [
+        1.0,
+        0
+      ],
+      [
+        1.0,
+        1
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "rank",
+      "first": {
+        "tidal_id": 100001,
+        "title": "Paper Tide",
+        "artist": "Halcyon Bay",
+        "artists": [
+          "Halcyon Bay"
+        ],
+        "album": "Northern Signal",
+        "album_id": 200001,
+        "album_year": 2019,
+        "duration_sec": 200,
+        "track_num": 3,
+        "disc_num": 1,
+        "version": null
+      },
+      "sources": [
+        {
+          "tidal_id": 100001,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Hollow Bell",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 210,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "details": [
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Empty Rooms",
+            "artist": "Iris Vale",
+            "year": 2011
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Empty Rooms",
+              "artist": "Iris Vale",
+              "year": 2011
+            },
+            "tracks": [],
+            "other_versions": []
+          }
+        ],
+        [
+          {
+            "album_id": "MPREb_00000042",
+            "title": "Southern Static",
+            "artist": "Odell Marsh",
+            "year": 2015
+          },
+          {
+            "summary": {
+              "album_id": "MPREb_00000042",
+              "title": "Southern Static",
+              "artist": "Odell Marsh",
+              "year": 2015
+            },
+            "tracks": [
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Kelpline Static",
+                "artists": [
+                  "Odell Marsh"
+                ],
+                "album": null,
+                "album_track_num": 1,
+                "duration_sec": 200
+              },
+              {
+                "video_id": "9aB3xQ1lZ7c",
+                "title": "Rose Window",
+                "artists": [
+                  "Odell Marsh"
+                ],
+                "album": null,
+                "album_track_num": 2,
+                "duration_sec": 210
+              }
+            ],
+            "other_versions": []
+          }
+        ]
+      ]
+    },
+    "expected": [
+      [
+        0.4580181818181818,
+        1
+      ],
+      [
+        0.13213675213675216,
+        0
+      ]
+    ]
+  },
+  {
+    "input": {
+      "op": "abstain",
+      "scored": []
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "abstain",
+      "scored": [
+        [
+          0.5,
+          0
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "abstain",
+      "scored": [
+        [
+          0.95,
+          0
+        ],
+        [
+          0.8999999999999999,
+          1
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "abstain",
+      "scored": [
+        [
+          0.94,
+          0
+        ],
+        [
+          0.91,
+          1
+        ]
+      ]
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "abstain",
+      "scored": [
+        [
+          0.05,
+          0
+        ],
+        [
+          0.0,
+          1
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "abstain",
+      "scored": [
+        [
+          0.5,
+          0
+        ],
+        [
+          0.47,
+          1
+        ]
+      ]
+    },
+    "expected": true
+  },
+  {
+    "input": {
+      "op": "abstain",
+      "scored": [
+        [
+          0.5,
+          0
+        ],
+        [
+          0.2,
+          1
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "input": {
+      "op": "map",
+      "sources": [
+        {
+          "tidal_id": 100001,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "winner": {
+        "summary": {
+          "album_id": "MPREb_00000042",
+          "title": "Northern Signal",
+          "artist": "Halcyon Bay",
+          "year": 2019
+        },
+        "tracks": [
+          {
+            "video_id": "9aB3xQ1lZ7c",
+            "title": "Paper Tide",
+            "artists": [
+              "Halcyon Bay"
+            ],
+            "album": null,
+            "album_track_num": 1,
+            "duration_sec": 200
+          },
+          {
+            "video_id": "Zq4Wm8n2RtY",
+            "title": "Hollow Bell",
+            "artists": [
+              "Halcyon Bay"
+            ],
+            "album": null,
+            "album_track_num": 2,
+            "duration_sec": 210
+          }
+        ],
+        "other_versions": []
+      }
+    },
+    "expected": [
+      {
+        "yt_video_id": "9aB3xQ1lZ7c",
+        "yt_title": "Paper Tide",
+        "yt_artist": "Halcyon Bay",
+        "yt_album": "Northern Signal",
+        "yt_album_track_num": 1,
+        "yt_duration_sec": 200,
+        "match_method": "album",
+        "status": "pending",
+        "review_reason_present": false,
+        "overall": 1.0,
+        "title_similarity": 1.0,
+        "artist_similarity": 1.0,
+        "album_similarity": 1.0,
+        "duration_delta_sec": 0,
+        "version_similarity": 1.0,
+        "track_num_match": false,
+        "album_coherence": 1.0
+      }
+    ]
+  },
+  {
+    "input": {
+      "op": "map",
+      "sources": [
+        {
+          "tidal_id": 100002,
+          "title": "Hollow Bell",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 210,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "winner": {
+        "summary": {
+          "album_id": "MPREb_00000042",
+          "title": "Northern Signal",
+          "artist": "Halcyon Bay",
+          "year": 2019
+        },
+        "tracks": [
+          {
+            "video_id": "9aB3xQ1lZ7c",
+            "title": "Paper Tide",
+            "artists": [
+              "Halcyon Bay"
+            ],
+            "album": null,
+            "album_track_num": 1,
+            "duration_sec": 200
+          },
+          {
+            "video_id": "Zq4Wm8n2RtY",
+            "title": "Hollow Bell",
+            "artists": [
+              "Halcyon Bay"
+            ],
+            "album": null,
+            "album_track_num": 2,
+            "duration_sec": 210
+          }
+        ],
+        "other_versions": []
+      }
+    },
+    "expected": [
+      {
+        "yt_video_id": "Zq4Wm8n2RtY",
+        "yt_title": "Hollow Bell",
+        "yt_artist": "Halcyon Bay",
+        "yt_album": "Northern Signal",
+        "yt_album_track_num": 2,
+        "yt_duration_sec": 210,
+        "match_method": "album",
+        "status": "pending",
+        "review_reason_present": false,
+        "overall": 1.0,
+        "title_similarity": 1.0,
+        "artist_similarity": 1.0,
+        "album_similarity": 1.0,
+        "duration_delta_sec": 0,
+        "version_similarity": 1.0,
+        "track_num_match": false,
+        "album_coherence": 1.0
+      }
+    ]
+  },
+  {
+    "input": {
+      "op": "map",
+      "sources": [
+        {
+          "tidal_id": 100001,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100002,
+          "title": "Hollow Bell",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 210,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        },
+        {
+          "tidal_id": 100003,
+          "title": "Nothing Here",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 500,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "winner": {
+        "summary": {
+          "album_id": "MPREb_00000042",
+          "title": "Northern Signal",
+          "artist": "Halcyon Bay",
+          "year": 2019
+        },
+        "tracks": [
+          {
+            "video_id": "9aB3xQ1lZ7c",
+            "title": "Paper Tide",
+            "artists": [
+              "Halcyon Bay"
+            ],
+            "album": null,
+            "album_track_num": 1,
+            "duration_sec": 200
+          },
+          {
+            "video_id": "Zq4Wm8n2RtY",
+            "title": "Hollow Bell",
+            "artists": [
+              "Halcyon Bay"
+            ],
+            "album": null,
+            "album_track_num": 2,
+            "duration_sec": 210
+          }
+        ],
+        "other_versions": []
+      }
+    },
+    "expected": [
+      {
+        "yt_video_id": "9aB3xQ1lZ7c",
+        "yt_title": "Paper Tide",
+        "yt_artist": "Halcyon Bay",
+        "yt_album": "Northern Signal",
+        "yt_album_track_num": 1,
+        "yt_duration_sec": 200,
+        "match_method": "album",
+        "status": "pending",
+        "review_reason_present": false,
+        "overall": 1.0,
+        "title_similarity": 1.0,
+        "artist_similarity": 1.0,
+        "album_similarity": 1.0,
+        "duration_delta_sec": 0,
+        "version_similarity": 1.0,
+        "track_num_match": false,
+        "album_coherence": 1.0
+      },
+      {
+        "yt_video_id": "Zq4Wm8n2RtY",
+        "yt_title": "Hollow Bell",
+        "yt_artist": "Halcyon Bay",
+        "yt_album": "Northern Signal",
+        "yt_album_track_num": 2,
+        "yt_duration_sec": 210,
+        "match_method": "album",
+        "status": "pending",
+        "review_reason_present": false,
+        "overall": 1.0,
+        "title_similarity": 1.0,
+        "artist_similarity": 1.0,
+        "album_similarity": 1.0,
+        "duration_delta_sec": 0,
+        "version_similarity": 1.0,
+        "track_num_match": false,
+        "album_coherence": 1.0
+      },
+      {
+        "yt_video_id": null,
+        "yt_title": null,
+        "yt_artist": null,
+        "yt_album": null,
+        "yt_album_track_num": null,
+        "yt_duration_sec": null,
+        "match_method": "none",
+        "status": "needs_review",
+        "review_reason_present": true,
+        "overall": 0.0,
+        "title_similarity": null,
+        "artist_similarity": null,
+        "album_similarity": null,
+        "duration_delta_sec": null,
+        "version_similarity": null,
+        "track_num_match": null,
+        "album_coherence": null
+      }
+    ]
+  },
+  {
+    "input": {
+      "op": "map",
+      "sources": [
+        {
+          "tidal_id": 100001,
+          "title": "Paper Tide",
+          "artist": "Halcyon Bay",
+          "artists": [
+            "Halcyon Bay"
+          ],
+          "album": "Northern Signal",
+          "album_id": 200001,
+          "album_year": 2019,
+          "duration_sec": 200,
+          "track_num": 3,
+          "disc_num": 1,
+          "version": null
+        }
+      ],
+      "winner": {
+        "summary": {
+          "album_id": "MPREb_00000042",
+          "title": "Northern Signal",
+          "artist": "Halcyon Bay",
+          "year": 2019
+        },
+        "tracks": [],
+        "other_versions": []
+      }
+    },
+    "expected": [
+      {
+        "yt_video_id": null,
+        "yt_title": null,
+        "yt_artist": null,
+        "yt_album": null,
+        "yt_album_track_num": null,
+        "yt_duration_sec": null,
+        "match_method": "none",
+        "status": "needs_review",
+        "review_reason_present": true,
+        "overall": 0.0,
+        "title_similarity": null,
+        "artist_similarity": null,
+        "album_similarity": null,
+        "duration_delta_sec": null,
+        "version_similarity": null,
+        "track_num_match": null,
+        "album_coherence": null
+      }
+    ]
+  }
+]

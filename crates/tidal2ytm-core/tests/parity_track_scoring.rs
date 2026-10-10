@@ -7,54 +7,18 @@
 
 use std::fs;
 
-use serde::Deserialize;
 use serde_json::Value;
 use tidal2ytm_core::candidate::Candidate;
 use tidal2ytm_core::model::SourceTrack;
 use tidal2ytm_core::track_scoring;
 
+mod common;
+use common::track_from_value;
+
 #[derive(serde::Deserialize)]
 struct FixtureCase {
     input: Value,
     expected: Value,
-}
-
-/// The `SourceTrack` as a fixture row carries it.
-///
-/// `SourceTrack` derives no serde impls of its own, so this is where a committed
-/// row becomes the domain type. Every field is required: a row that omitted one
-/// would be asserting a default the port never had a rule for.
-#[derive(Deserialize)]
-struct SourceTrackRow {
-    tidal_id: i64,
-    title: String,
-    artist: String,
-    artists: Vec<String>,
-    album: String,
-    album_id: i64,
-    album_year: Option<i64>,
-    duration_sec: i64,
-    track_num: i64,
-    disc_num: i64,
-    version: Option<String>,
-}
-
-impl From<SourceTrackRow> for SourceTrack {
-    fn from(row: SourceTrackRow) -> Self {
-        Self {
-            tidal_id: row.tidal_id,
-            title: row.title,
-            artist: row.artist,
-            artists: row.artists,
-            album: row.album,
-            album_id: row.album_id,
-            album_year: row.album_year,
-            duration_sec: row.duration_sec,
-            track_num: row.track_num,
-            disc_num: row.disc_num,
-            version: row.version,
-        }
-    }
 }
 
 fn cases() -> Vec<FixtureCase> {
@@ -94,11 +58,10 @@ fn split_sections() -> (Vec<FixtureCase>, Vec<FixtureCase>) {
 
 /// The `SourceTrack` and `Candidate` a scoring case scores.
 fn operands(case: &FixtureCase, index: usize) -> (SourceTrack, Candidate) {
-    let source: SourceTrackRow = serde_json::from_value(case.input["source"].clone())
-        .unwrap_or_else(|e| panic!("case {index}: source is a SourceTrack row: {e}"));
+    let source = track_from_value(&case.input["source"], index, "source");
     let candidate: Candidate = serde_json::from_value(case.input["candidate"].clone())
         .unwrap_or_else(|e| panic!("case {index}: candidate is a Candidate row: {e}"));
-    (source.into(), candidate)
+    (source, candidate)
 }
 
 #[test]
