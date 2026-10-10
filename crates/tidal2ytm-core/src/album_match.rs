@@ -447,6 +447,31 @@ mod tests {
     }
 
     #[test]
+    fn a_sibling_never_inherits_the_parent_album_id() {
+        // `album_id` is the album's identity, so a sibling that fell back to the
+        // parent's id would claim to *be* the parent. Title, artist and year do
+        // fall back, and the test asserts those too, so a body that substituted
+        // nothing cannot pass by leaving the id empty for the wrong reason.
+        let parent = AlbumSummary {
+            album_id: "MPREb_00000042".to_string(),
+            title: "Tidal Static".to_string(),
+            artist: "Marble Divide".to_string(),
+            year: Some(2017),
+        };
+        let sibling = AlbumSummary {
+            album_id: String::new(),
+            title: String::new(),
+            artist: String::new(),
+            year: None,
+        };
+        let entry = sibling_entry(&parent, &sibling);
+        assert_eq!(entry.album_id, "");
+        assert_eq!(entry.title, "Tidal Static");
+        assert_eq!(entry.artist, "Marble Divide");
+        assert_eq!(entry.year, Some(2017));
+    }
+
+    #[test]
     fn the_margin_test_is_strict_at_exactly_one_epsilon() {
         // Python's condition is `top - second < ALBUM_MARGIN_EPS`, so a gap of
         // exactly one epsilon must not abstain and a gap just under it must.
