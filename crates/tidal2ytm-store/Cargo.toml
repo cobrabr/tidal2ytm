@@ -20,4 +20,4 @@ thiserror.workspace = true
 tidal2ytm-core = { path = "../tidal2ytm-core" }
 
 [dev-dependencies]
-tokio = { version = "1.53.1", features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

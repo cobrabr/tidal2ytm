@@ -83,9 +83,13 @@ pub fn run() {
             // beside the sidecar's working directory rather than wherever a
             // second `app_data_dir()` call would have put it, so the two are
             // provably one directory and a token cache written by the sidecar
-            // and a row written by the host cannot drift apart. The directory
-            // has to exist first for the sidecar's benefit, and the database
-            // lands in it for the same reason.
+            // and a row written by the host cannot drift apart.
+            //
+            // The ordering is for the sidecar's sake alone. `Store::open`
+            // creates its own parent directory — it has to, for the same
+            // first-run reason — so the database would land here either way;
+            // what it would not do is wait for the sidecar's spawn, which fails
+            // against a directory that does not exist.
             //
             // Here and not in `main()` because `main()` alone is an entry point
             // that can lose everything the process is complaining about: the
@@ -136,4 +140,90 @@ pub fn run() {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tidal2ytm_store::SCHEMA_VERSION;
+
+    /// A directory of this process's own, empty and gone afterwards.
+    ///
+    /// Unique per run because a fixed name collides when the suite runs twice at
+    /// once, and the second run then fails in `open` for a reason that has
+    /// nothing to do with what it is testing. Matches what
+    /// `tidal2ytm-store`'s own file-opening test does, so there is one
+    /// convention for a scratch path rather than three.
+    fn scratch_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tidal2ytm-host-open-database-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the scratch directory is creatable");
+        dir
+    }
+
+    /// The host opens a migrated database, and names the file when it cannot.
+    ///
+    /// `open_database` is the only production logic in this file that is not
+    /// `run()`'s wiring, and `run()` needs a real `tauri::App` that no test can
+    /// build. This is the part that could regress underneath it, and the two
+    /// halves are separate claims: a host that opened the file and stopped
+    /// leaves a version of `0` here, and a host that migrated to a *different*
+    /// version than the store knows also fails it. Removing the `migrate()`
+    /// call, or pointing `DATABASE_FILE` somewhere the schema does not land,
+    /// turns this red — which is the point, since nothing else in the crate
+    /// covers either.
+    #[tokio::test]
+    async fn opening_the_database_leaves_it_migrated() {
+        let dir = scratch_dir();
+        let store = open_database(&dir).await.expect("open_database");
+
+        assert_eq!(
+            store.schema_version().await.expect("version"),
+            SCHEMA_VERSION,
+            "open_database returned a database it did not migrate"
+        );
+        assert!(
+            dir.join(DATABASE_FILE).is_file(),
+            "open_database did not write the file where DATABASE_FILE says"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A failure names the file, so the reader is sent to the database rather
+    /// than to the source tree.
+    ///
+    /// Asserted on the path appearing in the message rather than on the wording
+    /// around it: a reader who knows only "the database could not be opened"
+    /// has nowhere to look, and which is the one fact that survives every
+    /// rewording. The failure is provoked by pointing the function at a *file*,
+    /// because a path whose parent is a file cannot be created and so fails in
+    /// `open` rather than in `migrate` — the half whose message is checked.
+    #[tokio::test]
+    async fn a_failure_names_the_database_it_could_not_use() {
+        let dir = scratch_dir();
+        let blocked = dir.join("not-a-directory");
+        std::fs::write(&blocked, b"").expect("the blocking file is writable");
+        let wanted = blocked.join(DATABASE_FILE);
+
+        // `expect_err` would need `Store: Debug`, and adding that to a crate
+        // this one does not own to serve a test is not a trade worth making.
+        // Matching on `Err` instead reads the same and asserts more precisely:
+        // the success case is left unhandled rather than asserted to be
+        // unreachable.
+        let message = match open_database(&blocked).await {
+            Ok(_) => panic!("a path whose parent is a file cannot hold a database"),
+            Err(message) => message,
+        };
+
+        assert!(
+            message.contains(&wanted.display().to_string()),
+            "the error does not name the database it could not open: {message}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

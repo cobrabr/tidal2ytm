@@ -3429,6 +3429,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tidal2ytm-core",
  "tidal2ytm-ipc",
  "tidal2ytm-store",
  "tokio",

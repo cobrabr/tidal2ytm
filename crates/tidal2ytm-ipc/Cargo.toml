@@ -11,7 +11,7 @@ description = "NDJSON protocol and sidecar process client for tidal2ytm."
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { version = "1.53.1", features = [
+tokio = { workspace = true, features = [
     "io-util",
     "macros",
     "process",

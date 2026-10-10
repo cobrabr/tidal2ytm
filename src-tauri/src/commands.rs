@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use tauri::State;
+use tidal2ytm_core::model::TrackStatus;
 use tidal2ytm_ipc::IpcError;
 
 use crate::state::{AppState, AuthStatus};
@@ -51,10 +52,21 @@ pub async fn get_status_counts(
         .status_counts()
         .await
         .map_err(|e| e.to_string())?;
-    Ok(counts
+    Ok(counts_by_name(counts))
+}
+
+/// Key the counts by the persisted status string.
+///
+/// A free function so the vocabulary can be tested without a `tauri::App`, which
+/// nothing in this crate can build. What is worth pinning is not that the
+/// counts arrived — the store's own suite covers that — but that every key is
+/// `as_str()`'s own output, so a second hand-written copy of the status literals
+/// cannot appear here unnoticed.
+fn counts_by_name(counts: BTreeMap<TrackStatus, i64>) -> BTreeMap<String, i64> {
+    counts
         .into_iter()
         .map(|(status, count)| (status.as_str().to_string(), count))
-        .collect())
+        .collect()
 }
 
 /// Which schema version the database is at.
@@ -100,4 +112,67 @@ async fn call(state: &AppState, op: &str, timeout: Duration) -> Result<Value, St
         .call(op, json!({}), Some(timeout))
         .await
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every status reaches the wire under `as_str`'s own name, with its count
+    /// intact.
+    ///
+    /// The expected side is built by iterating the same statuses and calling the
+    /// same `as_str`, so what is checked is that the mapping preserves each key
+    /// and each count and emits one entry per status.
+    ///
+    /// What this cannot catch, stated plainly so the next reader does not assume
+    /// it: a rewrite that hardcoded today's five literals would pass, because
+    /// those literals are what `as_str` returns today. What it does catch is a
+    /// key that is not `as_str`'s output at all — a `Debug` name, or a hand-copied
+    /// set that has since drifted from the schema — and both of those fail
+    /// immediately. Adding a sixth status also does not fail this on its own;
+    /// the list below would need extending. `counts_by_name` taking its keys
+    /// from `as_str` is the property, and this is what keeps that honest.
+    #[test]
+    fn every_status_reaches_the_wire_under_its_persisted_name() {
+        let all = [
+            TrackStatus::Pending,
+            TrackStatus::Transferred,
+            TrackStatus::Skip,
+            TrackStatus::Failed,
+            TrackStatus::NeedsReview,
+        ];
+        let counts: BTreeMap<TrackStatus, i64> = all
+            .iter()
+            .enumerate()
+            .map(|(index, status)| (*status, index as i64 + 1))
+            .collect();
+        let expected: BTreeMap<String, i64> = counts
+            .iter()
+            .map(|(status, count)| (status.as_str().to_string(), *count))
+            .collect();
+
+        let named = counts_by_name(counts);
+        assert_eq!(named, expected);
+        assert_eq!(named.len(), all.len());
+    }
+
+    /// A status absent from the rows is absent from the answer, rather than
+    /// present with a zero.
+    ///
+    /// `status_counts` is computed by a `GROUP BY`, so it reports only statuses
+    /// that exist. Forwarding that as-is is the point — the frontend can tell
+    /// "none transferred" from "this build cannot count transferred" — and a
+    /// rewrite that pre-filled all five keys would erase that distinction while
+    /// still passing the test above.
+    #[test]
+    fn a_status_with_no_rows_does_not_appear() {
+        let counts = BTreeMap::from([(TrackStatus::Pending, 7)]);
+
+        let named = counts_by_name(counts);
+
+        assert_eq!(named.len(), 1);
+        assert_eq!(named.get(TrackStatus::Pending.as_str()), Some(&7));
+        assert!(!named.contains_key(TrackStatus::Transferred.as_str()));
+    }
 }

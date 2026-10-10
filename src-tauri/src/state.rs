@@ -70,9 +70,10 @@ impl AppState {
 
     /// The database every command reads.
     ///
-    /// Borrowed rather than cloned because `Store`'s connection is an
-    /// `Arc` inside libsql and cloning the wrapper would buy nothing a borrow
-    /// does not already give.
+    /// Borrowed rather than cloned: `libsql::Connection` derives `Clone` over a
+    /// raw pointer plus two `Arc`s, so a clone is cheap and buys a caller
+    /// nothing a borrow does not already give, at the cost of a second handle
+    /// to reason about.
     #[must_use]
     pub fn store(&self) -> &Store {
         &self.store
@@ -317,12 +318,17 @@ mod tests {
     /// A store nobody has migrated reports nothing, and migrating it is what
     /// makes it report the current version.
     ///
-    /// This is the assertion that tells migrating apart from opening. Checking
-    /// only the version *after* a migration proves nothing about the host: the
-    /// migration this test performs would supply that version on its own. What
-    /// it catches is a host that treats a freshly-opened database as a current
-    /// one, or one whose open path applied the schema on the way through and so
-    /// could never be observed in this state at all.
+    /// What this proves is about `Store`, not about the host: that
+    /// `schema_version` distinguishes a migrated database from a fresh one, and
+    /// so that the test above can tell one store from another by it. It does
+    /// not prove the host migrates — the migration here is the test's own, and
+    /// removing the one in `open_database` would leave this green. What covers
+    /// that is `tests::opening_the_database_leaves_it_migrated` in `lib.rs`,
+    /// which is the only place the host's own migration is exercised.
+    ///
+    /// Both halves are kept because the first assertion is what gives the
+    /// comparison its meaning: a store that reported `SCHEMA_VERSION` before
+    /// being migrated would make the second assertion true for the wrong reason.
     #[tokio::test]
     async fn a_store_is_only_current_once_it_has_been_migrated() {
         let state = started_over(Store::open_in_memory().await.expect("open a store")).await;

@@ -23,17 +23,21 @@ tauri = { version = "2.12.1", features = [] }
 log = "0.4"
 serde.workspace = true
 serde_json.workspace = true
+# `TrackStatus` is named in `counts_by_name`'s signature and in its test, so the
+# dependency is direct rather than reached through `tidal2ytm-store`.
+tidal2ytm-core = { path = "../crates/tidal2ytm-core" }
 tidal2ytm-ipc = { path = "../crates/tidal2ytm-ipc" }
 tidal2ytm-store = { path = "../crates/tidal2ytm-store" }
 # `sync` for the mutex that serialises a respawn. The runtime itself belongs to
 # Tauri, and the other features this crate would ask for are already enabled by
 # `tidal2ytm-ipc`; naming them here would claim a use that does not exist.
-tokio = { version = "1.53.1", features = ["sync"] }
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
-# `macros` and `rt` for `#[tokio::test]`, which `state.rs`'s tests need because
-# `AppState::start` is async and spawns a sidecar. Named here rather than
-# relied on through feature unification with `tidal2ytm-ipc`: this crate's own
-# test requirement belongs in this crate's own manifest, and a unification that
-# silently supplied it would end the day that dependency's feature list changed.
-tokio = { version = "1.53.1", features = ["macros", "rt"] }
+# `macros` and `rt` for `#[tokio::test]`, which `state.rs` and `lib.rs`'s tests
+# need because `AppState::start` and `open_database` are async. Named here
+# rather than relied on through feature unification with `tidal2ytm-ipc`: this
+# crate's own test requirement belongs in this crate's own manifest, and a
+# unification that silently supplied it would end the day that dependency's
+# feature list changed.
+tokio = { workspace = true, features = ["macros", "rt"] }

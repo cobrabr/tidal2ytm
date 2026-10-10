@@ -32,3 +32,15 @@ serde = { version = "1.0.229", features = ["derive"] }
 # wants the correctly-rounded parser too.
 serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 thiserror = "2.0.21"
+# One owner for the version, so the host's dependency and dev-dependency on it
+# cannot drift into two different tokio versions in one build — which cargo
+# would accept, and which would put two runtimes in one test binary. Each crate
+# still names the features it uses; only the version moves here.
+tokio = { version = "1.53.1", features = [
+    "io-util",
+    "macros",
+    "process",
+    "rt",
+    "sync",
+    "time",
+] }

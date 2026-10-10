@@ -233,6 +233,17 @@ jobs:
       # The host's own tests - including `state.rs`'s startup-failure contract -
       # have no other executor. `src-tauri` is outside `Cargo.toml`'s
       # `default-members`, so a bare `cargo test` never compiles it.
+      #
+      # Two of them now spawn a process, where every other test in the crate is
+      # a pure unit test: `AppState::start` starts a sidecar, so the two tests
+      # covering the store it carries need a real child that completes the
+      # handshake. The child is a Python stub resolved through
+      # `tidal2ytm_ipc::sidecar_python`, which prefers `<root>/.venv` and falls
+      # back to `python3` - and this job has no `uv sync`, so it always takes
+      # that fallback. The stub needs only `json` and `sys`, both in the standard
+      # library, so no dependency is installed for it and no step above is
+      # needed for it. `lib.rs`'s two `open_database` tests are pure: they touch a
+      # temp directory and no process.
       - run: cargo test -p tidal2ytm
 
   frontend:
