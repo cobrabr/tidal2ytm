@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tidal2ytm_ipc::{IpcError, SidecarClient, SidecarConfig};
+use tidal2ytm_store::Store;
 use tokio::sync::Mutex;
 
 /// Whether one provider has a usable cached token.
@@ -38,15 +39,26 @@ pub struct AppState {
     /// Behind a lock rather than shared immutably because a respawn replaces it.
     /// The lock doubles as the respawn serialiser: see `replace`.
     current: Mutex<Arc<SidecarClient>>,
+    /// The application's database, opened once at startup.
+    ///
+    /// Behind no lock and no `Arc`, unlike `current`, because nothing here is
+    /// ever replaced and no caller needs to compare it for identity. `Store`
+    /// reaches Tauri's managed state at all because `libsql::Connection` is
+    /// `Clone`, `Send` and `Sync` — SQLite is compiled thread-safe, so one
+    /// handle is safely usable from every command — and holding a plain field
+    /// makes that guarantee the only thing being relied on, with no second
+    /// layer of synchronisation to reason about.
+    store: Store,
 }
 
 impl AppState {
     /// Start the first sidecar and take its stderr.
-    pub async fn start(config: SidecarConfig) -> Result<Self, String> {
+    pub async fn start(config: SidecarConfig, store: Store) -> Result<Self, String> {
         let client = spawn(&config).await?;
         Ok(Self {
             config,
             current: Mutex::new(Arc::new(client)),
+            store,
         })
     }
 
@@ -54,6 +66,16 @@ impl AppState {
     pub async fn client(&self) -> Arc<SidecarClient> {
         let slot = self.current.lock().await;
         Arc::clone(&slot)
+    }
+
+    /// The database every command reads.
+    ///
+    /// Borrowed rather than cloned because `Store`'s connection is an
+    /// `Arc` inside libsql and cloning the wrapper would buy nothing a borrow
+    /// does not already give.
+    #[must_use]
+    pub fn store(&self) -> &Store {
+        &self.store
     }
 
     /// Replace a sidecar the caller has already been told is gone.
@@ -211,6 +233,18 @@ fn describe(error: &IpcError, config: &SidecarConfig) -> String {
 mod tests {
     use super::*;
     use serde_json::Value;
+    use tidal2ytm_ipc::sidecar_python;
+    use tidal2ytm_store::SCHEMA_VERSION;
+
+    /// The repository root, derived from this crate's manifest so the tests do
+    /// not depend on the working directory cargo happened to choose.
+    fn repo_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(1)
+            .expect("the host crate lives one level below the workspace root")
+            .to_path_buf()
+    }
 
     /// The canonical `auth.status` answer, read rather than restated.
     /// `contracts/auth_status.json` is the one place the cross-language shape is
@@ -219,15 +253,93 @@ mod tests {
     /// pointing at production code, and whoever made the change would have no
     /// way to guess the copy exists.
     fn contract() -> Value {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(1)
-            .expect("the host crate lives one level below the workspace root")
-            .join("contracts")
-            .join("auth_status.json");
+        let path = repo_root().join("contracts").join("auth_status.json");
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
         serde_json::from_str(&text).expect("the contract parses")
+    }
+
+    /// A sidecar that handshook, so `AppState::start` gets far enough to be
+    /// about the store rather than about the child.
+    ///
+    /// The stub's handshake is read from `contracts/hello.json` for the same
+    /// reason `contract()` reads the other one: a literal typed here would keep
+    /// passing after the handshake it claims to honour had moved on.
+    fn stub_config() -> SidecarConfig {
+        let hello = {
+            let path = repo_root().join("contracts").join("hello.json");
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            let value: Value = serde_json::from_str(&text)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+            // `Value`'s `Display` is compact JSON and the hello contract holds
+            // strings and integers only, so the formatted value doubles as a
+            // valid Python dict literal.
+            format!(
+                "import json,sys\nprint(json.dumps({value}), flush=True)\n\
+                 for _ in sys.stdin:\n    pass\n"
+            )
+        };
+        SidecarConfig {
+            program: sidecar_python(&repo_root()),
+            args: vec!["-c".to_string(), hello],
+            cwd: std::env::temp_dir(),
+            env: Vec::new(),
+            handshake_timeout: std::time::Duration::from_secs(20),
+        }
+    }
+
+    async fn started_over(store: Store) -> AppState {
+        AppState::start(stub_config(), store)
+            .await
+            .unwrap_or_else(|e| panic!("the stub sidecar starts: {e}"))
+    }
+
+    /// The store `AppState` was handed is the one its commands read.
+    ///
+    /// Identity, not mere existence: a `store()` that opened a database of its
+    /// own would still hand back a working `Store`. What separates them is that
+    /// the store passed in was migrated first, so only *it* reports a version —
+    /// a fresh one reports nothing at all.
+    #[tokio::test]
+    async fn the_state_hands_back_the_store_it_was_given() {
+        let store = Store::open_in_memory().await.expect("open a store");
+        store.migrate().await.expect("migrate");
+        let state = started_over(store).await;
+
+        assert_eq!(
+            state.store().schema_version().await.expect("version"),
+            SCHEMA_VERSION,
+            "store() returned a database other than the one AppState was given"
+        );
+    }
+
+    /// A store nobody has migrated reports nothing, and migrating it is what
+    /// makes it report the current version.
+    ///
+    /// This is the assertion that tells migrating apart from opening. Checking
+    /// only the version *after* a migration proves nothing about the host: the
+    /// migration this test performs would supply that version on its own. What
+    /// it catches is a host that treats a freshly-opened database as a current
+    /// one, or one whose open path applied the schema on the way through and so
+    /// could never be observed in this state at all.
+    #[tokio::test]
+    async fn a_store_is_only_current_once_it_has_been_migrated() {
+        let state = started_over(Store::open_in_memory().await.expect("open a store")).await;
+        let store = state.store();
+
+        assert_eq!(
+            store.schema_version().await.expect("version"),
+            0,
+            "a store nobody migrated must not already claim to be current"
+        );
+
+        store.migrate().await.expect("migrate");
+
+        assert_eq!(
+            store.schema_version().await.expect("version"),
+            SCHEMA_VERSION
+        );
     }
 
     fn keys_of<'a>(value: &'a Value, what: &str) -> std::collections::BTreeSet<&'a str> {

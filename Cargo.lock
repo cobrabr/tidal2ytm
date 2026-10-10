@@ -3430,6 +3430,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tidal2ytm-ipc",
+ "tidal2ytm-store",
  "tokio",
 ]
 

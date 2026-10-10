@@ -10,10 +10,12 @@ pub mod logging;
 pub mod sidecar_path;
 pub mod state;
 
+use std::path::Path;
 use std::time::Duration;
 
 use tauri::Manager;
 use tidal2ytm_ipc::{SidecarConfig, log_level_env};
+use tidal2ytm_store::Store;
 
 use state::AppState;
 
@@ -22,6 +24,30 @@ use state::AppState;
 /// instead of a window that opens and then quietly fails every request, so this
 /// is not something to shorten or skip.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// The database's file name inside the directory the sidecar runs in.
+const DATABASE_FILE: &str = "tidal2ytm.db";
+
+/// Open the database and bring its schema up to date, or say where it is.
+///
+/// Both halves name the file, because a bare "the database could not be opened"
+/// sends a reader looking through the source tree for something that is not
+/// there. The schema-version refusal in particular already carries both version
+/// numbers in its own message, and replacing that with anything vaguer would
+/// throw away the one fact that says which build wrote the file.
+async fn open_database(cwd: &Path) -> Result<Store, String> {
+    let path = cwd.join(DATABASE_FILE);
+    let store = Store::open(&path)
+        .await
+        .map_err(|error| format!("could not open the database at {}: {error}", path.display()))?;
+    store.migrate().await.map_err(|error| {
+        format!(
+            "could not migrate the database at {}: {error}",
+            path.display()
+        )
+    })?;
+    Ok(store)
+}
 
 /// Start the sidecar, supervise it, and expose the commands.
 pub fn run() {
@@ -53,6 +79,22 @@ pub fn run() {
                     cwd.display()
                 )
             })?;
+            // After `create_dir_all`, and from the same `cwd`: the database goes
+            // beside the sidecar's working directory rather than wherever a
+            // second `app_data_dir()` call would have put it, so the two are
+            // provably one directory and a token cache written by the sidecar
+            // and a row written by the host cannot drift apart. The directory
+            // has to exist first for the sidecar's benefit, and the database
+            // lands in it for the same reason.
+            //
+            // Here and not in `main()` because `main()` alone is an entry point
+            // that can lose everything the process is complaining about: the
+            // failure this reports is the reason the log file exists, and a
+            // start-up error raised before the sink is installed is exactly the
+            // one nobody can read. That is the same argument that puts
+            // `install_debug_logger` here rather than in `main()`.
+            let store = tauri::async_runtime::block_on(open_database(&cwd))
+                .inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
             let config = SidecarConfig {
                 program: launch.program.clone(),
                 args: launch.args.clone(),
@@ -64,12 +106,16 @@ pub fn run() {
                 .concat(),
                 handshake_timeout: STARTUP_TIMEOUT,
             };
-            let state = tauri::async_runtime::block_on(AppState::start(config))
+            let state = tauri::async_runtime::block_on(AppState::start(config, store))
                 .inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
             app.manage(state);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::get_auth_status])
+        .invoke_handler(tauri::generate_handler![
+            commands::get_auth_status,
+            commands::get_status_counts,
+            commands::get_schema_version
+        ])
         .build(tauri::generate_context!())
         .expect("the Tauri application builds");
 

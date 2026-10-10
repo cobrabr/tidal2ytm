@@ -4,6 +4,7 @@
 //! result is either a plain value or a string the UI can show. No business rule
 //! lives here — that is what the domain core is for.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -22,6 +23,52 @@ pub async fn get_auth_status(state: State<'_, AppState>) -> Result<AuthStatus, S
     let data = call(&state, "auth.status", AUTH_STATUS_TIMEOUT).await?;
     serde_json::from_value::<AuthStatus>(data)
         .map_err(|e| format!("the sidecar returned an auth status this build cannot read: {e}"))
+}
+
+/// How many tracks sit in each status.
+///
+/// Reads the database directly rather than going through `call`, because the
+/// sidecar is not involved at all: retrying on `SidecarLost` would be a respawn
+/// of a process whose answer never depended on it.
+///
+/// Both this and `get_schema_version` surface a `StoreError` through its own
+/// `Display` and add nothing around it. `UnknownSchemaVersion` is the case that
+/// decides this: naming both the version on disk and the one this build knows
+/// *is* the diagnosis, so a wrapper like "the database could not be read" would
+/// throw both numbers away and send the reader to the schema instead of to the
+/// two numbers that disagree.
+///
+/// The keys cross the wire as the persisted status strings rather than as Rust
+/// variants, because `as_str` is the one owner of what a status is written as —
+/// the same literals the `CHECK` constraint in the schema permits — and a second
+/// copy of that vocabulary here is a second thing to forget to update.
+#[tauri::command]
+pub async fn get_status_counts(
+    state: State<'_, AppState>,
+) -> Result<BTreeMap<String, i64>, String> {
+    let counts = state
+        .store()
+        .status_counts()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(counts
+        .into_iter()
+        .map(|(status, count)| (status.as_str().to_string(), count))
+        .collect())
+}
+
+/// Which schema version the database is at.
+///
+/// Separate from `get_status_counts` because the two answer different questions:
+/// this one is how a bug report says which build wrote the file, and a count
+/// beside it would be read as part of the same answer.
+#[tauri::command]
+pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, String> {
+    state
+        .store()
+        .schema_version()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// One round trip, with one respawn if the sidecar had already gone.
