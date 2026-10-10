@@ -1089,6 +1089,15 @@ mod tests {
         // Unique per run: a fixed name collides when the suite is run twice at
         // once, and the second run then fails in `open` for a reason that has
         // nothing to do with what it is testing.
+        //
+        // Only per *process*, not per test — this name has no test label in it,
+        // so it is safe here solely because this is the module's only user of
+        // it. libtest runs tests on parallel threads, so a second test that
+        // reused this exact path would share the directory with this one and one
+        // test's trailing `remove_dir_all` would delete the other's database
+        // mid-flight. The next test to want a scratch directory here should
+        // give it a label of its own; see `scratch_dir` in `src-tauri/src/lib.rs`
+        // for the shape, where two callers already share a helper.
         let root = std::env::temp_dir().join(format!(
             "tidal2ytm-store-open-test-{}/nested",
             std::process::id()

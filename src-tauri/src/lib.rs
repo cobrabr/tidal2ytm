@@ -147,16 +147,24 @@ mod tests {
     use super::*;
     use tidal2ytm_store::SCHEMA_VERSION;
 
-    /// A directory of this process's own, empty and gone afterwards.
+    /// A directory of this one test's own, empty and gone afterwards.
     ///
-    /// Unique per run because a fixed name collides when the suite runs twice at
-    /// once, and the second run then fails in `open` for a reason that has
-    /// nothing to do with what it is testing. Matches what
-    /// `tidal2ytm-store`'s own file-opening test does, so there is one
-    /// convention for a scratch path rather than three.
-    fn scratch_dir() -> std::path::PathBuf {
+    /// Two hazards, and the name has to answer both. Across processes: a fixed
+    /// name collides when the suite runs twice at once, and the loser then fails
+    /// in `open` for a reason that has nothing to do with what it is testing.
+    /// Across tests: libtest runs these on parallel threads and the process id
+    /// is the same for both, so a name built from it alone hands the two tests
+    /// the *same* directory — one test's trailing `remove_dir_all` then deletes
+    /// the other's database mid-flight, which surfaces as a missing file or an
+    /// unexpected `Ok` rather than as anything recognisable.
+    ///
+    /// `label` is what separates them. The process id alone is enough for
+    /// `tidal2ytm-store`'s equivalent, and that asymmetry is why the convention
+    /// was worth reading rather than copying blind: one caller has no sibling to
+    /// collide with.
+    fn scratch_dir(label: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "tidal2ytm-host-open-database-{}",
+            "tidal2ytm-host-open-database-{}-{label}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -177,7 +185,7 @@ mod tests {
     /// covers either.
     #[tokio::test]
     async fn opening_the_database_leaves_it_migrated() {
-        let dir = scratch_dir();
+        let dir = scratch_dir("migrated");
         let store = open_database(&dir).await.expect("open_database");
 
         assert_eq!(
@@ -204,7 +212,7 @@ mod tests {
     /// `open` rather than in `migrate` — the half whose message is checked.
     #[tokio::test]
     async fn a_failure_names_the_database_it_could_not_use() {
-        let dir = scratch_dir();
+        let dir = scratch_dir("named");
         let blocked = dir.join("not-a-directory");
         std::fs::write(&blocked, b"").expect("the blocking file is writable");
         let wanted = blocked.join(DATABASE_FILE);
