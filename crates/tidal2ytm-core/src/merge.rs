@@ -9,11 +9,16 @@
 //! an `album_slug`.
 //!
 //! `to_lowercase` stands in for Python's `str.casefold` in the selection sort
-//! key. The two agree on most names but diverge on case-folding special cases,
-//! where full folding expands where a simple lowercase mapping does not: `ß`
-//! (→ `ss`), the `ﬁ` ligature (→ `fi`), a final sigma (`ς` → `σ`), and several
-//! hundred further code points concentrated in Cherokee, Greek Extended and
-//! Adlam. That deviation is accepted here once rather than repeated per call.
+//! key. `casefold` performs full case folding, which includes one-to-many
+//! expansions, while `to_lowercase` performs a simple one-to-one lowercase
+//! mapping, so the two differ on a few hundred code points. The largest group
+//! is scripts where `casefold` leaves a character unchanged but `to_lowercase`
+//! maps it to a different codepoint; `ß` (→ `ss`) and the `ﬁ` ligature
+//! (→ `fi`) are the one-to-many expansions. That deviation is accepted here
+//! once rather than repeated per call site, and it is unreachable in the
+//! corpus: the album titles are ASCII, so the divergence needs non-ASCII input,
+//! while a production title in one of those scripts would sort differently in
+//! Rust than in Python.
 
 use std::collections::BTreeMap;
 
