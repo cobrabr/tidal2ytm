@@ -70,6 +70,39 @@ def test_a_payload_with_no_artist_names_yields_an_empty_list() -> None:
     assert envelope.normalize_candidates([{"videoId": "kQ7bZ3p1XtA"}])[0]["artists"] == []
 
 
+# The same absence on an album is a bare string, not a list, because
+# `AlbumSummary.artist` is not an `Option`. Deviation 3 collapsed the list to
+# one name, and this is the shape that collapse can produce a stray value in:
+# `""` is the only honest answer, since any name here would be compared against
+# the source artist as if the album had one.
+def test_an_album_with_no_artist_names_yields_an_empty_name() -> None:
+    assert envelope.normalize_album_summaries([{"browseId": "MPREb_00000042"}])[0]["artist"] == ""
+
+
+# `_text` coerces with `str()`, which on a dict or a list produces a Python
+# repr. That is fine for a title, which is similarity-compared, and wrong for an
+# identifier: a repr would cross the boundary and then fail the host's
+# `is_video_id` carrying the corruption and nothing about where it came from.
+def test_a_non_string_identifier_is_refused_rather_than_coerced() -> None:
+    malformed = {"videoId": {"nested": 1}, "browseId": ["MPREb_00000042"]}
+    assert envelope.normalize_candidates([malformed])[0]["video_id"] == ""
+    assert envelope.normalize_album_summaries([malformed])[0]["album_id"] == ""
+
+
+# The counterpart, so the refusal above cannot be satisfied by refusing
+# everything: a real identifier is a string and passes through untouched, and a
+# free-text field that arrives as a number still converts the way the ported
+# scorer reads it.
+def test_a_real_identifier_passes_through_untouched() -> None:
+    normalized = envelope.normalize_candidates([_RAW_SONG])[0]
+    assert normalized["video_id"] == "kQ7bZ3p1XtA"
+    assert envelope.normalize_album_summaries([_RAW_ALBUM])[0]["album_id"] == "MPREb_00000042"
+    assert (
+        envelope.normalize_candidates([{"videoId": "kQ7bZ3p1XtA", "title": 217}])[0]["title"]
+        == "217"
+    )
+
+
 # 0 is a year the scorer would compare against, so an unreadable one has to be
 # absent rather than zero: "1970" and "we were never told" are not the same
 # album.

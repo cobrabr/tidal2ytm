@@ -47,24 +47,48 @@ def _mappings(value: object) -> list[Mapping[str, object]]:
 
 
 def _text(value: object) -> str:
-    """A YTM text field as a string, empty when absent.
+    """A YTM free-text field as a string, empty when absent.
 
-    `str()` rather than an `isinstance` check because the ported scorer reads
-    these the same way, and a field that arrives as a number would otherwise be
-    dropped by a check the Python never made.
+    `str()` rather than an `isinstance` check, because `title`, `album` and
+    `artist` are similarity-compared rather than matched against a known shape,
+    and the ported scorer reads them the same way — a field that arrives as a
+    number would otherwise be dropped by a check the Python never made. An
+    identifier is the opposite case and goes through `_identifier`.
     """
     return "" if value is None else str(value)
+
+
+def _identifier(value: object) -> str:
+    """A YTM identifier as a string, empty when absent or not a string.
+
+    Refused rather than coerced, and the reason is that `str()` on a dict or a
+    list produces a Python repr: a `videoId` that arrived malformed would cross
+    the boundary as `"{'a': 1}"` and then fail the host's `is_video_id` with
+    that repr as its message, naming the corruption and nothing about where it
+    came from. An empty string fails the same check with an honest reason, which
+    is the whole point of doing this at the boundary.
+    """
+    return value if isinstance(value, str) else ""
 
 
 def _optional_int(value: object) -> int | None:
     """A YTM numeric field as an integer, or `None` when it is not one.
 
-    `None` and never `0`, because both callers compare the value rather than
-    test it for presence: `_album_meta_score` would score "1970" and "we were
-    never told" identically, and `duration_ok` would treat second 0 as a real
-    duration. A bool is refused because `bool` is an `int` in Python, and
-    reading it as year 1 or second 1 turns a fact about the payload into a fact
-    about the catalogue.
+    `None` and never `0`, because both callers give the two different answers
+    and `0` is the one that reads as a fact about the catalogue:
+
+    * `_album_meta_score` starts `year_score` at the neutral `0.5` and only
+      replaces it when the year parses, so an absent year is "no information"
+      while `0` collapses to `1.0 / (1.0 + album_year)` — indistinguishable
+      from a real album released in year zero, and it drags the album's whole
+      score down with it.
+    * `duration_ok` branches on `candidate_sec is None` explicitly and returns
+      `False`. Second `0` skips that branch and becomes a duration, so an
+      unreadable one would be compared against the source like any other.
+
+    A bool is refused because `bool` is an `int` in Python, and reading it as
+    year 1 or second 1 turns a fact about the payload into a fact about the
+    catalogue — the same failure, reached by a different route.
     """
     if value is None or isinstance(value, bool):
         return None
@@ -107,7 +131,7 @@ def _mapping(value: object) -> Mapping[str, object]:
 def _candidate(raw: Mapping[str, object]) -> dict[str, object]:
     album = _mapping(raw.get("album"))
     return {
-        "video_id": _text(raw.get("videoId")),
+        "video_id": _identifier(raw.get("videoId")),
         "title": _text(raw.get("title")),
         "artists": _artist_names(raw),
         "album": _text(album.get("name")) or None,
@@ -119,7 +143,7 @@ def _candidate(raw: Mapping[str, object]) -> dict[str, object]:
 def _album_summary(raw: Mapping[str, object]) -> dict[str, object]:
     names = _artist_names(raw)
     return {
-        "album_id": _text(raw.get("browseId")),
+        "album_id": _identifier(raw.get("browseId")),
         "title": _text(raw.get("title")),
         # One name where the Python takes a maximum over the whole list: this is
         # deviation 3 from the design spec's letter, so multi-artist album
