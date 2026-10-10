@@ -130,19 +130,15 @@ pub fn sibling_year(sib: Option<i64>, parent: Option<i64>) -> Option<i64> {
 ///
 /// A sibling ranks through the same scorer as a search hit, so it needs the
 /// same shape; the fallbacks are why this function exists in Python and why it
-/// has to keep existing after the cut. The title, artist and year fall back the
-/// way Python's `_sibling_entry` does. The id falls back here but not in
-/// Python, which takes the sibling's id alone; that difference is unreachable,
-/// because `_harvest_sibling_candidates` filters on a non-empty `browseId`, so a
-/// sibling that reaches this function always has its own id.
+/// has to keep existing after the cut. The title, artist and year fall back to
+/// the parent's when the sibling's is absent, matching Python's
+/// `_sibling_entry`. The id never falls back: `album_id` identifies the album,
+/// so taking the parent's would make the sibling claim to be its parent. Python
+/// takes the sibling's own id unconditionally.
 #[must_use]
 pub fn sibling_entry(parent: &AlbumSummary, sib: &AlbumSummary) -> AlbumSummary {
     AlbumSummary {
-        album_id: if sib.album_id.is_empty() {
-            parent.album_id.clone()
-        } else {
-            sib.album_id.clone()
-        },
+        album_id: sib.album_id.clone(),
         title: if sib.title.is_empty() {
             parent.title.clone()
         } else {
@@ -448,5 +444,16 @@ mod tests {
         // second inside the margin is not.
         assert!(!album_abstains(&[(ALBUM_CERTAIN_THRESHOLD, 0), (0.9, 1)]));
         assert!(album_abstains(&[(0.94, 0), (0.91, 1)]));
+    }
+
+    #[test]
+    fn the_margin_test_is_strict_at_exactly_one_epsilon() {
+        // Python's condition is `top - second < ALBUM_MARGIN_EPS`, so a gap of
+        // exactly one epsilon must not abstain and a gap just under it must.
+        // The top stays below `ALBUM_CERTAIN_THRESHOLD` so the margin alone
+        // decides; `0.05 - 0.0` is exactly `ALBUM_MARGIN_EPS`, while
+        // `0.5 - 0.45` lands just below it.
+        assert!(!album_abstains(&[(ALBUM_MARGIN_EPS, 0), (0.0, 1)]));
+        assert!(album_abstains(&[(0.5, 0), (0.45, 1)]));
     }
 }
