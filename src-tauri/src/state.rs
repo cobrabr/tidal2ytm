@@ -41,13 +41,13 @@ pub struct AppState {
     current: Mutex<Arc<SidecarClient>>,
     /// The application's database, opened once at startup.
     ///
-    /// Behind no lock and no `Arc`, unlike `current`, because nothing here is
-    /// ever replaced and no caller needs to compare it for identity. `Store`
-    /// reaches Tauri's managed state at all because `libsql::Connection` is
-    /// `Clone`, `Send` and `Sync` — SQLite is compiled thread-safe, so one
-    /// handle is safely usable from every command — and holding a plain field
-    /// makes that guarantee the only thing being relied on, with no second
-    /// layer of synchronisation to reason about.
+    /// Behind no lock and no `Arc` of its own, unlike `current`, because nothing
+    /// here is ever replaced and no caller needs to compare it for identity.
+    /// `Store` reaches Tauri's managed state as a plain field because it carries
+    /// its own synchronisation: `rusqlite::Connection` is `Send` but not `Sync`,
+    /// so `Store` holds it behind a `std::sync::Mutex` and is `Sync` itself.
+    /// Holding a plain field here makes that one internal lock the only thing
+    /// being relied on, with no second layer of synchronisation to reason about.
     store: Store,
 }
 
@@ -70,10 +70,10 @@ impl AppState {
 
     /// The database every command reads.
     ///
-    /// Borrowed rather than cloned: `libsql::Connection` derives `Clone` over a
-    /// raw pointer plus two `Arc`s, so a clone is cheap and buys a caller
-    /// nothing a borrow does not already give, at the cost of a second handle
-    /// to reason about.
+    /// Borrowed rather than cloned: one `Store` owns the process's one database
+    /// connection, and a clone would be a second owner of that connection rather
+    /// than a second way to reach it. Every operation locks the same mutex
+    /// inside this borrow, so callers share the handle without sharing a lock.
     #[must_use]
     pub fn store(&self) -> &Store {
         &self.store
@@ -304,12 +304,12 @@ mod tests {
     /// a fresh one reports nothing at all.
     #[tokio::test]
     async fn the_state_hands_back_the_store_it_was_given() {
-        let store = Store::open_in_memory().await.expect("open a store");
-        store.migrate().await.expect("migrate");
+        let store = Store::open_in_memory().expect("open a store");
+        store.migrate().expect("migrate");
         let state = started_over(store).await;
 
         assert_eq!(
-            state.store().schema_version().await.expect("version"),
+            state.store().schema_version().expect("version"),
             SCHEMA_VERSION,
             "store() returned a database other than the one AppState was given"
         );
@@ -331,21 +331,18 @@ mod tests {
     /// being migrated would make the second assertion true for the wrong reason.
     #[tokio::test]
     async fn a_store_is_only_current_once_it_has_been_migrated() {
-        let state = started_over(Store::open_in_memory().await.expect("open a store")).await;
+        let state = started_over(Store::open_in_memory().expect("open a store")).await;
         let store = state.store();
 
         assert_eq!(
-            store.schema_version().await.expect("version"),
+            store.schema_version().expect("version"),
             0,
             "a store nobody migrated must not already claim to be current"
         );
 
-        store.migrate().await.expect("migrate");
+        store.migrate().expect("migrate");
 
-        assert_eq!(
-            store.schema_version().await.expect("version"),
-            SCHEMA_VERSION
-        );
+        assert_eq!(store.schema_version().expect("version"), SCHEMA_VERSION);
     }
 
     fn keys_of<'a>(value: &'a Value, what: &str) -> std::collections::BTreeSet<&'a str> {

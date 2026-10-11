@@ -8,16 +8,19 @@ publish.workspace = true
 description = "Schema, migrations and every SQL statement for tidal2ytm. No Tauri."
 
 [dependencies]
-# libsql's default feature set is `[core, replication, remote, sync, tls]`, which
-# drags the whole Turso network stack — hrana over HTTP, tonic/gRPC replication,
-# hyper, rustls — into a single-user desktop application that never contacts a
-# server. `core` is the embedded SQLite engine alone, which is all this crate
-# uses. Narrowing it also keeps the feature set honest: nothing here can reach a
-# remote database, so a future change that tried would fail to compile rather
-# than ship a network path nobody reviewed.
-libsql = { version = "0.9.30", default-features = false, features = ["core"] }
+# rusqlite is a binding to stock SQLite, and `bundled` compiles SQLite itself
+# rather than linking the system's copy, so the engine this crate is tested
+# against is the one that ships with it. The previous dependency was libsql,
+# which bundled its own SQLite too — and that build read a wild heap pointer
+# inside `sqlite3ExprCodeTarget` under concurrent multi-connection use, killing
+# the test process with `STATUS_ACCESS_VIOLATION` about one run in four, where
+# the identical workload against stock SQLite faulted in none of 40 runs.
+#
+# The cost is Turso's remote sync protocol, which this crate never used: it
+# opens one local file and is the application's sole writer. Nothing here can
+# reach a hosted database, so a change that tried would fail to compile rather
+# than ship a network path nobody reviewed — the same property the narrowing
+# used to buy, arrived at by substitution rather than by a feature list.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 thiserror.workspace = true
 tidal2ytm-core = { path = "../tidal2ytm-core" }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }

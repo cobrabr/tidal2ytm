@@ -47,11 +47,7 @@ pub async fn get_auth_status(state: State<'_, AppState>) -> Result<AuthStatus, S
 pub async fn get_status_counts(
     state: State<'_, AppState>,
 ) -> Result<BTreeMap<String, i64>, String> {
-    let counts = state
-        .store()
-        .status_counts()
-        .await
-        .map_err(|e| e.to_string())?;
+    let counts = state.store().status_counts().map_err(|e| e.to_string())?;
     Ok(counts_by_name(counts))
 }
 
@@ -76,11 +72,7 @@ fn counts_by_name(counts: BTreeMap<TrackStatus, i64>) -> BTreeMap<String, i64> {
 /// beside it would be read as part of the same answer.
 #[tauri::command]
 pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, String> {
-    state
-        .store()
-        .schema_version()
-        .await
-        .map_err(|e| e.to_string())
+    state.store().schema_version().map_err(|e| e.to_string())
 }
 
 /// One round trip, with one respawn if the sidecar had already gone.

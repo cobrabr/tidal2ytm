@@ -100,17 +100,15 @@ fn track_row(
     }
 }
 
-#[tokio::test]
-async fn a_transferred_track_survives_a_rematch_until_an_override_moves_it() {
-    let store = Store::open_in_memory().await.expect("open a store");
-    store.migrate().await.expect("migrate");
+#[test]
+fn a_transferred_track_survives_a_rematch_until_an_override_moves_it() {
+    let store = Store::open_in_memory().expect("open a store");
+    store.migrate().expect("migrate");
     let artist = store
         .upsert_artist("Fictional Artist", "fictional artist")
-        .await
         .expect("artist");
     let album = store
         .upsert_album(artist, "Fictional Album", "fictional album", Some(2024))
-        .await
         .expect("album");
 
     // A fresh match, decided and written with the decision's method.
@@ -120,22 +118,20 @@ async fn a_transferred_track_survives_a_rematch_until_an_override_moves_it() {
     assert_eq!(decision.match_method, MatchMethod::Fuzzy);
     let id = store
         .upsert_track(&track_row(album, &decision, ORIGINAL_VIDEO))
-        .await
         .expect("track");
     // `upsert_track` inserts every new row as `pending` and skips the status
     // column; the method it stores is the decision's, which is asserted above.
     assert_eq!(
-        store.status_counts().await.expect("counts"),
+        store.status_counts().expect("counts"),
         BTreeMap::from([(TrackStatus::Pending, 1)])
     );
 
     // The track transfers.
     store
         .write_status(id, TrackStatus::Transferred, None)
-        .await
         .expect("transferred");
     assert_eq!(
-        store.status_counts().await.expect("counts"),
+        store.status_counts().expect("counts"),
         BTreeMap::from([(TrackStatus::Transferred, 1)])
     );
 
@@ -155,11 +151,10 @@ async fn a_transferred_track_survives_a_rematch_until_an_override_moves_it() {
     // cannot move the row, and the refusal leaves it exactly where it was.
     let refused = store
         .write_status(id, rematch.status, None)
-        .await
         .expect_err("a transferred row must not move without an override");
     assert!(matches!(refused, StoreError::TransferredIsSacred { track_id } if track_id == id));
     assert_eq!(
-        store.status_counts().await.expect("counts"),
+        store.status_counts().expect("counts"),
         BTreeMap::from([(TrackStatus::Transferred, 1)])
     );
 
@@ -175,10 +170,9 @@ async fn a_transferred_track_survives_a_rematch_until_an_override_moves_it() {
                 outcome: "already_present".to_string(),
             }),
         )
-        .await
         .expect("override");
     assert_eq!(
-        store.status_counts().await.expect("counts"),
+        store.status_counts().expect("counts"),
         BTreeMap::from([(TrackStatus::Pending, 1)])
     );
 }

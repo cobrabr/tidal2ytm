@@ -35,12 +35,11 @@ const DATABASE_FILE: &str = "tidal2ytm.db";
 /// there. The schema-version refusal in particular already carries both version
 /// numbers in its own message, and replacing that with anything vaguer would
 /// throw away the one fact that says which build wrote the file.
-async fn open_database(cwd: &Path) -> Result<Store, String> {
+fn open_database(cwd: &Path) -> Result<Store, String> {
     let path = cwd.join(DATABASE_FILE);
     let store = Store::open(&path)
-        .await
         .map_err(|error| format!("could not open the database at {}: {error}", path.display()))?;
-    store.migrate().await.map_err(|error| {
+    store.migrate().map_err(|error| {
         format!(
             "could not migrate the database at {}: {error}",
             path.display()
@@ -97,8 +96,8 @@ pub fn run() {
             // start-up error raised before the sink is installed is exactly the
             // one nobody can read. That is the same argument that puts
             // `install_debug_logger` here rather than in `main()`.
-            let store = tauri::async_runtime::block_on(open_database(&cwd))
-                .inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
+            let store =
+                open_database(&cwd).inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
             let config = SidecarConfig {
                 program: launch.program.clone(),
                 args: launch.args.clone(),
@@ -183,13 +182,13 @@ mod tests {
     /// call, or pointing `DATABASE_FILE` somewhere the schema does not land,
     /// turns this red — which is the point, since nothing else in the crate
     /// covers either.
-    #[tokio::test]
-    async fn opening_the_database_leaves_it_migrated() {
+    #[test]
+    fn opening_the_database_leaves_it_migrated() {
         let dir = scratch_dir("migrated");
-        let store = open_database(&dir).await.expect("open_database");
+        let store = open_database(&dir).expect("open_database");
 
         assert_eq!(
-            store.schema_version().await.expect("version"),
+            store.schema_version().expect("version"),
             SCHEMA_VERSION,
             "open_database returned a database it did not migrate"
         );
@@ -210,8 +209,8 @@ mod tests {
     /// rewording. The failure is provoked by pointing the function at a *file*,
     /// because a path whose parent is a file cannot be created and so fails in
     /// `open` rather than in `migrate` — the half whose message is checked.
-    #[tokio::test]
-    async fn a_failure_names_the_database_it_could_not_use() {
+    #[test]
+    fn a_failure_names_the_database_it_could_not_use() {
         let dir = scratch_dir("named");
         let blocked = dir.join("not-a-directory");
         std::fs::write(&blocked, b"").expect("the blocking file is writable");
@@ -222,7 +221,7 @@ mod tests {
         // Matching on `Err` instead reads the same and asserts more precisely:
         // the success case is left unhandled rather than asserted to be
         // unreachable.
-        let message = match open_database(&blocked).await {
+        let message = match open_database(&blocked) {
             Ok(_) => panic!("a path whose parent is a file cannot hold a database"),
             Err(message) => message,
         };
