@@ -10,16 +10,7 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-/// `str.strip()`'s whitespace set.
-///
-/// `char::is_whitespace` is Unicode's `White_Space`, which Python's
-/// `str.isspace()` — and so `str.strip()` — exceeds by the four ASCII
-/// separators `U+001C`–`U+001F`. Where the two disagree Python deletes a
-/// character this would keep, and a kept `U+001C` inside a qualifier is a
-/// qualifier that can match nothing.
-fn is_python_strippable(c: char) -> bool {
-    c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
-}
+use crate::text::is_python_space;
 
 /// The spans `[\(\[](.*?)[\)\]]` matches in `text`, left to right and
 /// non-overlapping.
@@ -85,15 +76,12 @@ pub fn split_base_qualifiers(text: &str) -> (String, Vec<String>) {
     // which is not a thing a title puts inside brackets.
     let qualifiers: Vec<String> = spans
         .iter()
-        .map(|span| text[span.start + 1..span.end - 1].trim_matches(is_python_strippable))
+        .map(|span| text[span.start + 1..span.end - 1].trim_matches(is_python_space))
         .map(str::to_lowercase)
         .filter(|qualifier| !qualifier.is_empty())
         .collect();
 
-    (
-        base.trim_matches(is_python_strippable).to_string(),
-        qualifiers,
-    )
+    (base.trim_matches(is_python_space).to_string(), qualifiers)
 }
 
 /// How alike two qualifier sets are, in `[0.4, 1.0]`.

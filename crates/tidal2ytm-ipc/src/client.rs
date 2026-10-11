@@ -63,6 +63,10 @@ use crate::protocol::{
 /// defaulted, so a typo in the GUI selector surfaces immediately.
 pub const LOG_LEVELS: &[&str] = &["OFF", "CRITICAL", "ERROR", "WARN", "INFO", "DEBUG"];
 
+/// Keeps a console-subsystem child from getting a console window.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// Validate a level name and return `(canonical_name, env_value)` to hand the
 /// sidecar at spawn.
 pub fn log_level_env(level: &str) -> Result<(&'static str, String), IpcError> {
@@ -171,6 +175,14 @@ impl SidecarClient {
         for (key, value) in &config.env {
             command.env(key, value);
         }
+
+        // The sidecar is built as a console executable (`console=True` in
+        // `sidecar/tidal2ytm-sidecar.spec`, because a windowed build diverts the
+        // stdout the NDJSON protocol runs on). Without this flag Windows
+        // allocates a console for the child and shows it; the flag suppresses
+        // the console only and leaves the stdio pipes above untouched.
+        #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
 
         let mut child = command.spawn().map_err(|e| IpcError::Spawn {
             message: e.to_string(),

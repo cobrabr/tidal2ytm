@@ -132,7 +132,13 @@ pub fn decide_status(result: &MatchResult, existing: Option<&ExistingMatch>) -> 
         other => other,
     };
 
-    let has_video = result.yt_video_id.is_some();
+    // An empty id is not a video. `Some("")` is a state the sidecar's
+    // normalisers can produce, and counting it as a video would let the track be
+    // classified `Pending` and queued for transfer with nothing to transfer.
+    let has_video = result
+        .yt_video_id
+        .as_deref()
+        .is_some_and(|value| !value.is_empty());
     let below_threshold = result.confidence.overall < CONFIDENCE_THRESHOLD;
     let status = if !has_video || below_threshold || wrong_album {
         TrackStatus::NeedsReview
@@ -198,4 +204,64 @@ fn sort_key(track: &SourceTrack) -> SortKey {
         track.disc_num,
         track.track_num,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::ConfidenceBreakdown;
+
+    fn source() -> SourceTrack {
+        SourceTrack {
+            tidal_id: 100_001,
+            title: "Aurora Drift".to_string(),
+            artist: "Halcyon Bay".to_string(),
+            artists: vec!["Halcyon Bay".to_string()],
+            album: "Northern Signal".to_string(),
+            album_id: 200_001,
+            album_year: Some(2019),
+            duration_sec: 200,
+            track_num: 3,
+            disc_num: 1,
+            version: None,
+        }
+    }
+
+    /// A result that clears every other gate — the confidence is above the
+    /// threshold and the album is not flagged wrong — so only the video id can
+    /// decide the status.
+    fn confident_result(video_id: Option<&str>) -> MatchResult {
+        MatchResult {
+            source: source(),
+            yt_video_id: video_id.map(str::to_string),
+            yt_title: None,
+            yt_artist: None,
+            yt_album: None,
+            yt_album_track_num: None,
+            yt_duration_sec: None,
+            match_method: MatchMethod::Fuzzy,
+            confidence: ConfidenceBreakdown {
+                overall: 0.9,
+                title_similarity: None,
+                artist_similarity: None,
+                album_similarity: Some(1.0),
+                duration_delta_sec: None,
+                version_similarity: None,
+                track_num_match: None,
+                album_coherence: None,
+                summary: None,
+            },
+            status: TrackStatus::Pending,
+            review_reason: None,
+        }
+    }
+
+    #[test]
+    fn an_empty_video_id_is_no_video_and_needs_review() {
+        // An empty id is reachable from the sidecar's normalisers, and counting
+        // it as a video queues the track for transfer with nothing to transfer.
+        // Every other gate passes here, so only the empty id can force review.
+        let decision = decide_status(&confident_result(Some("")), None);
+        assert_eq!(decision.status, TrackStatus::NeedsReview);
+    }
 }

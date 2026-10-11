@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::candidate::{AlbumDetail, AlbumSummary, Candidate};
 use crate::model::{ConfidenceBreakdown, MatchMethod, MatchResult, SourceTrack, TrackStatus};
-use crate::text::similarity;
+use crate::text::{is_python_space, similarity};
 use crate::track_scoring::{TrackFit, duration_ok, score_track_fit};
 use crate::version_tokens::split_base_qualifiers;
 
@@ -64,13 +64,19 @@ pub fn version_term(source_quals: &[String], cand_quals: &[String]) -> f64 {
     if source_quals.is_empty() || cand_quals.is_empty() {
         return 0.0;
     }
+    // Python's `str.split()` splits on `str.isspace()`, so a `U+001C`–`U+001F`
+    // inside a qualifier is a separator there and not in Rust's
+    // `split_whitespace`. `slice::split` does not coalesce runs or drop the ends,
+    // so the empties it leaves between adjacent separators are filtered out.
     let source_words: BTreeSet<&str> = source_quals
         .iter()
-        .flat_map(|qualifier| qualifier.split_whitespace())
+        .flat_map(|qualifier| qualifier.split(is_python_space))
+        .filter(|word| !word.is_empty())
         .collect();
     let cand_words: BTreeSet<&str> = cand_quals
         .iter()
-        .flat_map(|qualifier| qualifier.split_whitespace())
+        .flat_map(|qualifier| qualifier.split(is_python_space))
+        .filter(|word| !word.is_empty())
         .collect();
     if source_words == cand_words {
         return 1.0;
@@ -172,7 +178,8 @@ pub fn dedupe_details(details: &[(AlbumSummary, AlbumDetail)]) -> Vec<usize> {
             .title
             .to_lowercase()
             .replace('&', " and ")
-            .split_whitespace()
+            .split(is_python_space)
+            .filter(|word| !word.is_empty())
             .collect::<Vec<_>>()
             .join(" ");
         // Deviation 3: Python's `_candidate_artist_names` reads a candidate's
@@ -480,5 +487,24 @@ mod tests {
         // `0.5 - 0.45` lands just below it.
         assert!(!album_abstains(&[(ALBUM_MARGIN_EPS, 0), (0.0, 1)]));
         assert!(album_abstains(&[(0.5, 0), (0.45, 1)]));
+    }
+
+    #[test]
+    fn qualifiers_split_on_pythons_isspace_set() {
+        // Python's `str.split()` splits on `str.isspace()`, which includes the
+        // four ASCII separators `U+001C`–`U+001F` that Rust's `split_whitespace`
+        // misses. A qualifier using `U+001C` as its word separator must yield the
+        // same word set Python would — full agreement here — and a run of them
+        // must coalesce rather than leave empty words behind.
+        let separated = version_term(
+            &["deluxe\u{1c}version".to_string()],
+            &["deluxe".to_string(), "version".to_string()],
+        );
+        let coalesced = version_term(
+            &["deluxe\u{1c}\u{1c}version".to_string()],
+            &["deluxe".to_string(), "version".to_string()],
+        );
+        assert_eq!(separated, 1.0);
+        assert_eq!(coalesced, 1.0);
     }
 }

@@ -26,6 +26,23 @@ fn survives_the_alnum_filter(c: char) -> bool {
     c.is_ascii_lowercase() || c.is_ascii_digit() || PYTHON_ASCII_WHITESPACE.contains(&c)
 }
 
+/// Python's `str.isspace()` set: Unicode's `White_Space` plus the four ASCII
+/// separators `U+001C`–`U+001F`.
+///
+/// `char::is_whitespace` is Unicode `White_Space`, which Python's `str.isspace()`
+/// exceeds by those four. The set is shared by a trim and a split, so this is
+/// named for the predicate rather than for trimming: `str.strip()` and
+/// `str.split()` both accept whatever this returns.
+///
+/// `slice::split` with this predicate does not coalesce runs of separators and
+/// does not drop a leading or trailing one the way Python's `str.split()` and
+/// Rust's `split_whitespace` do — it yields an empty string between two adjacent
+/// separators. A caller splitting on it must drop the empties to keep Python's
+/// behaviour.
+pub(crate) fn is_python_space(c: char) -> bool {
+    c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
+}
+
 /// Reduce `value` to the alphabet the matcher compares on: lowercase ASCII
 /// letters, digits and Python's ASCII whitespace.
 ///
