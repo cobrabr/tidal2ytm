@@ -15,13 +15,13 @@ const answer = vi.mocked(getAuthStatus);
 
 /** Asymmetric on purpose: one signed-in provider makes a swap visible. */
 const BOTH_SIGNED_OUT: AuthStatus = {
-	tidal: { valid: false, expires_at: null },
-	ytm: { valid: false, expires_at: null },
+	tidal: { status: "signed_out", expires_at: null, has_client_secret: true },
+	ytm: { status: "signed_out", expires_at: null, has_client_secret: false },
 };
 
 const MIXED: AuthStatus = {
-	tidal: { valid: false, expires_at: "2020-01-01T00:00:00Z" },
-	ytm: { valid: true, expires_at: null },
+	tidal: { status: "signed_out", expires_at: "2020-01-01T00:00:00Z", has_client_secret: true },
+	ytm: { status: "valid", expires_at: null, has_client_secret: false },
 };
 
 const statesOf = async () =>
@@ -40,7 +40,7 @@ describe("Home", () => {
 
 		render(Home);
 
-		expect(await statesOf()).toEqual(["signed-out", "signed-in"]);
+		expect(await statesOf()).toEqual(["signed-out", "valid"]);
 	});
 
 	// Without this the two cards are interchangeable: a swapped pair, or a label

@@ -76,37 +76,95 @@ def token_usable(
     return candidate - now > margin
 
 
-def tidal_cache_valid(token_file: Path) -> bool:
-    """Offline check: cached Tidal token exists and is unexpired. Never raises."""
+def _refresh_token_present(data: MutableMapping[str, Any]) -> bool:
+    """True when the cache holds a refresh token worth keeping.
+
+    Both providers write the key under the same name, and for both of them it is
+    the thing that outlives the access token: a Tidal access token lasts hours
+    and a YouTube Music one days, while the refresh token beside each lasts
+    months.
+    """
+    refresh = data.get("refresh_token")
+    return isinstance(refresh, str) and bool(refresh.strip())
+
+
+def _cache_status(unexpired: bool, refreshable: bool) -> str:
+    """The three states every provider reports, from two facts it can read offline.
+
+    Offline on purpose: the GUI asks for this on every Home mount, so anything
+    that reached for the network here would put a round-trip in front of the
+    first screen. `refreshable` is therefore a statement about credentials on
+    disk, not a promise that a refresh has been performed.
+    """
+    if unexpired:
+        return "valid"
+    if refreshable:
+        return "refreshable"
+    return "signed_out"
+
+
+def _tidal_cache_facts(token_file: Path) -> tuple[bool, bool]:
+    """`(unexpired, refreshable)` from a cached Tidal token file. Never raises."""
     try:
         data: MutableMapping[str, Any] = json.loads(token_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return False
+        return (False, False)
     if not isinstance(data, dict):
-        return False
-    return token_usable(parse_token_expiry(data.get("expiry_time")))
+        return (False, False)
+    unexpired = token_usable(parse_token_expiry(data.get("expiry_time")))
+    return (unexpired, _refresh_token_present(data))
 
 
-def ytm_cache_valid(auth_file: Path) -> bool:
-    """Offline check: cached YTM token exists and is usable. Never raises.
+def tidal_cache_valid(token_file: Path) -> bool:
+    """Offline check: cached Tidal credentials are unexpired or refreshable. Never raises."""
+    unexpired, refreshable = _tidal_cache_facts(token_file)
+    return unexpired or refreshable
 
-    A non-expired `expires_at` counts, and so does a stored `refresh_token`
-    (refreshable credentials stay valid offline even when expired).
-    """
+
+def tidal_cache_state(token_file: Path) -> str:
+    """`"valid"`, `"refreshable"` or `"signed_out"` for the cached Tidal token."""
+    return _cache_status(*_tidal_cache_facts(token_file))
+
+
+def _ytm_cache_facts(auth_file: Path) -> tuple[bool, bool]:
+    """`(unexpired, refreshable)` from a cached YouTube Music token file. Never raises."""
     try:
         data: MutableMapping[str, Any] = json.loads(auth_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return False
+        return (False, False)
     if not isinstance(data, dict):
-        return False
+        return (False, False)
     try:
         expires_at = int(data.get("expires_at", 0))
     except (TypeError, ValueError):
         expires_at = 0
-    if expires_at > int(time.time()):
-        return True
-    refresh = data.get("refresh_token")
-    return isinstance(refresh, str) and bool(refresh.strip())
+    return (expires_at > int(time.time()), _refresh_token_present(data))
+
+
+def ytm_cache_valid(auth_file: Path) -> bool:
+    """Offline check: cached YTM credentials are unexpired or refreshable. Never raises.
+
+    A non-expired `expires_at` counts, and so does a stored `refresh_token`
+    (refreshable credentials stay valid offline even when expired).
+    """
+    unexpired, refreshable = _ytm_cache_facts(auth_file)
+    return unexpired or refreshable
+
+
+def ytm_cache_state(auth_file: Path) -> str:
+    """`"valid"`, `"refreshable"` or `"signed_out"` for the cached YTM token."""
+    return _cache_status(*_ytm_cache_facts(auth_file))
+
+
+def client_secret_present() -> bool:
+    """True when a Google Cloud OAuth client file sits in the data directory.
+
+    A question about the directory rather than about the credential's contents,
+    so it cannot fail on a file that exists but does not parse. Whether that
+    file is usable is `read_client_secret`'s question to answer, and one that
+    only matters once someone actually tries to sign in.
+    """
+    return len(sorted(paths.DATA_DIR.glob("client_secret_*.json"))) > 0
 
 
 def tidal_expiry_iso(raw: object) -> str | None:

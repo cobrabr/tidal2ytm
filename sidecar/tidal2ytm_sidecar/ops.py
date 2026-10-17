@@ -21,18 +21,20 @@ _LOG = logging.getLogger(__name__)
 # real bug into a silent "not signed in".
 _CACHE_READ_ERRORS = (OSError, ValueError, TypeError)
 
-# What one provider's answer is: whether the session works, and when its
-# credentials lapse. `expires_at` is `None` or an ISO-8601 UTC string and nothing
-# else, because that is what the host's `AuthStatus` deserialises and what
-# `src/lib/types.ts` widens the contract into. Written down once here so
-# narrowing an expiry is a compile error rather than a field that quietly widens
-# back to whatever the token file happened to hold.
+# What one provider's answer is: how its credentials stand, when they lapse,
+# and whether a YouTube Music OAuth client file is there to refresh them with.
+# `status` is one of `valid`, `refreshable` or `signed_out` and `expires_at` is
+# `None` or an ISO-8601 UTC string and nothing else, because that is what the
+# host's `AuthStatus` deserialises and what `src/lib/types.ts` widens the
+# contract into. Written down once here so narrowing an expiry is a compile
+# error rather than a field that quietly widens back to whatever the token file
+# happened to hold.
 _ProviderState = dict[str, bool | str | None]
 
 
-def _signed_out(reason: Exception) -> _ProviderState:
+def _signed_out(reason: Exception, has_client_secret: bool) -> _ProviderState:
     _LOG.info("token cache unusable, reporting signed out: %s", reason)
-    return {"valid": False, "expires_at": None}
+    return {"status": "signed_out", "expires_at": None, "has_client_secret": has_client_secret}
 
 
 def _cached(path: Path) -> dict[str, object]:
@@ -51,39 +53,53 @@ def _cached(path: Path) -> dict[str, object]:
 
 
 def _tidal_state() -> _ProviderState:
+    # Always `True`, and deliberately not read off the disk: Tidal's device
+    # authorisation carries no client file, so asking would report a provider
+    # that never needed one as lacking it. A uniform struct is what keeps
+    # `ProviderState` one type in `src/lib/types.ts` instead of a union the
+    # screen has to narrow.
+    has_client_secret = True
     try:
         cached = _cached(auth.paths.TIDAL_TOKEN_FILE)
         return {
-            "valid": auth.tidal_cache_valid(auth.paths.TIDAL_TOKEN_FILE),
+            "status": auth.tidal_cache_state(auth.paths.TIDAL_TOKEN_FILE),
             # `auth.py` writes this as an ISO string, so the pass-through is a
             # guard rather than a conversion: a cache file holding anything else
             # would be forwarded as-is and fail the host's `expires_at`, taking
             # YouTube Music's status down with the answer. See
             # `auth.tidal_expiry_iso`.
             "expires_at": auth.tidal_expiry_iso(cached.get("expiry_time")),
+            "has_client_secret": has_client_secret,
         }
     except _CACHE_READ_ERRORS as exc:
-        return _signed_out(exc)
+        return _signed_out(exc, has_client_secret)
 
 
 def _ytm_state() -> _ProviderState:
+    # The flag the import dialog hangs on: without a client file there is
+    # nothing to refresh with, so a signed-out answer that said otherwise would
+    # offer the user a sign-in that cannot start.
+    has_client_secret = auth.client_secret_present()
     try:
         cached = _cached(auth.paths.YTM_AUTH_FILE)
         return {
-            "valid": auth.ytm_cache_valid(auth.paths.YTM_AUTH_FILE),
+            "status": auth.ytm_cache_state(auth.paths.YTM_AUTH_FILE),
             # Normalised rather than passed through: `ytmusicapi` stores epoch
             # seconds, and a raw integer fails the host's `expires_at`.
             "expires_at": auth.ytm_expiry_iso(cached.get("expires_at")),
+            "has_client_secret": has_client_secret,
         }
     except _CACHE_READ_ERRORS as exc:
-        return _signed_out(exc)
+        return _signed_out(exc, has_client_secret)
 
 
 def auth_status() -> dict[str, _ProviderState]:
-    """Report whether each provider has a usable cached token.
+    """Report how each provider's cached credentials stand.
 
-    Token material never leaves this process: the host gets a boolean and an
-    expiry, nothing else. Validity itself is decided by `tidal2ytm.auth`, which
-    stays the single implementation of that rule.
+    Token material never leaves this process: the host gets a state, an expiry
+    and a boolean, nothing else. Everything is decided offline by
+    `tidal2ytm.auth`, which stays the single implementation of those rules —
+    nothing here refreshes, because the GUI asks on every Home mount and a
+    network round-trip in front of the first screen is not affordable.
     """
     return {"tidal": _tidal_state(), "ytm": _ytm_state()}

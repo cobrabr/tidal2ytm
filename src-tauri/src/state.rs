@@ -7,7 +7,28 @@ use tidal2ytm_ipc::{IpcError, SidecarClient, SidecarConfig};
 use tidal2ytm_store::Store;
 use tokio::sync::Mutex;
 
-/// Whether one provider has a usable cached token.
+/// How one provider's cached credentials stand.
+///
+/// Three states, not a boolean: an access token that has expired is not the
+/// same as a session that has ended, because the refresh token beside it lives
+/// for months afterwards. Reporting both as one `false` is what told a person
+/// signed in yesterday that they were signed out today.
+///
+/// The serde names are the three literals the sidecar sends and the contract
+/// records, which is the same seam `TrackStatus` sits on. `rename_all` spells
+/// all three as snake_case, which is what `SignedOut` needs to become
+/// `signed_out`, and an unrecognised literal fails to deserialise rather than
+/// being guessed at — so a sidecar that grew a fourth state is refused outright
+/// instead of being reported to the user as signed out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthState {
+    Valid,
+    Refreshable,
+    SignedOut,
+}
+
+/// What one provider's answer is.
 ///
 /// The field names are snake_case because they *are* the contract: they reach
 /// the frontend verbatim and have to match `src/lib/types.ts`, which derives
@@ -19,8 +40,13 @@ use tokio::sync::Mutex;
 /// mean either a clone or a shared reference, and neither is wanted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderState {
-    pub valid: bool,
+    pub status: AuthState,
     pub expires_at: Option<String>,
+    /// Whether a Google Cloud OAuth client file is present, which is what
+    /// decides whether YouTube Music can be signed in at all. It is `true` for
+    /// Tidal on purpose: device authorisation carries no client file, and a
+    /// uniform struct keeps `ProviderState` one type on the wire.
+    pub has_client_secret: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -607,7 +633,7 @@ mod tests {
     // A payload missing the decision field is an error, not a default. Serde
     // silently reads a missing `expires_at` as `None` — which happens to be what
     // a signed-out provider sends anyway, so that one is harmless — but a
-    // missing `valid` has no such equivalent. A `#[serde(default)]` added for
+    // missing `status` has no such equivalent. A `#[serde(default)]` added for
     // tolerance would therefore turn a broken answer into "not signed in" for
     // both providers, and re-authenticating is not the fix for that.
     #[test]
@@ -616,11 +642,51 @@ mod tests {
         payload["tidal"]
             .as_object_mut()
             .expect("tidal is an object")
-            .remove("valid");
+            .remove("status");
         let outcome: Result<AuthStatus, serde_json::Error> = serde_json::from_value(payload);
         assert!(
             outcome.is_err(),
-            "a missing `valid` must not read as signed out"
+            "a missing `status` must not read as signed out"
+        );
+    }
+
+    // The contract records one of the three literals, so the other two reach
+    // this host only through a sidecar with credentials on disk. Serde derives
+    // the names from the variant spellings, and a wrong one — `signedout`, say —
+    // would be invisible until a user with an expired-but-refreshable token
+    // could not start the application.
+    #[test]
+    fn every_state_survives_the_wire_in_both_directions() {
+        for (literal, expected) in [
+            ("valid", AuthState::Valid),
+            ("refreshable", AuthState::Refreshable),
+            ("signed_out", AuthState::SignedOut),
+        ] {
+            // Read as a JSON string, which is how the literal arrives: an
+            // unquoted `from_str` would be a test of Rust's, not of serde's.
+            let read: AuthState = serde_json::from_value(serde_json::json!(literal))
+                .unwrap_or_else(|e| panic!("{literal} is read: {e}"));
+            assert_eq!(read, expected, "{literal} read as a different state");
+            let written = serde_json::to_string(&expected).expect("a state serialises");
+            assert_eq!(
+                written,
+                serde_json::json!(literal).to_string(),
+                "{expected:?} is not {literal} on the wire"
+            );
+        }
+    }
+
+    // An unknown literal is not a state to default. Reading one as signed out
+    // is what a `#[serde(other)]` or a defaulted field would do, and it tells a
+    // signed-in user that they are not.
+    #[test]
+    fn an_unknown_state_is_refused() {
+        let mut payload = contract()["data"].clone();
+        payload["tidal"]["status"] = serde_json::json!("expired");
+        let outcome: Result<AuthStatus, serde_json::Error> = serde_json::from_value(payload);
+        assert!(
+            outcome.is_err(),
+            "a state this build does not know must not read as signed out"
         );
     }
 

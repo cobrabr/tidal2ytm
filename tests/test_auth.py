@@ -265,3 +265,25 @@ def test_ytm_cache_valid_refreshable_counts_as_valid(isolated_data_dir: Path) ->
         encoding="utf-8",
     )
     assert auth.ytm_cache_valid(auth_file) is True
+
+
+# Tidal's refresh token outlives its access token by months, exactly as
+# YouTube Music's does, so counting one makes the cached session usable for the
+# length of the login rather than the length of the access token. This is what
+# `tidal2ytm.planning.read_auth_presence` asks before offering to sign in.
+def test_tidal_cache_valid_refreshable_counts_as_valid(isolated_data_dir: Path) -> None:
+    token_file = isolated_data_dir / "tidal_token.json"
+    token_file.write_text(
+        json.dumps(
+            {
+                "token_type": "Bearer",
+                "access_token": "a",
+                "refresh_token": "r",
+                "expiry_time": _utc_in(-1).isoformat(),
+                "user_id": 1,
+                "country_code": "US",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert auth.tidal_cache_valid(token_file) is True

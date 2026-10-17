@@ -11,8 +11,8 @@ vi.mock("@tauri-apps/api/core");
 const call = vi.mocked(invoke);
 
 const PAYLOAD: AuthStatus = {
-	tidal: { valid: true, expires_at: "2099-01-01T00:00:00Z" },
-	ytm: { valid: false, expires_at: null },
+	tidal: { status: "valid", expires_at: "2099-01-01T00:00:00Z", has_client_secret: true },
+	ytm: { status: "signed_out", expires_at: null, has_client_secret: false },
 };
 
 describe("getAuthStatus", () => {

@@ -31,6 +31,12 @@ def test_success_response_matches_the_shared_contract() -> None:
 def test_the_sidecar_auth_status_payload_matches_the_shared_contract(
     isolated_data_dir: Path,
 ) -> None:
+    # The contract records YouTube Music signed out *and* with no OAuth client
+    # file, so clearing the directory is the only way the real op produces it.
+    # `isolated_data_dir` seeds a client secret for the sign-in tests, and it is
+    # the one thing here this answer must not contain.
+    for secret in isolated_data_dir.glob("client_secret_*.json"):
+        secret.unlink()
     assert ops.auth_status() == _contract("auth_status.json")["data"]
 
 

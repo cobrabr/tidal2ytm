@@ -1,1 +1,1 @@
-{"id": 1, "ok": true, "data": {"tidal": {"valid": false, "expires_at": null}, "ytm": {"valid": false, "expires_at": null}}}
+{"id": 1, "ok": true, "data": {"tidal": {"status": "signed_out", "expires_at": null, "has_client_secret": true}, "ytm": {"status": "signed_out", "expires_at": null, "has_client_secret": false}}}

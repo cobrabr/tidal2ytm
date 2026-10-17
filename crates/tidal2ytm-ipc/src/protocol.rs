@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(response.id, 1);
         assert!(response.error.is_none());
         let data = response.data.expect("ok responses carry data");
-        assert_eq!(data["tidal"]["valid"], serde_json::json!(false));
+        assert_eq!(data["tidal"]["status"], serde_json::json!("signed_out"));
         assert!(data["tidal"]["expires_at"].is_null());
     }
 

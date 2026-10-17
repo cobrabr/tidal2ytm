@@ -336,8 +336,8 @@ async fn concurrent_calls_each_receive_their_own_answer() {
         let result = handle.await.expect("task joins");
         if op == "auth.status" {
             let data = result.expect("auth.status succeeds");
-            assert!(data["tidal"]["valid"].is_boolean(), "got {data}");
-            assert!(data["ytm"]["valid"].is_boolean(), "got {data}");
+            assert!(data["tidal"]["status"].is_string(), "got {data}");
+            assert!(data["ytm"]["status"].is_string(), "got {data}");
         } else {
             let error = result.expect_err("an unimplemented op fails");
             assert!(
