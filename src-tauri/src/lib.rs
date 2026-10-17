@@ -17,6 +17,7 @@ use tauri::Manager;
 use tidal2ytm_ipc::{SidecarConfig, log_level_env};
 use tidal2ytm_store::Store;
 
+use sidecar_path::Launch;
 use state::AppState;
 
 /// How long the sidecar has to handshake before the host calls it a failure.
@@ -48,6 +49,48 @@ fn open_database(cwd: &Path) -> Result<Store, String> {
     Ok(store)
 }
 
+/// The sidecar's data directory, named relative to the directory it runs in.
+///
+/// The name is spelled out here rather than left to the sidecar's working
+/// directory, because the host's working directory is the application data
+/// directory while the CLI's is the checkout — a relative `data` resolves to
+/// whichever of those the process was started in, which is how a packaged build
+/// came to report signed out while the same account was signed in from the
+/// terminal.
+const DATA_DIR_NAME: &str = "data";
+
+/// How to start the sidecar, from a resolved launch and the directories it runs in.
+///
+/// A free function rather than a step inside `run()` because `run()` needs a
+/// `tauri::App` that nothing in this crate can build, and this is the wiring
+/// whose absence is invisible: the sidecar starts, reports signed out, and
+/// nothing says the data directory was never named to it.
+fn sidecar_config(launch: &Launch, cwd: &Path, data_dir: &Path) -> SidecarConfig {
+    // The level is resolved here, rather than left to the sidecar, so it applies
+    // even if the sidecar dies before its handshake. It is a literal for now and
+    // `INFO` is one of `LOG_LEVELS`, so the call cannot fail.
+    let level = log_level_env("INFO")
+        .expect("INFO is a level the sidecar accepts")
+        .1;
+    SidecarConfig {
+        program: launch.program.clone(),
+        args: launch.args.clone(),
+        cwd: cwd.to_path_buf(),
+        env: [
+            launch.env.clone(),
+            vec![
+                ("TIDAL2YTM_LOG_LEVEL".to_string(), level),
+                (
+                    "TIDAL2YTM_DATA_DIR".to_string(),
+                    data_dir.display().to_string(),
+                ),
+            ],
+        ]
+        .concat(),
+        handshake_timeout: STARTUP_TIMEOUT,
+    }
+}
+
 /// Start the sidecar, supervise it, and expose the commands.
 pub fn run() {
     // Before anything can emit. `AppState::start` drains the sidecar's stderr
@@ -58,24 +101,33 @@ pub fn run() {
     let app = tauri::Builder::default()
         .setup(|app| {
             let launch = sidecar_path::resolve(app.handle())?;
-            // Phase 4 owns the log level control and the host's log file, so
-            // Phase 2 resolves the default and hands the value straight
-            // through — which is what makes the level apply even if the sidecar
-            // dies before its handshake.
-            let (_, level) = log_level_env("INFO")?;
             let cwd = launch.cwd.clone().unwrap_or(app.path().app_data_dir()?);
+            let data_dir = cwd.join(DATA_DIR_NAME);
             // The sidecar's working directory is handed to the child as
             // `current_dir`, and a working directory that does not exist fails
             // the spawn with `os error 267` — "the directory name is invalid",
             // which names neither the path nor the reason. On a first run there
             // is no application data directory at all, so this is the only thing
             // standing between a new machine and a sidecar that cannot start. It
-            // is also where the token caches are meant to live, so the directory
-            // is wanted whether or not anything has written to it yet.
+            // is also the parent of the `data` directory the token caches live
+            // in, so the directory is wanted whether or not anything has been
+            // written to it yet.
             std::fs::create_dir_all(&cwd).map_err(|e| {
                 format!(
                     "could not create {} for the sidecar to run in: {e}",
                     cwd.display()
+                )
+            })?;
+            // Both writers create their own parents, so nothing the sidecar
+            // writes depends on this having run. What it decides is the case
+            // where it has written nothing yet: the directory the first sign-in
+            // is asked about exists, rather than being a relative name the
+            // sidecar would have to resolve against a working directory it does
+            // not necessarily share.
+            std::fs::create_dir_all(&data_dir).map_err(|e| {
+                format!(
+                    "could not create {} for the sidecar's data files: {e}",
+                    data_dir.display()
                 )
             })?;
             // After `create_dir_all`, and from the same `cwd`: the database goes
@@ -98,17 +150,7 @@ pub fn run() {
             // `install_debug_logger` here rather than in `main()`.
             let store =
                 open_database(&cwd).inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
-            let config = SidecarConfig {
-                program: launch.program.clone(),
-                args: launch.args.clone(),
-                cwd,
-                env: [
-                    launch.env.clone(),
-                    vec![("TIDAL2YTM_LOG_LEVEL".to_string(), level)],
-                ]
-                .concat(),
-                handshake_timeout: STARTUP_TIMEOUT,
-            };
+            let config = sidecar_config(&launch, &cwd, &data_dir);
             let state = tauri::async_runtime::block_on(AppState::start(config, store))
                 .inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
             app.manage(state);
@@ -195,6 +237,45 @@ mod tests {
         assert!(
             dir.join(DATABASE_FILE).is_file(),
             "open_database did not write the file where DATABASE_FILE says"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The sidecar is told where its data directory is.
+    ///
+    /// Without this the sidecar resolves a relative `data` against its working
+    /// directory, which for a packaged build is the application data directory
+    /// and for a checkout is the repository root — so the token caches the CLI
+    /// writes and the token caches the GUI reads are two different files and the
+    /// packaged build reports signed out while the account is signed in.
+    #[test]
+    fn the_sidecar_is_told_which_data_directory_to_use() {
+        let dir = scratch_dir("data-dir");
+        let cwd = dir.join("app-data");
+        let data_dir = cwd.join(DATA_DIR_NAME);
+        let launch = Launch {
+            program: dir.join("tidal2ytm-sidecar"),
+            args: Vec::new(),
+            env: vec![("PYTHONPATH".to_string(), dir.display().to_string())],
+            cwd: Some(cwd.clone()),
+        };
+
+        let config = sidecar_config(&launch, &cwd, &data_dir);
+
+        let value = config
+            .env
+            .iter()
+            .find(|(name, _)| name == "TIDAL2YTM_DATA_DIR")
+            .map(|(_, value)| value.as_str());
+        assert_eq!(
+            value,
+            Some(data_dir.display().to_string().as_str()),
+            "the sidecar was not told which directory its token caches live in"
+        );
+        assert_eq!(
+            config.cwd, cwd,
+            "only the data directory is named explicitly; the working directory is still handed over"
         );
 
         let _ = std::fs::remove_dir_all(&dir);
