@@ -16,7 +16,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Capabilities the host cannot run without. A sidecar missing any of these
 /// is refused at startup rather than failing later inside a job.
-pub const REQUIRED_CAPABILITIES: &[&str] = &["auth.status"];
+pub const REQUIRED_CAPABILITIES: &[&str] = &["auth.status", "auth.begin"];
 
 /// The closed set of failure categories the sidecar reports.
 ///
@@ -338,11 +338,20 @@ mod tests {
         ));
     }
 
+    // Built from `REQUIRED_CAPABILITIES` rather than from its own list of them:
+    // restating the required set here would let a capability added to one of the
+    // two be missing from this test's answer and leave it green while it stopped
+    // passing a handshake the real sidecar sends.
     #[test]
     fn an_unexpected_capability_does_not_block_startup() {
+        let mut capabilities: Vec<String> = REQUIRED_CAPABILITIES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        capabilities.push("library.add".to_string());
         let event = ServerEvent::Hello {
             protocol: PROTOCOL_VERSION,
-            capabilities: vec!["auth.status".to_string(), "library.add".to_string()],
+            capabilities,
         };
         validate_hello(&event).expect("extra capabilities are fine");
     }

@@ -11,6 +11,10 @@ from typing import Any
 import pytest
 from tidal2ytm_sidecar import protocol, runner
 
+# Long enough that a stub which does its work always finishes inside it, short
+# enough that a leaked thread fails this test rather than hanging the job.
+_JOIN_TIMEOUT = 10.0
+
 
 def _run(lines: str) -> list[dict[str, Any]]:
     """Feed `lines` to the loop and return every envelope it wrote.
@@ -20,12 +24,20 @@ def _run(lines: str) -> list[dict[str, Any]]:
     while this helper is what reads captured output. Every thread the run
     started is alive by the time `run` returns, so the ones left afterwards are
     exactly the replies still owed.
+
+    The join is bounded because an op can now wait on a human for minutes: a
+    thread that outlives the wait is a stub that stopped answering, and the
+    assertion says so instead of leaving the suite to hang with no diagnostic.
     """
     stdout = StringIO()
     before = set(threading.enumerate())
     runner.run(StringIO(lines), stdout)
     for thread in set(threading.enumerate()) - before:
-        thread.join()
+        thread.join(timeout=_JOIN_TIMEOUT)
+        assert not thread.is_alive(), (
+            "a request thread outlived the wait for its reply, so what it was "
+            f"answering never reached the pipe: {thread.name}"
+        )
     return [json.loads(line) for line in stdout.getvalue().splitlines()]
 
 
@@ -39,7 +51,7 @@ def test_handshake_is_the_first_thing_written() -> None:
     envelopes = _run("")
     assert envelopes[0]["event"] == "hello"
     assert envelopes[0]["protocol"] == 1
-    assert envelopes[0]["capabilities"] == ["auth.status"]
+    assert envelopes[0]["capabilities"] == ["auth.status", "auth.begin"]
 
 
 def test_auth_status_is_answered_inline(isolated_data_dir: Path) -> None:
@@ -153,3 +165,84 @@ def test_a_blocked_operation_does_not_hold_up_the_next(monkeypatch: pytest.Monke
     # Both answered, each under its own id: a reply key captured late from the
     # loop's variable would hand every op the last id.
     assert sorted(e["id"] for e in envelopes[1:]) == [1, 2]
+
+
+# An unhandled failure inside a request thread is invisible by default: the
+# thread ends, the session carries on, and the one request it was serving is
+# simply never answered. The host sees that as its own timeout and shows
+# "the sidecar is not answering" for a bug that is in one op. This arm is the
+# only thing that turns it into an error carrying the request's own id.
+def test_an_op_that_raises_answers_upstream_under_its_own_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_dispatch(op: str, params: Mapping[str, Any], rid: int | None = None) -> dict[str, Any]:
+        raise RuntimeError("the op fell over")
+
+    monkeypatch.setattr(protocol, "dispatch", fake_dispatch)
+
+    envelopes = _run('{"id": 12, "op": "auth.status", "params": {}}\n')
+
+    assert envelopes[1] == {
+        "id": 12,
+        "ok": False,
+        "error": {"kind": "upstream", "message": "the op fell over"},
+    }
+
+
+# One thread per request, unbounded, means one thread and one OAuth child
+# process per sign-in, held for as long as a browser and a human take. The cap
+# is set well above what one person can start — the frontend offers one sign-in
+# at a time — and it refuses rather than queues, because a queued `auth.status`
+# would spend the host's five-second budget behind a sign-in and be reported as
+# a sidecar that is not answering. The caller of the refused request learns
+# immediately instead of waiting on a timeout that is not its own.
+def test_a_request_past_the_cap_is_refused_rather_than_queued(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cap = runner.MAX_CONCURRENT_OPS
+    release = threading.Event()
+
+    class SignallingStdout(StringIO):
+        """The pipe, saying when a refusal reaches it."""
+
+        refused = threading.Event()
+
+        def write(self, text: str) -> int:
+            if '"ok":false' in text:
+                self.refused.set()
+            return super().write(text)
+
+    def fake_dispatch(op: str, params: Mapping[str, Any], rid: int | None = None) -> dict[str, Any]:
+        release.wait(timeout=_JOIN_TIMEOUT)
+        return protocol.success_response(rid or 0, {"op": op})
+
+    monkeypatch.setattr(protocol, "dispatch", fake_dispatch)
+
+    busy = "".join(
+        json.dumps({"id": i, "op": "auth.begin", "params": {"provider": "ytm"}}) + "\n"
+        for i in range(1, cap + 1)
+    )
+    lines = busy + json.dumps({"id": cap + 1, "op": "auth.status"}) + "\n"
+    stdout = SignallingStdout()
+    # Run the loop on a thread of the test's own, so the busy ops are provably
+    # still blocked when the last request is refused — releasing them from here,
+    # after the refusal, is what makes the saturation a fact rather than a race.
+    before = set(threading.enumerate())
+    loop = threading.Thread(target=runner.run, args=(StringIO(lines), stdout), daemon=True)
+    loop.start()
+    try:
+        assert stdout.refused.wait(timeout=_JOIN_TIMEOUT), "the request past the cap was never"
+    finally:
+        release.set()
+    # The loop returns at EOF whether or not the ops it started have answered, so
+    # the threads are waited for here as well — otherwise the last reply can
+    # still be on its way to the pipe when it is read.
+    for thread in set(threading.enumerate()) - before:
+        thread.join(timeout=_JOIN_TIMEOUT)
+        assert not thread.is_alive()
+
+    written = (json.loads(line) for line in stdout.getvalue().splitlines())
+    answered = {e["id"]: e for e in written if "id" in e}
+    assert sorted(answered) == list(range(1, cap + 2)), "every request got exactly one answer"
+    assert answered[cap + 1]["error"]["kind"] == "bad_request"
+    assert all(answer["ok"] for answer in answered.values() if answer["id"] <= cap)

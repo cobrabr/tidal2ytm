@@ -11,13 +11,17 @@ import json
 from collections.abc import Mapping
 from typing import Any, cast
 
+from tidal2ytm.logging_setup import redact_text
+
 from . import ops
 
 PROTOCOL_VERSION = 1
 
 # The ops this build implements. The host requires at least `auth.status` and
-# refuses to start against a sidecar that does not advertise it.
-CAPABILITIES: tuple[str, ...] = ("auth.status",)
+# `auth.begin`, and refuses to start against a sidecar that does not advertise
+# them — a sign-in is something a person waits on, and finding out afterwards
+# that this build cannot offer one is not worth the wait.
+CAPABILITIES: tuple[str, ...] = ("auth.status", "auth.begin")
 
 # The closed set of failure categories the host understands.
 AUTH_EXPIRED = "auth_expired"
@@ -63,12 +67,23 @@ def dispatch(op: str, params: Mapping[str, Any], rid: int | None = None) -> dict
 
     An op this build does not implement is a `bad_request`, not a crash: the
     host can name an op ahead of the sidecar, and a stale packaged sidecar is a
-    normal thing to run into. `params` is accepted and ignored because
-    `auth.status` takes none; ops added later will read it here.
+    normal thing to run into.
+
+    `ops.BadRequestError` is the same answer for the same reason: an op raises it
+    when the request it was handed is one it cannot carry out, so this is the
+    caller's mistake rather than the sidecar's or the provider's. Anything else
+    propagates to the runner, which reports it as `upstream`.
     """
-    _ = params
     if rid is None:
         return error_response(0, BAD_REQUEST, "Request is missing an integer `id`")
-    if op == "auth.status":
-        return success_response(rid, ops.auth_status())
+    try:
+        if op == "auth.status":
+            return success_response(rid, ops.auth_status())
+        if op == "auth.begin":
+            provider = params.get("provider")
+            if not isinstance(provider, str):
+                raise ops.BadRequestError("`auth.begin` requires a string `provider`")
+            return success_response(rid, ops.auth_begin(provider))
+    except ops.BadRequestError as exc:
+        return error_response(rid, BAD_REQUEST, redact_text(str(exc)))
     return error_response(rid, BAD_REQUEST, f"Sidecar does not implement op {op!r}")

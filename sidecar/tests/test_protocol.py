@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from tidal2ytm_sidecar import ops, protocol
 
+from tidal2ytm import auth
+
 CONTRACTS = Path(__file__).resolve().parents[2] / "contracts"
 
 
@@ -38,6 +40,38 @@ def test_the_sidecar_auth_status_payload_matches_the_shared_contract(
     for secret in isolated_data_dir.glob("client_secret_*.json"):
         secret.unlink()
     assert ops.auth_status() == _contract("auth_status.json")["data"]
+
+
+# The other half of the wire shape, and the only one both languages can produce
+# without a token file or a browser: the answer to a sign-in that was started
+# and stopped. `auth.begin` runs a real OAuth flow, so this stubs the flow and
+# asserts the envelope the op writes around it — the echo of the provider is
+# what lets a caller pair a late answer with the request that asked for it.
+def test_the_auth_begin_envelope_matches_the_shared_contract(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(auth, "run_ytm_auth", lambda: isolated_data_dir / "ytm_auth.json")
+
+    assert protocol.dispatch("auth.begin", {"provider": "ytm"}, rid=1) == _contract(
+        "auth_begin.json"
+    )
+
+
+# `bad_request` is a claim about the request, so only a refusal an op raises on
+# purpose may carry it. A bug inside an op that happens to raise `ValueError` is
+# the sidecar's own failure, and reporting it as a bad request would send
+# whoever reads it to debug the host instead. `dispatch` lets it through for the
+# runner to report as `upstream`.
+def test_an_op_failing_for_its_own_reason_is_not_a_bad_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken() -> dict[str, str]:
+        raise ValueError("a bug, not a request")
+
+    monkeypatch.setattr(ops, "auth_status", broken)
+
+    with pytest.raises(ValueError):
+        protocol.dispatch("auth.status", {}, rid=8)
 
 
 # The six kinds are a closed enum the host branches on, and a typo such as

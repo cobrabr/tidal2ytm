@@ -32,6 +32,17 @@ _CACHE_READ_ERRORS = (OSError, ValueError, TypeError)
 _ProviderState = dict[str, bool | str | None]
 
 
+class BadRequestError(ValueError):
+    """A request this sidecar understood and is refusing to carry out.
+
+    Its own type rather than a bare `ValueError`, so `protocol.dispatch` can map
+    it to the wire's `bad_request` without claiming that every `ValueError` an op
+    raises is the caller's mistake: a bug in an op that happened to raise one
+    would then be reported as a request the host got wrong, which sends whoever
+    is reading it debugging the host.
+    """
+
+
 def _signed_out(reason: Exception, has_client_secret: bool) -> _ProviderState:
     _LOG.info("token cache unusable, reporting signed out: %s", reason)
     return {"status": "signed_out", "expires_at": None, "has_client_secret": has_client_secret}
@@ -103,3 +114,37 @@ def auth_status() -> dict[str, _ProviderState]:
     network round-trip in front of the first screen is not affordable.
     """
     return {"tidal": _tidal_state(), "ytm": _ytm_state()}
+
+
+def auth_begin(provider: str) -> dict[str, str]:
+    """Run one provider's sign-in, and report which provider it was for.
+
+    This does not return until a browser and a person finish, which is safe only
+    because the read loop answers each request on a thread of its own: the host
+    keeps asking `auth.status` throughout and gets it in five seconds. The
+    provider is echoed back so a caller can pair a reply that arrives minutes
+    later with the request that asked for it.
+
+    `BadRequestError` for an unknown provider and for YouTube Music with no OAuth
+    client file to sign in with, which `protocol.dispatch` reports as the
+    caller's mistake rather than the provider's. The credential is asked for here
+    rather than left to the flow's own path because that path is the CLI's, and a
+    `SystemExit` raised on a request thread ends the sidecar process rather than
+    the one request that could not start. It is asked for even when a cached
+    token would have answered without a flow: the screen offers a sign-in for a
+    provider that is not already signed in, and refusing up front is the
+    direction that cannot leave a caller waiting. Everything else — a rejected
+    login, a provider that is down — is left to propagate as the `upstream`
+    failure it is.
+    """
+    if provider == "tidal":
+        auth.run_tidal_auth()
+    elif provider == "ytm":
+        try:
+            auth.require_client_secret(auth.paths.DATA_DIR)
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
+        auth.run_ytm_auth()
+    else:
+        raise BadRequestError(f"unknown auth provider: {provider!r}")
+    return {"provider": provider}

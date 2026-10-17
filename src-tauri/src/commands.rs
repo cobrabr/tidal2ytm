@@ -19,11 +19,47 @@ use crate::state::{AppState, AuthStatus};
 /// explain, rather than a window that never finishes loading.
 const AUTH_STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// The providers `auth.begin` can start a sign-in for.
+///
+/// Checked here rather than only in the sidecar, because this string is what
+/// the frontend supplied and the pipe is the boundary: an unrecognised one must
+/// not be sent for the sidecar to refuse while the screen waits on it.
+const AUTH_PROVIDERS: [&str; 2] = ["tidal", "ytm"];
+
 #[tauri::command]
 pub async fn get_auth_status(state: State<'_, AppState>) -> Result<AuthStatus, String> {
-    let data = call(&state, "auth.status", AUTH_STATUS_TIMEOUT).await?;
+    let data = call(&state, "auth.status", json!({}), Some(AUTH_STATUS_TIMEOUT)).await?;
     serde_json::from_value::<AuthStatus>(data)
         .map_err(|e| format!("the sidecar returned an auth status this build cannot read: {e}"))
+}
+
+/// Start one provider's sign-in and wait for it to finish.
+///
+/// `None` for the timeout, and that is the whole difference from every other
+/// command here: the op waits on a person and a browser, and a person may take
+/// two minutes to click a link. Any bound would fail a sign-in that was about to
+/// succeed, so the answer comes when it comes.
+///
+/// Answering this does not block the sidecar, which is why the absence of a
+/// timeout is safe rather than merely tolerated: the read loop answers each
+/// request on a thread of its own, so the screen keeps polling `auth.status`
+/// throughout.
+#[tauri::command]
+pub async fn begin_auth(state: State<'_, AppState>, provider: String) -> Result<(), String> {
+    check_provider(&provider)?;
+    call(&state, "auth.begin", json!({ "provider": provider }), None).await?;
+    Ok(())
+}
+
+/// Refuse a provider this build has no sign-in for, naming it back.
+///
+/// A free function so the check is testable without a `tauri::App`, which nothing
+/// in this crate can build.
+fn check_provider(provider: &str) -> Result<(), String> {
+    if AUTH_PROVIDERS.contains(&provider) {
+        return Ok(());
+    }
+    Err(format!("unknown auth provider: {provider}"))
 }
 
 /// How many tracks sit in each status.
@@ -88,9 +124,18 @@ pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, Strin
 /// manager that owns long work, and its rule that a crash must never present a
 /// logged-out application as ready is already met: the retry performs a real
 /// `auth.status` and returns that answer, never a synthesised one.
-async fn call(state: &AppState, op: &str, timeout: Duration) -> Result<Value, String> {
+///
+/// `timeout` is `None` for `auth.begin` alone, because it waits on a human and a
+/// browser. One parameter that may be absent rather than a second helper doing
+/// the same round trip.
+async fn call(
+    state: &AppState,
+    op: &str,
+    params: Value,
+    timeout: Option<Duration>,
+) -> Result<Value, String> {
     let client = state.client().await;
-    let result = client.call(op, json!({}), Some(timeout)).await;
+    let result = client.call(op, params.clone(), timeout).await;
     let error = match result {
         Ok(data) => return Ok(data),
         Err(error) => error,
@@ -101,7 +146,7 @@ async fn call(state: &AppState, op: &str, timeout: Duration) -> Result<Value, St
     state
         .replace(&client)
         .await?
-        .call(op, json!({}), Some(timeout))
+        .call(op, params, timeout)
         .await
         .map_err(|e| e.to_string())
 }
@@ -166,5 +211,23 @@ mod tests {
         assert_eq!(named.len(), 1);
         assert_eq!(named.get(TrackStatus::Pending.as_str()), Some(&7));
         assert!(!named.contains_key(TrackStatus::Transferred.as_str()));
+    }
+
+    /// A provider the sidecar does not have a sign-in for is refused at the
+    /// host, before it reaches the pipe.
+    ///
+    /// What this catches is a value that is neither of the two literals: a typo
+    /// from the frontend, or a provider added to one side only. Both would
+    /// otherwise be sent, and the sidecar's refusal would arrive as the answer
+    /// to a sign-in the screen is waiting on — after however long the wire takes,
+    /// which for `auth.begin` is unbounded by design.
+    #[test]
+    fn only_the_two_known_providers_are_accepted() {
+        for provider in AUTH_PROVIDERS {
+            assert!(check_provider(provider).is_ok(), "{provider} is a provider");
+        }
+        for provider in ["", "YouTube", "spotify"] {
+            assert!(check_provider(provider).is_err(), "{provider} is not");
+        }
     }
 }

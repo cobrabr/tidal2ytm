@@ -172,6 +172,52 @@ def test_client_secret_sorted_and_strict(isolated_data_dir: Path) -> None:
     assert (cid, csec) == ("a-id", "a-sec")
 
 
+# `require_client_secret` exists for the caller that is not a terminal: the
+# sidecar answering `auth.begin`, which catches one exception type, and it has to
+# be an ordinary one. Every way the credential can be unusable therefore arrives
+# as `ValueError`, carrying text that says which way it was — a caller showing
+# that text is the only thing standing between a person and a dead end.
+def test_every_unusable_client_secret_arrives_as_one_value_error(
+    isolated_data_dir: Path,
+) -> None:
+    for f in isolated_data_dir.glob("client_secret_*.json"):
+        f.unlink()
+    with pytest.raises(ValueError, match="client_secret"):
+        auth.require_client_secret(isolated_data_dir)
+
+    (isolated_data_dir / "client_secret_a.json").write_text(
+        json.dumps({"installed": {"client_id": "a-id", "client_secret": "a-sec"}}),
+        encoding="utf-8",
+    )
+    assert auth.require_client_secret(isolated_data_dir) == ("a-id", "a-sec")
+
+    (isolated_data_dir / "client_secret_b.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="Multiple"):
+        auth.require_client_secret(isolated_data_dir)
+    (isolated_data_dir / "client_secret_b.json").unlink()
+
+    (isolated_data_dir / "client_secret_a.json").write_text("not json", encoding="utf-8")
+    with pytest.raises(ValueError, match="Could not parse"):
+        auth.require_client_secret(isolated_data_dir)
+
+
+# The terminal's half of the same check is unchanged by any of that: a message
+# naming what is missing, and an exit code. `run_ytm_auth` is the interactive
+# entry point, so this is where exiting is the contract rather than a library
+# raising at its caller.
+def test_ytm_auth_without_a_client_secret_exits_with_the_hint(
+    isolated_data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for f in isolated_data_dir.glob("client_secret_*.json"):
+        f.unlink()
+
+    with pytest.raises(SystemExit) as exit_info:
+        auth.run_ytm_auth()
+
+    assert exit_info.value.code == 1
+    assert "client_secret" in capsys.readouterr().err
+
+
 def test_tidal_auth_writer_emits_full_schema(isolated_data_dir: Path, monkeypatch: Any) -> None:
     import webbrowser
     from types import SimpleNamespace

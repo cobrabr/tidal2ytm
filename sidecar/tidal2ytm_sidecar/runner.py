@@ -21,6 +21,24 @@ _LOG = logging.getLogger("tidal2ytm.sidecar")
 # it: an interleaved write would corrupt a frame the host then fails to parse.
 _WRITE_LOCK = threading.Lock()
 
+# How many ops may be answering at once. One thread per request is unbounded,
+# and `auth.begin` holds its thread — and an OAuth child process — for as long
+# as a browser and a person take, so the count is a resource limit rather than a
+# detail. It is set well above what one person can start, because the frontend
+# offers one sign-in at a time.
+#
+# A cap rather than a queue: the host asks `auth.status` every few seconds while
+# a sign-in is in flight and gives it five seconds, so a request that waited for
+# a slot would spend that budget behind a human being slow and arrive as a sidecar
+# that is not answering. Refusing the extra request instead leaves the read loop
+# non-blocking and lets the caller see at once that it asked for more than the
+# sidecar will run at once.
+#
+# Public because the refusal names it and the test that saturates it reads it
+# rather than restating the number.
+MAX_CONCURRENT_OPS = 8
+_OP_SLOTS = threading.Semaphore(MAX_CONCURRENT_OPS)
+
 
 def _write(stream: IO[str], envelope: dict[str, object]) -> None:
     with _WRITE_LOCK:
@@ -45,6 +63,11 @@ def _answer(stream: IO[str], op: str, params: Mapping[str, Any], rid: int | None
             stream,
             protocol.error_response(rid or 0, protocol.UPSTREAM, redact_text(str(exc))),
         )
+    finally:
+        # The slot was taken by the reader rather than here, so that the read
+        # loop never waits. Returning it is this thread's last act: the op is
+        # finished, whatever became of it.
+        _OP_SLOTS.release()
 
 
 def _logged_params(op: object, params: dict[str, Any]) -> object:
@@ -113,6 +136,16 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
         # Nothing joins them: EOF means the host is shutting down and has stopped
         # reading, so an op still in flight is abandoned rather than made to
         # delay the exit — one may be blocking on a human for minutes.
+        if not _OP_SLOTS.acquire(blocking=False):
+            _write(
+                stdout,
+                protocol.error_response(
+                    rid or 0,
+                    protocol.BAD_REQUEST,
+                    f"the sidecar is already answering {MAX_CONCURRENT_OPS} requests",
+                ),
+            )
+            continue
         threading.Thread(target=_answer, args=(stdout, op, params, rid), daemon=True).start()
 
     _LOG.info("stdin closed, exiting")

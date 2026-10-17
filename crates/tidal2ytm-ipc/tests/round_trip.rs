@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::Value;
+use tidal2ytm_ipc::protocol::Response;
 use tidal2ytm_ipc::{
     ErrorKind, IpcError, LOG_LEVELS, SidecarClient, SidecarConfig, log_level_env, sidecar_python,
 };
@@ -51,17 +52,35 @@ fn config() -> SidecarConfig {
     }
 }
 
-/// The canonical `auth.status` answer from `contracts/auth_status.json`, read
-/// rather than restated. That file is the one place the cross-language shape is
-/// written down, and both suites assert against it. A third copy written here
-/// would fail on a legitimate contract change with a diff pointing at production
-/// code, and whoever authored the change would have no way to guess the copy
-/// exists.
-fn auth_status_contract() -> Value {
-    let path = repo_root().join("contracts").join("auth_status.json");
-    let text =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
+/// One contract file's bytes, read rather than restated.
+///
+/// `contracts/*.json` is the one place a cross-language shape is written down and
+/// both suites assert against it. A second copy written here would fail on a
+/// legitimate contract change with a diff pointing at production code, and
+/// whoever authored the change would have no way to guess the copy exists.
+fn contract(name: &str) -> String {
+    let path = repo_root().join("contracts").join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+/// `auth.begin` is a blocking op, so this suite cannot call it: the only way to
+/// get an answer without a person is to ask for a provider the sidecar refuses,
+/// and that refusal depends on what happens to be in the data directory. What
+/// both languages can still be held to here is the envelope — that the answer
+/// to a sign-in echoes the provider back, which is how a screen pairs a reply
+/// that arrives minutes later with the request that asked for it.
+#[test]
+fn parses_the_auth_begin_contract() {
+    let response: Response =
+        serde_json::from_str(&contract("auth_begin.json")).expect("auth.begin envelope parses");
+    assert!(response.ok);
+    assert!(response.error.is_none());
+    let data = response.data.expect("an ok response carries data");
+    assert_eq!(
+        keys_of(&data, "auth.begin data"),
+        std::collections::BTreeSet::from(["provider"])
+    );
+    assert_eq!(data["provider"], serde_json::json!("ytm"));
 }
 
 /// An object's keys, order-free, so two payloads can be compared as shapes.
@@ -161,7 +180,9 @@ async fn the_real_sidecar_answers_auth_status() {
     // both providers, so this exercises `ops._signed_out` and nothing else.
     // Signed-in values are `ops.auth_status`'s contract with its own suite
     // (`sidecar/tests/test_ops.py`).
-    let contract = auth_status_contract()["data"].clone();
+    let envelope: Value =
+        serde_json::from_str(&contract("auth_status.json")).expect("auth_status.json parses");
+    let contract = envelope["data"].clone();
     let providers = contract
         .as_object()
         .unwrap_or_else(|| panic!("the contract's data is an object, got {contract}"));

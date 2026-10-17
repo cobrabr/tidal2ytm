@@ -236,6 +236,41 @@ def read_client_secret(data_dir: Path) -> tuple[str, str]:
 _read_client_secret = read_client_secret
 
 
+# What the CLI has always printed when there is no OAuth client to sign in with,
+# and now also what the sidecar sends over the wire. It is here, beside the
+# exception that carries it, because it is the only thing standing between the
+# failure and a person who does not know a Google Cloud client is what YouTube
+# Music wants — and the GUI shows the same text to someone who has never opened
+# a terminal.
+_MISSING_CLIENT_FILE_HINT = (
+    "Missing client_secret_*.json in data/. Get one at "
+    "https://console.cloud.google.com/apis/credentials "
+    "-> Create Credentials -> OAuth client ID -> "
+    "TVs and Limited Input devices, save it to data/, "
+    "or pass --client-id/--client-secret."
+)
+
+
+def require_client_secret(data_dir: Path) -> tuple[str, str]:
+    """The client id/secret pair in `data_dir`, or `ValueError` saying why there is none.
+
+    One exception type whatever went wrong, so a caller that is not a terminal
+    — the sidecar answering `auth.begin`, which cannot print and exit — has a
+    single thing to catch. `read_client_secret` keeps its own narrow types,
+    because its callers are callers with a question about a directory.
+    """
+    try:
+        return read_client_secret(data_dir)
+    except FileNotFoundError:
+        raise ValueError(_MISSING_CLIENT_FILE_HINT) from None
+    except RuntimeError as exc:
+        raise ValueError(str(exc)) from exc
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(
+            f"Could not parse 'client_id' and 'client_secret' from client_secret_*.json: {exc}"
+        ) from exc
+
+
 def _write_synthetic_client_secret(data_dir: Path, client_id: str, client_secret: str) -> Path:
     path = data_dir / "client_secret_pasted.json"
     path.write_text(
@@ -250,34 +285,21 @@ def _write_synthetic_client_secret(data_dir: Path, client_id: str, client_secret
 def _ensure_client_secret(
     data_dir: Path, client_id: str | None, client_secret: str | None
 ) -> tuple[str, str]:
-    """Return a usable client-id/secret pair, writing or reading as needed."""
+    """Return a usable client-id/secret pair, writing or reading as needed.
+
+    The terminal's half of `require_client_secret`: a pasted pair is written out,
+    and a refusal becomes a message on stderr and an exit code. Nothing here
+    raises, because the only caller is `run_ytm_auth`, whose contract with the
+    person at the keyboard is an exit rather than a traceback.
+    """
     if client_id and client_secret:
         _write_synthetic_client_secret(data_dir, client_id, client_secret)
         return (client_id, client_secret)
     try:
-        return read_client_secret(data_dir)
-    except FileNotFoundError:
-        _LOG.error("auth failure: no client_secret_*.json in data/")
-        print(
-            "Missing client_secret_*.json in data/. Get one at "
-            "https://console.cloud.google.com/apis/credentials "
-            "-> Create Credentials -> OAuth client ID -> "
-            "TVs and Limited Input devices, save it to data/, "
-            "or pass --client-id/--client-secret.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    except RuntimeError as exc:
+        return require_client_secret(data_dir)
+    except ValueError as exc:
         _LOG.error("auth failure: %s", exc)
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        _LOG.error("auth failure: could not parse client secret: %s", exc)
-        print(
-            "Error: Could not parse 'client_id' and 'client_secret' "
-            f"from client_secret_*.json: {exc}",
-            file=sys.stderr,
-        )
         sys.exit(1)
 
 

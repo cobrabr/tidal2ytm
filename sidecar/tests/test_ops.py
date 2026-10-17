@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tidal2ytm_sidecar import ops
+import pytest
+from tidal2ytm_sidecar import ops, protocol
+
+from tidal2ytm import auth
 
 _SIGNED_OUT = {"status": "signed_out", "expires_at": None, "has_client_secret": True}
 
@@ -186,3 +189,57 @@ def test_auth_status_survives_a_corrupt_ytm_token(isolated_data_dir: Path) -> No
 def test_auth_status_survives_an_unreadable_token(isolated_data_dir: Path) -> None:
     (isolated_data_dir / "tidal_token.json").mkdir()
     assert ops.auth_status()["tidal"] == _SIGNED_OUT
+
+
+def _never_started(*args: object, **kwargs: object) -> Path:
+    raise AssertionError("a sign-in flow started without a credential or a known provider")
+
+
+# A missing OAuth client file has to be an answer on the wire, and it is a
+# question of what a `sys.exit` costs here: `SystemExit` is a `BaseException`, so
+# a credential check that printed and exited would escape the runner's
+# `except Exception` and end the sidecar process — taking every other request
+# with it, and leaving the host to respawn into the same failure. No flow may have
+# started either: `run_ytm_auth` opens a browser and reaches the network.
+def test_auth_begin_without_a_client_secret_is_a_readable_error(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for secret in isolated_data_dir.glob("client_secret_*.json"):
+        secret.unlink()
+    monkeypatch.setattr(auth, "run_ytm_auth", _never_started)
+
+    response = protocol.dispatch("auth.begin", {"provider": "ytm"}, rid=4)
+
+    assert response["ok"] is False
+    assert response["error"]["kind"] == "bad_request"
+    assert response["id"] == 4
+    # What says this op ran and refused, rather than this build not having it:
+    # the refusal is the credential the flow cannot start without.
+    assert "client_secret" in response["error"]["message"]
+
+
+# `auth.begin` takes the provider as its only parameter, so an unrecognised one
+# is a request the sidecar cannot carry out. Falling through to a sign-in would
+# start a browser flow and block on a human for a provider nobody asked for.
+def test_auth_begin_refuses_an_unknown_provider(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(auth, "run_tidal_auth", _never_started)
+    monkeypatch.setattr(auth, "run_ytm_auth", _never_started)
+
+    response = protocol.dispatch("auth.begin", {"provider": "deezer"}, rid=5)
+
+    assert response["ok"] is False
+    assert response["error"]["kind"] == "bad_request"
+    assert "deezer" in response["error"]["message"]
+
+
+# A request the sidecar cannot read at all — no `provider`, or one that is not a
+# string — is the same answer, and reaches it the same way. Without this the
+# missing key raises `KeyError`, which the runner can only report as `upstream`
+# and so blames the sidecar or the provider for a typo in the host.
+def test_auth_begin_requires_a_provider(isolated_data_dir: Path) -> None:
+    for params in ({}, {"provider": 7}):
+        response = protocol.dispatch("auth.begin", params, rid=6)
+        assert response["error"]["kind"] == "bad_request", params
+        assert "provider" in response["error"]["message"], params

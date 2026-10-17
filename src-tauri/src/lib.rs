@@ -158,6 +158,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_auth_status,
+            commands::begin_auth,
             commands::get_status_counts,
             commands::get_schema_version
         ])
