@@ -13,8 +13,19 @@ from tidal2ytm_sidecar import protocol, runner
 
 
 def _run(lines: str) -> list[dict[str, Any]]:
+    """Feed `lines` to the loop and return every envelope it wrote.
+
+    Replies come from request threads, so the wait for them belongs here rather
+    than in `run`: production must not delay its exit on an op still in flight,
+    while this helper is what reads captured output. Every thread the run
+    started is alive by the time `run` returns, so the ones left afterwards are
+    exactly the replies still owed.
+    """
     stdout = StringIO()
+    before = set(threading.enumerate())
     runner.run(StringIO(lines), stdout)
+    for thread in set(threading.enumerate()) - before:
+        thread.join()
     return [json.loads(line) for line in stdout.getvalue().splitlines()]
 
 

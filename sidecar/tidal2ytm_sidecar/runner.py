@@ -70,8 +70,6 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
     )
     _write(stdout, protocol.hello())
 
-    answering: list[threading.Thread] = []
-
     for line in stdin:
         if not line.strip():
             continue
@@ -112,15 +110,10 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
 
         # `op` and `rid` are passed as arguments rather than read from the loop's
         # variables, so each thread answers the request it was started for.
-        worker = threading.Thread(target=_answer, args=(stdout, op, params, rid), daemon=True)
-        worker.start()
-        answering.append(worker)
-
-    # Every request that was read gets answered before this returns; a daemon
-    # thread abandoned at process exit would truncate a reply mid-write, and the
-    # host would read the missing frame as a lost sidecar.
-    for worker in answering:
-        worker.join()
+        # Nothing joins them: EOF means the host is shutting down and has stopped
+        # reading, so an op still in flight is abandoned rather than made to
+        # delay the exit — one may be blocking on a human for minutes.
+        threading.Thread(target=_answer, args=(stdout, op, params, rid), daemon=True).start()
 
     _LOG.info("stdin closed, exiting")
     return 0
