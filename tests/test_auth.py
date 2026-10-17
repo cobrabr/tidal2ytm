@@ -218,6 +218,20 @@ def test_ytm_auth_without_a_client_secret_exits_with_the_hint(
     assert "client_secret" in capsys.readouterr().err
 
 
+# The other half, and the half anything but a keyboard has to call: the flow
+# raises. `SystemExit` out of it would end a request thread in the sidecar with
+# its request unanswered, and the host's invoke, which waits for this without a
+# timeout, would never settle. Pinned here as well as end to end in
+# `sidecar/tests/test_runner.py`, because this is the shape the two functions
+# have and nothing else asserts it.
+def test_the_flow_raises_where_the_cli_entry_point_exits(isolated_data_dir: Path) -> None:
+    for f in isolated_data_dir.glob("client_secret_*.json"):
+        f.unlink()
+
+    with pytest.raises(auth.YtmAuthError, match="client_secret"):
+        auth.sign_in_ytm()
+
+
 def test_tidal_auth_writer_emits_full_schema(isolated_data_dir: Path, monkeypatch: Any) -> None:
     import webbrowser
     from types import SimpleNamespace

@@ -133,9 +133,10 @@ def auth_begin(provider: str) -> dict[str, str]:
     the one request that could not start. It is asked for even when a cached
     token would have answered without a flow: the screen offers a sign-in for a
     provider that is not already signed in, and refusing up front is the
-    direction that cannot leave a caller waiting. Everything else — a rejected
-    login, a provider that is down — is left to propagate as the `upstream`
-    failure it is.
+    direction that cannot leave a caller waiting. The sign-in itself is
+    `auth.sign_in_ytm` rather than `auth.run_ytm_auth` for the same reason — the
+    CLI half exits, and everything else, a rejected login or a provider that is
+    down, is left to propagate as the `upstream` failure it is.
     """
     if provider == "tidal":
         auth.run_tidal_auth()
@@ -144,7 +145,7 @@ def auth_begin(provider: str) -> dict[str, str]:
             auth.require_client_secret(auth.paths.DATA_DIR)
         except ValueError as exc:
             raise BadRequestError(str(exc)) from exc
-        auth.run_ytm_auth()
+        auth.sign_in_ytm()
     else:
         raise BadRequestError(f"unknown auth provider: {provider!r}")
     return {"provider": provider}

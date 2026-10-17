@@ -152,7 +152,24 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
                 ),
             )
             continue
-        threading.Thread(target=_answer, args=(stdout, op, params, rid), daemon=True).start()
+        try:
+            threading.Thread(target=_answer, args=(stdout, op, params, rid), daemon=True).start()
+        except RuntimeError as exc:
+            # The slot was taken above, and the thread that would have returned it
+            # never ran. Give it back here: one leaked slot per failure and eight
+            # failures wedge the sidecar into refusing every request while
+            # answering none, reporting a capacity it is not using. `upstream`
+            # rather than the cap's `rate_limited`, because nothing is at
+            # capacity — the sidecar could not start the work.
+            _OP_SLOTS.release()
+            _write(
+                stdout,
+                protocol.error_response(
+                    rid or 0,
+                    protocol.UPSTREAM,
+                    redact_text(f"could not start a thread to answer this request: {exc}"),
+                ),
+            )
 
     _LOG.info("stdin closed, exiting")
     return 0

@@ -200,13 +200,13 @@ def _never_started(*args: object, **kwargs: object) -> Path:
 # a credential check that printed and exited would escape the runner's
 # `except Exception` and end the sidecar process — taking every other request
 # with it, and leaving the host to respawn into the same failure. No flow may have
-# started either: `run_ytm_auth` opens a browser and reaches the network.
+# started either: `auth.sign_in_ytm` opens a browser and reaches the network.
 def test_auth_begin_without_a_client_secret_is_a_readable_error(
     isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for secret in isolated_data_dir.glob("client_secret_*.json"):
         secret.unlink()
-    monkeypatch.setattr(auth, "run_ytm_auth", _never_started)
+    monkeypatch.setattr(auth, "sign_in_ytm", _never_started)
 
     response = protocol.dispatch("auth.begin", {"provider": "ytm"}, rid=4)
 
@@ -225,7 +225,7 @@ def test_auth_begin_refuses_an_unknown_provider(
     isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(auth, "run_tidal_auth", _never_started)
-    monkeypatch.setattr(auth, "run_ytm_auth", _never_started)
+    monkeypatch.setattr(auth, "sign_in_ytm", _never_started)
 
     response = protocol.dispatch("auth.begin", {"provider": "deezer"}, rid=5)
 

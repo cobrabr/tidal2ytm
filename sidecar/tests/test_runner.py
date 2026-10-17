@@ -3,17 +3,47 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import requests
 from tidal2ytm_sidecar import protocol, runner
+
+from tidal2ytm import auth
 
 # Long enough that a stub which does its work always finishes inside it, short
 # enough that a leaked thread fails this test rather than hanging the job.
 _JOIN_TIMEOUT = 10.0
+
+
+def _no_browser(**_kwargs: Any) -> None:
+    """`setup_oauth` without the browser it would open, and without a network.
+
+    The flow is stubbed at both of its edges rather than in the middle, so the
+    code between them — the post-flow token check — is the production one.
+    """
+
+
+def _refusing_session(*_args: object, **_kwargs: object) -> object:
+    """A `YTMusic` whose cached token will not load.
+
+    What the post-flow check reads, and the only part of the session this test
+    needs. The refusal is a `requests` failure because that is what a token the
+    provider will not honour looks like from here, and it is one of the narrow
+    `_AUTH_ERRORS` the check catches — the point is that the check raises an
+    ordinary exception rather than exiting.
+    """
+
+    class _Token:
+        @property
+        def access_token(self) -> str:
+            raise requests.RequestException("the provider will not load this token")
+
+    return SimpleNamespace(_token=_Token())
 
 
 def _run(lines: str) -> list[dict[str, Any]]:
@@ -273,3 +303,65 @@ def test_a_missing_client_credential_answers_and_the_session_survives(
     assert sorted(answered) == [20, 21], "both requests were answered on one session"
     assert answered[20]["error"]["kind"] == "bad_request"
     assert answered[21]["ok"] is True
+
+
+# The second `sys.exit` this task had to kill: the check on the token *after* the
+# flow, which used to print and exit when the token would not load. Same shape of
+# defect as the credential one and just as invisible from above — raising is not
+# exiting, and a `SystemExit` on this thread leaves the request unanswered while
+# the host's invoke, which waits without a timeout, never settles. The stub is
+# required rather than convenient: the real flow opens a browser.
+def test_a_token_that_will_not_load_answers_and_the_session_survives(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(auth, "setup_oauth", _no_browser)
+    monkeypatch.setattr(auth, "YTMusic", _refusing_session)
+
+    envelopes = _run(
+        '{"id": 22, "op": "auth.begin", "params": {"provider": "ytm"}}\n'
+        '{"id": 23, "op": "auth.status", "params": {}}\n'
+    )
+
+    answered = {e["id"]: e for e in envelopes[1:]}
+    assert sorted(answered) == [22, 23], "the failing sign-in took the session with it"
+    assert answered[22]["error"]["kind"] == "upstream"
+    assert answered[23]["ok"] is True
+
+
+# The slot is taken in the read loop and returned by the thread, so a thread that
+# never starts leaves it held. One leak per failure and eight failures would wedge
+# the sidecar into refusing every request it could easily have answered, reporting
+# a capacity it was not using. Every start fails here, one more request than the
+# cap allows, so the last answer is the one that proves the slots came back: had
+# one leaked per failure, that request would arrive as the cap's `rate_limited`
+# instead of as the failure it is.
+def test_a_thread_that_cannot_start_gives_its_slot_back(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_thread = threading.Thread
+
+    class _NeverStarts:
+        def __init__(
+            self,
+            target: Callable[..., object] | None,
+            args: tuple[Any, ...],
+            daemon: bool,
+        ) -> None:
+            self._inner = real_thread(target=target, args=args, daemon=daemon)
+
+        def start(self) -> None:
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(runner.threading, "Thread", _NeverStarts)
+
+    requests = "".join(
+        json.dumps({"id": i, "op": "auth.status", "params": {}}) + "\n"
+        for i in range(1, runner.MAX_CONCURRENT_OPS + 2)
+    )
+    answered = {e["id"]: e for e in _run(requests)[1:]}
+
+    assert sorted(answered) == list(range(1, runner.MAX_CONCURRENT_OPS + 2)), (
+        "a request whose thread never started was never answered"
+    )
+    kinds = {e["error"]["kind"] for e in answered.values()}
+    assert kinds == {"upstream"}, f"a leaked slot answered a request as {kinds}"

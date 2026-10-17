@@ -282,30 +282,26 @@ def _write_synthetic_client_secret(data_dir: Path, client_id: str, client_secret
     return path
 
 
-def _ensure_client_secret(
-    data_dir: Path, client_id: str | None, client_secret: str | None
-) -> tuple[str, str]:
-    """Return a usable client-id/secret pair, writing or reading as needed.
+class YtmAuthError(RuntimeError):
+    """A YouTube Music sign-in that could not be completed.
 
-    The terminal's half of `require_client_secret`: a pasted pair is written out,
-    and a refusal becomes a message on stderr and an exit code. Nothing here
-    raises, because the only caller is `run_ytm_auth`, whose contract with the
-    person at the keyboard is an exit rather than a traceback.
+    An ordinary exception on purpose. The sidecar answers `auth.begin` on a
+    request thread of a process that serves the rest of the GUI, and a
+    `SystemExit` there is a `BaseException`: it ends the thread, the request is
+    never answered, and the host's invoke — which waits for this without a
+    timeout, because the op waits on a person — never settles.
     """
-    if client_id and client_secret:
-        _write_synthetic_client_secret(data_dir, client_id, client_secret)
-        return (client_id, client_secret)
-    try:
-        return require_client_secret(data_dir)
-    except ValueError as exc:
-        _LOG.error("auth failure: %s", exc)
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
 
 
-def run_ytm_auth(
+def sign_in_ytm(
     *, client_id: str | None = None, client_secret: str | None = None, force: bool = False
 ) -> Path:
+    """Sign in to YouTube Music, or raise `YtmAuthError` saying why not.
+
+    Runs the OAuth flow, which opens a browser and returns only when a person
+    has finished with it — so a caller on the other side of a pipe has to be able
+    to answer other requests meanwhile.
+    """
     data_dir = paths.DATA_DIR
     auth_file = paths.YTM_AUTH_FILE
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -328,7 +324,13 @@ def run_ytm_auth(
                 _LOG.info("ytm auth: cached token valid")
                 return auth_file
 
-    client_id, client_secret = _ensure_client_secret(data_dir, client_id, client_secret)
+    if client_id and client_secret:
+        _write_synthetic_client_secret(data_dir, client_id, client_secret)
+    else:
+        try:
+            client_id, client_secret = require_client_secret(data_dir)
+        except ValueError as exc:
+            raise YtmAuthError(str(exc)) from exc
 
     setup_oauth(
         open_browser=True,
@@ -343,14 +345,30 @@ def run_ytm_auth(
         _ = yt._token.access_token  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType]
     except _AUTH_ERRORS as exc:
         _log_auth_failure(exc)
-        print(
-            "Error: YouTube Music authentication token is expired or revoked.\n"
-            "Re-run with: tidal2ytm auth --re-auth",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        raise YtmAuthError(
+            "YouTube Music authentication token is expired or revoked.\n"
+            "Re-run with: tidal2ytm auth --re-auth"
+        ) from exc
     _LOG.info("ytm auth: token cached")
     return auth_file
+
+
+def run_ytm_auth(
+    *, client_id: str | None = None, client_secret: str | None = None, force: bool = False
+) -> Path:
+    """`sign_in_ytm` for a terminal: a refusal is a message and an exit code.
+
+    The whole difference from the function it wraps is what happens when the
+    sign-in cannot be done, and that difference is why it exists. At a keyboard a
+    person has to be told and left alone; inside the sidecar, the same refusal has
+    to stay an exception, because the caller asked over a pipe and is waiting.
+    """
+    try:
+        return sign_in_ytm(client_id=client_id, client_secret=client_secret, force=force)
+    except YtmAuthError as exc:
+        _LOG.error("auth failure: %s", exc)
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _validated_tidal_credentials(
