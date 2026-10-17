@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 from collections.abc import Mapping
 from typing import IO, Any, cast
 
@@ -15,10 +16,35 @@ from .sidecar_logging import level_from_env, setup_stderr_logging
 
 _LOG = logging.getLogger("tidal2ytm.sidecar")
 
+# stdout is the IPC channel and is shared by every answering thread. The lock
+# lives inside `_write` rather than at the call sites so a caller cannot forget
+# it: an interleaved write would corrupt a frame the host then fails to parse.
+_WRITE_LOCK = threading.Lock()
+
 
 def _write(stream: IO[str], envelope: dict[str, object]) -> None:
-    stream.write(json.dumps(envelope, separators=(",", ":")) + "\n")
-    stream.flush()
+    with _WRITE_LOCK:
+        stream.write(json.dumps(envelope, separators=(",", ":")) + "\n")
+        stream.flush()
+
+
+def _answer(stream: IO[str], op: str, params: Mapping[str, Any], rid: int | None) -> None:
+    """Run one op and write its answer, on a thread of its own.
+
+    An op that blocks on a human — the OAuth flow `auth.begin` needs — would
+    otherwise hold up every other request behind it, and the host gives
+    `auth.status` five seconds. So an op is dispatched off the reading thread,
+    which stays a plain iteration over stdin. The wire keys every reply by id,
+    so answering out of order costs nothing.
+    """
+    try:
+        _write(stream, protocol.dispatch(op, params, rid))
+    except Exception as exc:  # one bad op must not end a long-lived session
+        _LOG.exception("op %s failed", op)
+        _write(
+            stream,
+            protocol.error_response(rid or 0, protocol.UPSTREAM, redact_text(str(exc))),
+        )
 
 
 def _logged_params(op: object, params: dict[str, Any]) -> object:
@@ -43,6 +69,8 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
         list(protocol.CAPABILITIES),
     )
     _write(stdout, protocol.hello())
+
+    answering: list[threading.Thread] = []
 
     for line in stdin:
         if not line.strip():
@@ -82,14 +110,17 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
             )
             continue
 
-        try:
-            _write(stdout, protocol.dispatch(op, params, rid))
-        except Exception as exc:  # one bad op must not end a long-lived session
-            _LOG.exception("op %s failed", op)
-            _write(
-                stdout,
-                protocol.error_response(rid or 0, protocol.UPSTREAM, redact_text(str(exc))),
-            )
+        # `op` and `rid` are passed as arguments rather than read from the loop's
+        # variables, so each thread answers the request it was started for.
+        worker = threading.Thread(target=_answer, args=(stdout, op, params, rid), daemon=True)
+        worker.start()
+        answering.append(worker)
+
+    # Every request that was read gets answered before this returns; a daemon
+    # thread abandoned at process exit would truncate a reply mid-write, and the
+    # host would read the missing frame as a lost sidecar.
+    for worker in answering:
+        worker.join()
 
     _LOG.info("stdin closed, exiting")
     return 0
