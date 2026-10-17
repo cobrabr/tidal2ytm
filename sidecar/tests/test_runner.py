@@ -195,7 +195,8 @@ def test_an_op_that_raises_answers_upstream_under_its_own_id(
 # at a time — and it refuses rather than queues, because a queued `auth.status`
 # would spend the host's five-second budget behind a sign-in and be reported as
 # a sidecar that is not answering. The caller of the refused request learns
-# immediately instead of waiting on a timeout that is not its own.
+# immediately instead of waiting on a timeout that is not its own, and the kind
+# says it was the sidecar's capacity rather than the caller's mistake.
 def test_a_request_past_the_cap_is_refused_rather_than_queued(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -244,5 +245,31 @@ def test_a_request_past_the_cap_is_refused_rather_than_queued(
     written = (json.loads(line) for line in stdout.getvalue().splitlines())
     answered = {e["id"]: e for e in written if "id" in e}
     assert sorted(answered) == list(range(1, cap + 2)), "every request got exactly one answer"
-    assert answered[cap + 1]["error"]["kind"] == "bad_request"
+    assert answered[cap + 1]["error"]["kind"] == "rate_limited"
     assert all(answer["ok"] for answer in answered.values() if answer["id"] <= cap)
+
+
+# A missing client file used to answer its request by ending the process: the
+# check printed to stderr and called `sys.exit(1)`, and `SystemExit` is a
+# `BaseException` that `except Exception` cannot catch. Nothing above this level
+# would notice — a unit test of the check passes either way, because raising is
+# not exiting — so this drives the real op through the real loop with no stub
+# anywhere. The request has to come back as an error frame, and the next request
+# has to be answered as well, which is what "the session survived" means: a
+# regression to the exit path leaves the first request unanswered for ever and
+# this fails on the missing id rather than on an exception.
+def test_a_missing_client_credential_answers_and_the_session_survives(
+    isolated_data_dir: Path,
+) -> None:
+    for secret in isolated_data_dir.glob("client_secret_*.json"):
+        secret.unlink()
+
+    envelopes = _run(
+        '{"id": 20, "op": "auth.begin", "params": {"provider": "ytm"}}\n'
+        '{"id": 21, "op": "auth.status", "params": {}}\n'
+    )
+
+    answered = {e["id"]: e for e in envelopes[1:]}
+    assert sorted(answered) == [20, 21], "both requests were answered on one session"
+    assert answered[20]["error"]["kind"] == "bad_request"
+    assert answered[21]["ok"] is True

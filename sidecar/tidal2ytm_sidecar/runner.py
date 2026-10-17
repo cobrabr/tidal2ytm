@@ -34,6 +34,12 @@ _WRITE_LOCK = threading.Lock()
 # non-blocking and lets the caller see at once that it asked for more than the
 # sidecar will run at once.
 #
+# `rate_limited` is the kind for it, because it is the one whose remedy is to
+# come back in a moment, and the job-level retry policy already backs off on it.
+# `bad_request` would mean the caller sent something wrong, and it did not: a
+# person whose Home said "bad request" while a sign-in was in flight would be
+# told something false about their own action.
+#
 # Public because the refusal names it and the test that saturates it reads it
 # rather than restating the number.
 MAX_CONCURRENT_OPS = 8
@@ -141,7 +147,7 @@ def run(stdin: IO[str], stdout: IO[str]) -> int:
                 stdout,
                 protocol.error_response(
                     rid or 0,
-                    protocol.BAD_REQUEST,
+                    protocol.RATE_LIMITED,
                     f"the sidecar is already answering {MAX_CONCURRENT_OPS} requests",
                 ),
             )
