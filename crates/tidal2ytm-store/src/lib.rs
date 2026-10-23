@@ -41,4 +41,6 @@ pub mod schema;
 pub mod store;
 
 pub use schema::MIGRATIONS;
-pub use store::{NewCandidate, ReviewOverride, SCHEMA_VERSION, Store, StoreError, TrackRow};
+pub use store::{
+    NewCandidate, ReviewOverride, SCHEMA_VERSION, SourceRow, Store, StoreError, TrackRow,
+};

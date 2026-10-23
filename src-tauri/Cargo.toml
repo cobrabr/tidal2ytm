@@ -28,10 +28,11 @@ serde_json.workspace = true
 tidal2ytm-core = { path = "../crates/tidal2ytm-core" }
 tidal2ytm-ipc = { path = "../crates/tidal2ytm-ipc" }
 tidal2ytm-store = { path = "../crates/tidal2ytm-store" }
-# `sync` for the mutex that serialises a respawn. The runtime itself belongs to
-# Tauri, and the other features this crate would ask for are already enabled by
-# `tidal2ytm-ipc`; naming them here would claim a use that does not exist.
-tokio = { workspace = true, features = ["sync"] }
+# `sync` for the mutex that serialises a respawn and `rt` for the sync job's
+# own single-threaded runtime on its worker thread. The command surface's
+# runtime itself belongs to Tauri; naming what this crate starts itself keeps
+# the claim visible rather than feature-unified into existence.
+tokio = { workspace = true, features = ["sync", "rt"] }
 
 [dev-dependencies]
 # `macros` and `rt` for `#[tokio::test]`, which `state.rs` and `lib.rs`'s tests

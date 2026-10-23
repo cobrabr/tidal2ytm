@@ -67,14 +67,15 @@ pub struct AppState {
     current: Mutex<Arc<SidecarClient>>,
     /// The application's database, opened once at startup.
     ///
-    /// Behind no lock and no `Arc` of its own, unlike `current`, because nothing
-    /// here is ever replaced and no caller needs to compare it for identity.
-    /// `Store` reaches Tauri's managed state as a plain field because it carries
-    /// its own synchronisation: `rusqlite::Connection` is `Send` but not `Sync`,
-    /// so `Store` holds it behind a `std::sync::Mutex` and is `Sync` itself.
-    /// Holding a plain field here makes that one internal lock the only thing
-    /// being relied on, with no second layer of synchronisation to reason about.
-    store: Store,
+    /// A plain field made `Arc` — not cloned, not pooled: one `Store` owns the
+    /// process's one database connection, and commands receive a borrow while
+    /// the job manager's worker thread needs a handle it can keep, so `Arc`
+    /// is what lets a long job keep the same connection without the borrow a
+    /// command frame cannot give it. `rusqlite::Connection` is `Send` but not
+    /// `Sync`, so `Store` holds it behind a `std::sync::Mutex` and is `Sync`
+    /// itself. That one internal lock is the only synchronisation being
+    /// relied on, whether the caller is a command or the job's worker thread.
+    store: Arc<Store>,
 }
 
 impl AppState {
@@ -84,7 +85,7 @@ impl AppState {
         Ok(Self {
             config,
             current: Mutex::new(Arc::new(client)),
-            store,
+            store: Arc::new(store),
         })
     }
 
@@ -96,13 +97,19 @@ impl AppState {
 
     /// The database every command reads.
     ///
-    /// Borrowed rather than cloned: one `Store` owns the process's one database
-    /// connection, and a clone would be a second owner of that connection rather
-    /// than a second way to reach it. Every operation locks the same mutex
-    /// inside this borrow, so callers share the handle without sharing a lock.
+    /// A borrow for the commands that finish when they answer; [`Self::store`]
+    /// the handle for whichever caller — the job manager's worker — needs to
+    /// keep the same connection past one await.
     #[must_use]
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// The database as a keepable handle, so a job launched into the
+    /// background can go on writing the same connection its files name.
+    #[must_use]
+    pub fn store_arc(&self) -> Arc<Store> {
+        Arc::clone(&self.store)
     }
 
     /// Replace a sidecar the caller has already been told is gone.

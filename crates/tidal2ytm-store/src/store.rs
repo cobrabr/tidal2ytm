@@ -66,6 +66,24 @@ pub struct TrackRow {
     pub review_reason: Option<String>,
 }
 
+/// One track's Tidal metadata as the sync writes it: the columns
+/// [`Store::upsert_track_source`] names, with the resolved `album_id` replaced
+/// by the artist and album names it is resolved from. The Tidal-side
+/// `album_id` and `artists` list are not carried because the schema identifies
+/// those rows by normalized name — [`Store::upsert_source_page`] resolves the
+/// keys with the same `text::normalize` rule `TrackRow`'s callers apply.
+pub struct SourceRow {
+    pub tidal_id: i64,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub album_year: Option<i64>,
+    pub duration_sec: i64,
+    pub track_num: i64,
+    pub disc_num: i64,
+    pub version: Option<String>,
+}
+
 /// One alternative the matcher considered, written only when the match was not
 /// certain enough to act on.
 pub struct NewCandidate {
@@ -93,6 +111,39 @@ pub struct ReviewOverride {
 
 /// The outcomes the `transfer_attempt` `CHECK` constraint permits.
 const OUTCOMES: [&str; 4] = ["started", "added", "already_present", "failed"];
+
+/// `upsert_artist` and [`Store::upsert_source_page`] run the same statement —
+/// the page's transaction borrows the const rather than carrying a second copy
+/// of its text, because a second copy is a second place to drift from the
+/// conflict clause that makes the artist row one per name.
+const UPSERT_ARTIST_SQL: &str = "INSERT INTO artist (name, name_key) VALUES (?1, ?2)
+     ON CONFLICT(name_key) DO UPDATE SET name = excluded.name";
+
+/// [Store::upsert_album]'s statement, shared the same way.
+const UPSERT_ALBUM_SQL: &str =
+    "INSERT INTO album (artist_id, name, name_key, year) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(artist_id, name_key) DO UPDATE SET
+       name = excluded.name,
+       year = excluded.year";
+
+/// [Store::upsert_track_source]'s statement, shared the same way — the sync's
+/// per-page transaction runs it as `upsert_track_source` writes it, one
+/// statement text for one rule about which columns a source write owns.
+const UPSERT_TRACK_SOURCE_SQL: &str = "INSERT INTO track (
+           album_id, tidal_id, title, artist, duration_sec, track_num, disc_num,
+           version, status, match_method
+         ) VALUES (
+           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', 'none'
+         )
+         ON CONFLICT(tidal_id) DO UPDATE SET
+           album_id = excluded.album_id,
+           title = excluded.title,
+           artist = excluded.artist,
+           duration_sec = excluded.duration_sec,
+           track_num = excluded.track_num,
+           disc_num = excluded.disc_num,
+           version = excluded.version
+         WHERE track.status <> 'transferred'";
 
 /// A connection to the application's database.
 ///
@@ -182,11 +233,7 @@ impl Store {
     /// "song!" two album rows, which is the bug the key exists to prevent.
     pub fn upsert_artist(&self, name: &str, name_key: &str) -> Result<i64, StoreError> {
         let conn = self.conn();
-        conn.execute(
-            "INSERT INTO artist (name, name_key) VALUES (?1, ?2)
-             ON CONFLICT(name_key) DO UPDATE SET name = excluded.name",
-            rusqlite::params![name, name_key],
-        )?;
+        conn.execute(UPSERT_ARTIST_SQL, rusqlite::params![name, name_key])?;
         Self::artist_id(&conn, name_key)
     }
 
@@ -206,10 +253,7 @@ impl Store {
     ) -> Result<i64, StoreError> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO album (artist_id, name, name_key, year) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(artist_id, name_key) DO UPDATE SET
-               name = excluded.name,
-               year = excluded.year",
+            UPSERT_ALBUM_SQL,
             rusqlite::params![artist_id, name, name_key, year],
         )?;
         Self::album_id(&conn, artist_id, name_key)
@@ -327,21 +371,7 @@ impl Store {
     pub fn upsert_track_source(&self, row: &TrackRow) -> Result<i64, StoreError> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO track (
-                   album_id, tidal_id, title, artist, duration_sec, track_num, disc_num,
-                   version, status, match_method
-                 ) VALUES (
-                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', 'none'
-                 )
-                 ON CONFLICT(tidal_id) DO UPDATE SET
-                   album_id = excluded.album_id,
-                   title = excluded.title,
-                   artist = excluded.artist,
-                   duration_sec = excluded.duration_sec,
-                   track_num = excluded.track_num,
-                   disc_num = excluded.disc_num,
-                   version = excluded.version
-                 WHERE track.status <> 'transferred'",
+            UPSERT_TRACK_SOURCE_SQL,
             rusqlite::params![
                 row.album_id,
                 row.tidal_id,
@@ -354,6 +384,93 @@ impl Store {
             ],
         )?;
         Self::track_id(&conn, row.tidal_id)
+    }
+
+    /// Write one page of the sync: every row's artist, album and track, in the
+    /// foreign-key order, in one transaction.
+    ///
+    /// A page is committed whole or not at all, because page boundaries are
+    /// what a partial mirror is readable through: a sync that failed partway
+    /// must show exactly the pages it did commit, and a half-committed page
+    /// would blur every count the surface can produce.
+    ///
+    /// The writes go through the same statement text the single-row methods
+    /// own, so a page write cannot grow a second dialect.
+    ///
+    /// Sync upserts and never deletes. Nothing here removes a track or an
+    /// album this fetch did not repeat: a track's absence from one paginated
+    /// page is not proof a fetch overview said so, and a delete removes the
+    /// row's whole history. A delete may only ever run against a fetch that
+    /// completed every page, in one transaction, and never over a
+    /// `transferred` or `skip` row.
+    pub fn upsert_source_page(&self, rows: &[SourceRow]) -> Result<(), StoreError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for row in rows {
+            let artist_key = tidal2ytm_core::text::normalize(&row.artist);
+            tx.execute(UPSERT_ARTIST_SQL, rusqlite::params![row.artist, artist_key])?;
+            let artist_id = Self::artist_id(&tx, &artist_key)?;
+
+            let album_key = tidal2ytm_core::text::normalize(&row.album);
+            tx.execute(
+                UPSERT_ALBUM_SQL,
+                rusqlite::params![artist_id, row.album, album_key, row.album_year],
+            )?;
+            let album_id = Self::album_id(&tx, artist_id, &album_key)?;
+
+            tx.execute(
+                UPSERT_TRACK_SOURCE_SQL,
+                rusqlite::params![
+                    album_id,
+                    row.tidal_id,
+                    row.title,
+                    row.artist,
+                    row.duration_sec,
+                    row.track_num,
+                    row.disc_num,
+                    row.version.as_deref(),
+                ],
+            )?;
+        }
+        // Mandatory: rusqlite's `Transaction` rolls back when it is dropped, so
+        // a missing `commit()` would end an erroring page in silence.
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Write one meta value, or replace the one it has.
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<(), StoreError> {
+        self.conn().execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Read one meta value. A key that was never written reads as `None`,
+    /// which is the distinction the sync's caller needs: `sync_started_at`
+    /// carries its whole meaning in whether the row exists, never in the
+    /// characters beside it.
+    pub fn get_meta(&self, key: &str) -> Result<Option<String>, StoreError> {
+        match self
+            .conn()
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            }) {
+            Ok(value) => Ok(Some(value)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Remove one meta value. This is the store's only operation that removes
+    /// a row at all, and it is scoped to the `meta` table for the reason
+    /// `upsert_source_page` denotes: tracks are never deleted here.
+    pub fn delete_meta(&self, key: &str) -> Result<(), StoreError> {
+        self.conn()
+            .execute("DELETE FROM meta WHERE key = ?1", [key])?;
+        Ok(())
     }
 
     /// Write the track's status, and return.
@@ -1352,5 +1469,157 @@ mod tests {
         // the pair and not the name alone.
         assert_ne!(a, b);
         assert_eq!(count(&store, "SELECT COUNT(*) FROM album"), 2);
+    }
+
+    /// A page the sync writes, with every field filled as Tidal reports it.
+    #[must_use]
+    fn page_row(tidal_id: i64, artist: &str, album: &str) -> SourceRow {
+        SourceRow {
+            tidal_id,
+            title: format!("{artist}'s track"),
+            artist: artist.to_string(),
+            album: album.to_string(),
+            album_year: Some(2024),
+            duration_sec: 210,
+            track_num: 3,
+            disc_num: 1,
+            version: None,
+        }
+    }
+
+    /// The `artist` → `album` → `track` chain the sync's write orders, seen
+    /// through the rows it leaves behind: a page row becomes all three rows,
+    /// joined, with the names keyed the way this project keys them — and the
+    /// artist and album a *different* track shares are reused, not duplicated.
+    #[test]
+    fn a_source_page_writes_artist_album_and_track_in_foreign_key_order() {
+        let store = migrated();
+        let rows = [
+            page_row(174_839_201, "Juna Reyes", "Marble Field"),
+            page_row(174_839_202, "Juna Reyes", "Fen Hymns"),
+            page_row(174_839_203, "Iris Moone", "Marble Field"),
+        ];
+        store.upsert_source_page(&rows).expect("the page commits");
+
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM track"), 3);
+        // Albums are scoped per artist, so "Marble Field" is two rows.
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM album"), 3);
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM artist"), 2);
+        assert_eq!(
+            scalars(
+                &store,
+                "SELECT artist.name || '|' || album.name || '|' || track.title
+                 FROM track
+                 JOIN album ON album.id = track.album_id
+                 JOIN artist ON artist.id = album.artist_id
+                 ORDER BY track.tidal_id"
+            ),
+            [
+                "Juna Reyes|Marble Field|Juna Reyes's track",
+                "Juna Reyes|Fen Hymns|Juna Reyes's track",
+                "Iris Moone|Marble Field|Iris Moone's track",
+            ]
+        );
+        // The keys are `text::normalize`'s output, the same identity rule
+        // `upsert_artist`'s own contract describes, computed here because the
+        // sync's caller speaks Tidal's names and not keys.
+        assert_eq!(
+            scalars(&store, "SELECT name_key FROM artist ORDER BY name"),
+            ["iris moone", "juna reyes"]
+        );
+    }
+
+    /// The carried Review Focus case: a favourited track whose album name is
+    /// empty or absent must not abort its page on a foreign key, but must also
+    /// not hand every album-less track of one artist a separate album row more
+    /// than names demand. One placeholder row named `""` per artist — the
+    /// frontend renders it as `Unknown album` — keeps the foreign key resolvable
+    /// and the artist's album-less tracks grouped where the schema groups them.
+    #[test]
+    fn an_album_less_favourite_upserts_one_placeholder_album_per_artist() {
+        let store = migrated();
+        let first = SourceRow {
+            tidal_id: 174_839_204,
+            title: "Farthest Row".to_string(),
+            artist: "Ilse Vandermeer".to_string(),
+            album: String::new(),
+            album_year: None,
+            duration_sec: 250,
+            track_num: 1,
+            disc_num: 1,
+            version: Some("Single Edit".to_string()),
+        };
+        let second = page_row(174_839_205, "Ilse Vandermeer", "");
+        let other = page_row(174_839_206, "Bram Oduya", "");
+
+        store
+            .upsert_source_page(&[first, second, other])
+            .expect("an album-less track must not fail its page");
+        store
+            .upsert_source_page(&[page_row(174_839_207, "Ilse Vandermeer", "")])
+            .expect("a repeated placeholder must not fail its page");
+
+        // Two artists, two placeholder rows, and no third one after the repeat.
+        assert_eq!(
+            count(&store, "SELECT COUNT(*) FROM album WHERE name = ''"),
+            2,
+        );
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM artist"), 2,);
+        assert_eq!(count(&store, "SELECT COUNT(*) FROM track"), 4);
+        // Each artist's placeholder is theirs alone; neither artist's
+        // album-less tracks landed on the other's row.
+        assert_eq!(
+            scalars(
+                &store,
+                "SELECT artist.name
+                 FROM album JOIN artist ON artist.id = album.artist_id
+                 WHERE album.name = ''
+                 ORDER BY artist.name"
+            ),
+            ["Bram Oduya", "Ilse Vandermeer"]
+        );
+    }
+
+    #[test]
+    fn a_meta_key_reads_back_what_was_written_and_replaces_on_a_second_write() {
+        let store = migrated();
+
+        store
+            .set_meta("sync_started_at", "2026-10-22T10:00:00Z")
+            .expect("first write");
+        assert_eq!(
+            store.get_meta("sync_started_at").expect("read"),
+            Some("2026-10-22T10:00:00Z".to_string())
+        );
+
+        store
+            .set_meta("sync_started_at", "2026-10-22T11:30:00Z")
+            .expect("second write");
+        assert_eq!(
+            store.get_meta("sync_started_at").expect("read"),
+            Some("2026-10-22T11:30:00Z".to_string()),
+            "the second write replaces the first, or a resumed sync would read stale"
+        );
+    }
+
+    #[test]
+    fn a_meta_key_nobody_wrote_or_that_was_deleted_reads_as_none() {
+        let store = migrated();
+
+        assert_eq!(
+            store.get_meta("sync_last_completed_at").expect("read"),
+            None,
+            "an unwritten key must read as absent, not as an empty string"
+        );
+
+        store
+            .set_meta("sync_started_at", "2026-10-22T10:00:00Z")
+            .expect("write");
+        store.delete_meta("sync_started_at").expect("delete");
+        assert_eq!(
+            store.get_meta("sync_started_at").expect("read"),
+            None,
+            "deleting the beginning stamp is what a successful completion does to it"
+        );
     }
 }

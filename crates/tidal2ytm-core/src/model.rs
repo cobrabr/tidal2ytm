@@ -140,7 +140,12 @@ pub struct ConfidenceBreakdown {
 /// nothing is untyped: `sidecar/tidal2ytm_sidecar/envelope.py` has already
 /// turned every field into its declared type, so a second set of coercions here
 /// would be a second place for the same rule to be wrong, reached by no input.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `Serialize` and `Deserialize` are on the struct rather than on a wire-shaped
+/// double because the field names already *are* the wire keys
+/// `contracts/favorites_list.json` records; a second shape would be a second
+/// copy of those eleven names for a rename to miss.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceTrack {
     pub tidal_id: i64,
     pub title: String,

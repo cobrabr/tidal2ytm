@@ -8,10 +8,11 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tauri::State;
+use tauri::{Emitter, State};
 use tidal2ytm_core::model::TrackStatus;
 use tidal2ytm_ipc::IpcError;
 
+use crate::jobs::{JobManager, Progress};
 use crate::state::{AppState, AuthStatus};
 
 /// `auth.status` is a local file read behind a pipe, so the bound is tight: a
@@ -109,6 +110,59 @@ fn counts_by_name(counts: BTreeMap<TrackStatus, i64>) -> BTreeMap<String, i64> {
 #[tauri::command]
 pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, String> {
     state.store().schema_version().map_err(|e| e.to_string())
+}
+
+/// The Tauri event name the sync job's progress streams on.
+///
+/// Exactly this literal is the contract Task 11's Home screen subscribes to;
+/// it is named here because this file is where the payload meets the wire.
+pub const JOB_PROGRESS_EVENT: &str = "job-progress";
+
+/// Start one sync of the Tidal favourites into the store.
+///
+/// The answer is the job id only; the pages travel on `job-progress` events
+/// from the worker thread, which is where the long work they describe lives.
+/// The client and the store come from `State<'_, AppState>` — not a second
+/// `manage`, since `AppState` already holds both — and are handed over as
+/// shared handles the worker can keep: the job outlives every await that
+/// started it.
+#[tauri::command]
+pub async fn start_sync(
+    state: State<'_, AppState>,
+    manager: State<'_, JobManager>,
+    app: tauri::AppHandle,
+) -> Result<u64, String> {
+    let client = state.client().await;
+    manager.start_sync(client, state.store_arc(), move |progress| {
+        emit_progress(&app, progress);
+    })
+}
+
+/// Hand one progress emission to the event web.
+///
+/// The `Result` the emit answered with is logged, not propagated, because a
+/// job run on its own thread has no command frame left to return an error
+/// through and a listener that shut down mid-sync is not the sync's business.
+fn emit_progress(app: &tauri::AppHandle, progress: Progress) {
+    if let Err(error) = app.emit(JOB_PROGRESS_EVENT, progress) {
+        log::warn!("could not emit sync progress: {error}");
+    }
+}
+
+/// Ask one job to stop at its next page boundary.
+///
+/// A refusal leaves the error for the caller to read: a job that already
+/// ended, or an id never issued, is exactly the state the screen that still
+/// shows a live progress panel should be told it cannot act on.
+#[tauri::command]
+pub async fn cancel_job(manager: State<'_, JobManager>, jid: u64) -> Result<(), String> {
+    if manager.cancel(jid) {
+        Ok(())
+    } else {
+        Err(format!(
+            "job {jid} cannot be cancelled: it is not running, or was never issued"
+        ))
+    }
 }
 
 /// One round trip, with one respawn if the sidecar had already gone.
@@ -229,5 +283,14 @@ mod tests {
         for provider in ["", "YouTube", "spotify"] {
             assert!(check_provider(provider).is_err(), "{provider} is not");
         }
+    }
+
+    /// The event name is the one ruling Task 11's subscription pairs with, so
+    /// it is pinned where the payload meets the wire: a renamed constant
+    /// compiles green and silently strands every listener waiting on the
+    /// name they were given.
+    #[test]
+    fn the_progress_event_is_named_by_the_ruling_it_serves() {
+        assert_eq!(JOB_PROGRESS_EVENT, "job-progress");
     }
 }

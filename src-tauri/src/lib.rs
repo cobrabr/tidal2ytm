@@ -6,9 +6,13 @@
 //! it could use to start anything even if it wanted to.
 
 pub mod commands;
+pub mod jobs;
 pub mod logging;
 pub mod sidecar_path;
 pub mod state;
+#[cfg(test)]
+mod stub;
+pub mod sync;
 
 use std::path::Path;
 use std::time::Duration;
@@ -154,13 +158,20 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(AppState::start(config, store))
                 .inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
             app.manage(state);
+            // Managed here rather than as a second field of `AppState` so a
+            // command can take the two as separate `State` parameters and the
+            // job's lifecycle stays the manager's own: it is created empty and
+            // it is what outlives a command call.
+            app.manage(jobs::JobManager::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_auth_status,
             commands::begin_auth,
             commands::get_status_counts,
-            commands::get_schema_version
+            commands::get_schema_version,
+            commands::start_sync,
+            commands::cancel_job
         ])
         .build(tauri::generate_context!())
         .expect("the Tauri application builds");
