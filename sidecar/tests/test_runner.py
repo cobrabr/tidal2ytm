@@ -81,7 +81,7 @@ def test_handshake_is_the_first_thing_written() -> None:
     envelopes = _run("")
     assert envelopes[0]["event"] == "hello"
     assert envelopes[0]["protocol"] == 1
-    assert envelopes[0]["capabilities"] == ["auth.status", "auth.begin"]
+    assert envelopes[0]["capabilities"] == ["auth.status", "auth.begin", "favorites.list"]
 
 
 def test_auth_status_is_answered_inline(isolated_data_dir: Path) -> None:

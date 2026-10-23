@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from tidal2ytm.tidal_source import get_favorite_tracks
+from tidal2ytm.tidal_source import fetch_favorite_page, get_favorite_tracks, iter_favorite_pages
 
 
 @dataclass
@@ -171,3 +171,40 @@ def test_tidal_source_api_error_propagates() -> None:
 
     with pytest.raises(RuntimeError):
         get_favorite_tracks(FakeSession(BoomFavorites()))  # type: ignore[arg-type]
+
+
+class RecordingFavorites:
+    """One page per request, recording what was asked for."""
+
+    def __init__(self, page: list[Any]) -> None:
+        self._page = page
+        self.asked: list[tuple[int, int]] = []
+
+    def tracks(self, limit: int = 9999, offset: int = 0) -> list[Any]:
+        self.asked.append((limit, offset))
+        return self._page
+
+
+def test_fetch_favorite_page_asks_for_exactly_one_page() -> None:
+    favorites = RecordingFavorites([FakeTrack(id=1, name="Cinder Path")])
+
+    page = fetch_favorite_page(FakeSession(favorites), 100, 25)  # type: ignore[arg-type]
+
+    # One request, at the paging the caller asked for. The sidecar owns the loop
+    # and the page is its unit of work, so a page fetch that walked to the end of
+    # the favourites would make that offset meaningless.
+    assert favorites.asked == [(25, 100)]
+    assert [t.tidal_id for t in page] == [1]
+
+
+def test_iter_favorite_pages_dedupes_across_pages() -> None:
+    t1 = FakeTrack(id=1, name="Cinder Path")
+    t2 = FakeTrack(id=2, name="Mire Song")
+    repeat = FakeTrack(id=1, name="Cinder Path (second listing)")
+    t3 = FakeTrack(id=3, name="Hollow Crown")
+
+    pages = list(iter_favorite_pages(_session_with([[t1, t2], [repeat, t3]]), 9999))  # type: ignore[arg-type]
+
+    # The set spans the whole walk, so a repeat on a later page is dropped rather
+    # than re-emitted — which is what the CLI's one list depends on.
+    assert [[t.tidal_id for t in page] for page in pages] == [[1, 2], [3]]

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
-from tidal2ytm_sidecar import ops, protocol
+from tidal2ytm_sidecar import ops, protocol, refresh
 
-from tidal2ytm import auth
+from tidal2ytm import auth, tidal_source
+from tidal2ytm.models import SourceTrack
 
 _SIGNED_OUT = {"status": "signed_out", "expires_at": None, "has_client_secret": True}
 
@@ -155,6 +157,113 @@ def test_an_expired_tidal_token_with_nothing_to_refresh_is_signed_out(
         encoding="utf-8",
     )
     assert ops.auth_status()["tidal"]["status"] == "signed_out"
+
+
+def _track(tidal_id: int) -> SourceTrack:
+    return SourceTrack(
+        tidal_id=tidal_id,
+        title=f"Track {tidal_id}",
+        artist="Wren Halloway",
+        artists=["Wren Halloway"],
+        album="Fen Hymns",
+        album_id=11,
+        album_year=2019,
+        duration_sec=200,
+        track_num=1,
+        disc_num=1,
+        version=None,
+    )
+
+
+def _one_page(
+    monkeypatch: pytest.MonkeyPatch,
+    tracks: list[SourceTrack],
+) -> list[tuple[int, int]]:
+    """Stub the session and the one page fetch; return the paging calls made."""
+
+    def _load(_token_file: Path) -> object:
+        return object()
+
+    asked: list[tuple[int, int]] = []
+
+    def _fetch(_session: object, offset: int, limit: int) -> list[SourceTrack]:
+        asked.append((offset, limit))
+        return tracks
+
+    monkeypatch.setattr(refresh, "load_session", _load)
+    monkeypatch.setattr(tidal_source, "fetch_favorite_page", _fetch)
+    return asked
+
+
+def test_a_full_page_is_reported_as_incomplete_and_paging_is_passed_through(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked = _one_page(monkeypatch, [_track(1), _track(2)])
+
+    result = ops.favorites_list(100, 2)
+
+    # Unchanged: the host owns the loop, and an op that adjusted either number
+    # would page a list nobody asked it to page.
+    assert asked == [(100, 2)]
+    rows = cast("list[dict[str, object]]", result["tracks"])
+    assert [row["tidal_id"] for row in rows] == [1, 2]
+    assert result["page_complete"] is False
+
+
+def test_a_short_page_is_reported_as_complete(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _one_page(monkeypatch, [_track(1)])
+
+    # The host breaks its loop on this flag rather than asking for a page it
+    # already knows is the last one.
+    assert ops.favorites_list(0, 2)["page_complete"] is True
+
+
+# A `limit` of zero is not an empty page: the op would answer with a page of no
+# tracks, report it complete, and the host's loop would end having fetched
+# nothing. A negative offset asks Tidal for a page that cannot exist.
+def test_paging_parameters_the_op_cannot_use_are_refused(
+    isolated_data_dir: Path,
+) -> None:
+    for offset, limit in ((0, 0), (0, -1), (-1, 10)):
+        with pytest.raises(ops.BadRequestError):
+            ops.favorites_list(offset, limit)
+
+
+def test_a_refresh_failure_is_reported_as_auth_expired(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refused(_file: Path) -> object:
+        raise refresh.RefreshFailedError("no usable Tidal token cache")
+
+    monkeypatch.setattr(refresh, "load_session", refused)
+
+    # Over the wire, not as an exception: the host branches on this kind and
+    # offers a sign-in for it, where a generic failure offers nothing.
+    response = protocol.dispatch("favorites.list", {"offset": 0, "limit": 10}, rid=9)
+    assert response["ok"] is False
+    assert response["error"]["kind"] == "auth_expired"
+
+
+# A request the sidecar cannot read at all — a missing or non-integer paging
+# parameter — is the caller's mistake, and saying so sends whoever reads it to
+# debug the host. A boolean is an `int` in Python, and `{"limit": true}` would
+# otherwise be a request for a page of one.
+def test_favorites_list_requires_integer_paging(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _one_page(monkeypatch, [])
+    for params in (
+        {},
+        {"offset": 0},
+        {"offset": "0", "limit": 10},
+        {"offset": 0, "limit": True},
+        {"offset": 0.0, "limit": 10},
+    ):
+        response = protocol.dispatch("favorites.list", params, rid=10)
+        assert response["ok"] is False, params
+        assert response["error"]["kind"] == "bad_request", params
 
 
 # YouTube Music already decided this one: `auth.ytm_cache_valid` has always

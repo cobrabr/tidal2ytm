@@ -6,6 +6,7 @@ import logging
 import sys
 import time
 import webbrowser
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -371,10 +372,28 @@ def run_ytm_auth(
         sys.exit(1)
 
 
+@dataclass(frozen=True)
+class TidalCredentials:
+    """The six keys a Tidal token file holds, each read as the type it must be.
+
+    Public because two callers need the same reading of the same file: the CLI's
+    cached-token check, and the sidecar's `favorites.list`, which refreshes and
+    writes the file back. One implementation of "what the six keys must look
+    like" is the only way the two cannot disagree about a token file.
+    """
+
+    token_type: str
+    access_token: str
+    refresh_token: str
+    expiry_time: datetime.datetime | None
+    user_id: int
+    country_code: str
+
+
 def _validated_tidal_credentials(
     data: MutableMapping[str, Any],
-) -> tuple[str, str, str, datetime.datetime, int, str] | None:
-    """Return full tidal credentials when all five keys validate, else None."""
+) -> TidalCredentials | None:
+    """Return full tidal credentials when all six keys validate, else None."""
     try:
         token_type = data.get("token_type")
         access_token = data.get("access_token")
@@ -396,15 +415,43 @@ def _validated_tidal_credentials(
         return None
     if not isinstance(country_code, str) or not country_code:
         return None
-    return (token_type, access_token, refresh_token, expiry, user_id, country_code)
+    return TidalCredentials(token_type, access_token, refresh_token, expiry, user_id, country_code)
 
 
-def _tidal_expiry_iso(expiry: object) -> object:
-    """Render session expiry as an aware ISO string, passing strings through."""
+def read_tidal_credentials(token_file: Path) -> TidalCredentials | None:
+    """The cached Tidal credentials, or `None` when the file does not hold all six.
+
+    `None` rather than an exception, because absent, unreadable, non-JSON and
+    incomplete all mean one thing: there is nothing here to sign in with. Every
+    caller answers that the same way, and a caller that raised instead would have
+    to decide what an exception means.
+
+    The six keys are this project's shape and not `tidalapi`'s:
+    `Session.save_session_to_file` writes five of them wrapped in `{"data": ...}`,
+    and a file written by it fails this reading.
+    """
+    try:
+        data: MutableMapping[str, Any] = json.loads(token_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return _validated_tidal_credentials(data)
+
+
+def render_tidal_expiry(expiry: object) -> str | None:
+    """Render a session's expiry as the ISO string a token file stores.
+
+    The writer's counterpart to `tidal_expiry_iso`, which is the reader's guard:
+    between them they are what keeps one string in `expiry_time`, so a caller that
+    read a token and a caller that wrote one agree. A datetime without a zone is
+    read as UTC, because `load_oauth_session` stores the value verbatim and a
+    naive one would otherwise be written as local time.
+    """
     if isinstance(expiry, datetime.datetime):
         aware = expiry if expiry.tzinfo is not None else expiry.replace(tzinfo=datetime.UTC)
         return aware.isoformat()
-    return expiry
+    return tidal_expiry_iso(expiry)
 
 
 def _try_cached_tidal_token(
@@ -420,15 +467,15 @@ def _try_cached_tidal_token(
         token_data = {}
     creds = _validated_tidal_credentials(token_data)
     if creds is not None:
-        token_type, access_token, refresh_token, expiry, _user_id, _country = creds
+        expiry = creds.expiry_time
         if token_usable(expiry, margin=TOKEN_FRESH_MARGIN):
             _LOG.info("tidal auth: cached token valid")
             return True
         try:
             session.load_oauth_session(
-                token_type,
-                access_token,
-                refresh_token,
+                creds.token_type,
+                creds.access_token,
+                creds.refresh_token,
                 expiry,
             )
             if session.check_login():
@@ -496,7 +543,7 @@ def run_tidal_auth(*, force: bool = False) -> Path:
                 "refresh_token": session.refresh_token,
                 # load_oauth_session stores expiry verbatim, so it may
                 # already be the ISO string from the file.
-                "expiry_time": _tidal_expiry_iso(token_expiry),
+                "expiry_time": render_tidal_expiry(token_expiry),
                 "user_id": user_id,
                 "country_code": country_code,
             },

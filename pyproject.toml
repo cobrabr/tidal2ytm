@@ -66,6 +66,12 @@ exclude = ["docs/superpowers/**"]
 [tool.ruff.lint]
 select = ["E","F","W","C90","I","N","UP","S","B","SIM","RUF"]
 ignore = ["S101"]
+# The refresh test's double has to carry `access_token`, `refresh_token` and
+# `token_type` as attribute names, because `persist_session` reads exactly those
+# off a real `tidalapi.Session`; a stub with different names would be stubbing
+# something other than the collaborator. The values are literals for the same
+# reason: a fetch must not reach the network.
+per-file-ignores = {"sidecar/tests/test_refresh.py" = ["S105", "S106"]}
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"

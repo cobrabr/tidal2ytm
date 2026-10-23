@@ -16,7 +16,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Capabilities the host cannot run without. A sidecar missing any of these
 /// is refused at startup rather than failing later inside a job.
-pub const REQUIRED_CAPABILITIES: &[&str] = &["auth.status", "auth.begin"];
+pub const REQUIRED_CAPABILITIES: &[&str] = &["auth.status", "auth.begin", "favorites.list"];
 
 /// The closed set of failure categories the sidecar reports.
 ///
@@ -274,6 +274,61 @@ mod tests {
             serde_json::from_value::<Candidate>(no_title).is_err(),
             "a hit with no title must not deserialise"
         );
+    }
+
+    /// The eleven keys one `favorites.list` track row carries, sorted because the
+    /// comparison below is a set: `serde_json` orders an object's keys itself and
+    /// that order is not the contract's.
+    ///
+    /// Spelled out here rather than read from a Rust type because nothing in this
+    /// crate deserialises a page yet — the sync job that will is a later task's.
+    /// So what is asserted is that the contract keeps saying what the sidecar
+    /// promises, and that `src/lib/types.ts` has the keys to derive from; the
+    /// Python suite is what proves the op writes exactly this set.
+    const FAVORITES_TRACK_KEYS: [&str; 11] = [
+        "album",
+        "album_id",
+        "album_year",
+        "artist",
+        "artists",
+        "disc_num",
+        "duration_sec",
+        "tidal_id",
+        "title",
+        "track_num",
+        "version",
+    ];
+
+    /// An object's keys, sorted, so two objects can be compared by what they
+    /// carry rather than by the order their serializer happened to emit.
+    fn sorted_keys(value: &Value) -> Vec<String> {
+        let mut keys: Vec<String> = value
+            .as_object()
+            .expect("an object")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    #[test]
+    fn the_favorites_list_contract_is_a_page_this_build_understands() {
+        let data = contract_data("favorites_list.json");
+        assert_eq!(
+            sorted_keys(&data),
+            ["page_complete", "tracks"],
+            "contracts/favorites_list.json no longer describes one page of tracks"
+        );
+        let tracks = data["tracks"].as_array().expect("tracks is an array");
+        assert_eq!(tracks.len(), 2, "the contract carries two tracks");
+        for track in tracks {
+            assert_eq!(
+                sorted_keys(track),
+                FAVORITES_TRACK_KEYS,
+                "a track row does not carry the eleven keys the sidecar sends"
+            );
+        }
     }
 
     #[test]

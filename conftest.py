@@ -6,6 +6,14 @@ import pytest
 
 
 @pytest.fixture
+def data_dir(tmp_path: Path) -> Path:
+    """A data directory that exists and is not the checkout's `data/`."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
+@pytest.fixture
 def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)

@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tidal2ytm_sidecar import ops, protocol
+from tidal2ytm_sidecar import ops, protocol, refresh
 
-from tidal2ytm import auth
+from tidal2ytm import auth, tidal_source
+from tidal2ytm.models import SourceTrack
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "contracts"
 
@@ -55,6 +56,58 @@ def test_the_auth_begin_envelope_matches_the_shared_contract(
     assert protocol.dispatch("auth.begin", {"provider": "ytm"}, rid=1) == _contract(
         "auth_begin.json"
     )
+
+
+# The page itself, the third wire shape both languages can produce without a
+# network: `favorites.list` answering with raw Tidal tracks. The session and the
+# one page it fetches are stubbed, so what runs here is the op's own serialisation
+# — and `tidal2ytm-ipc` asserts the same file, which is what makes a key renamed
+# on one side a failure on both.
+def test_the_favorites_list_payload_matches_the_shared_contract(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracks = [
+        SourceTrack(
+            tidal_id=174839201,
+            title="Paper Tide",
+            artist="Ilse Vandermeer",
+            artists=["Ilse Vandermeer", "Bram Oduya"],
+            album="Lantern Season",
+            album_id=91247733,
+            album_year=2014,
+            duration_sec=217,
+            track_num=4,
+            disc_num=1,
+            version=None,
+        ),
+        SourceTrack(
+            tidal_id=174839202,
+            title="Salt Bell (Reprise)",
+            artist="Bram Oduya",
+            artists=["Bram Oduya"],
+            album="Fen Hymns",
+            album_id=91247734,
+            album_year=None,
+            duration_sec=141,
+            track_num=11,
+            disc_num=2,
+            version="Reprise",
+        ),
+    ]
+
+    def _load(_token_file: Path) -> object:
+        return object()
+
+    def _fetch(_session: object, offset: int, limit: int) -> list[SourceTrack]:
+        del offset, limit
+        return tracks
+
+    monkeypatch.setattr(refresh, "load_session", _load)
+    monkeypatch.setattr(tidal_source, "fetch_favorite_page", _fetch)
+
+    response = protocol.dispatch("favorites.list", {"offset": 0, "limit": 3}, rid=1)
+
+    assert response == _contract("favorites_list.json")
 
 
 # `bad_request` is a claim about the request, so only a refusal an op raises on

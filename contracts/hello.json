@@ -1,1 +1,1 @@
-{"event": "hello", "protocol": 1, "capabilities": ["auth.status", "auth.begin"]}
+{"event": "hello", "protocol": 1, "capabilities": ["auth.status", "auth.begin", "favorites.list"]}

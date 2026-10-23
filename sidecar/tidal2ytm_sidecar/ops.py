@@ -12,7 +12,10 @@ import logging
 from pathlib import Path
 from typing import cast
 
-from tidal2ytm import auth
+from tidal2ytm import auth, tidal_source
+from tidal2ytm.models import SourceTrack
+
+from . import refresh
 
 _LOG = logging.getLogger(__name__)
 
@@ -40,6 +43,16 @@ class BadRequestError(ValueError):
     raises is the caller's mistake: a bug in an op that happened to raise one
     would then be reported as a request the host got wrong, which sends whoever
     is reading it debugging the host.
+    """
+
+
+class AuthExpiredError(RuntimeError):
+    """Credentials that produced no session, where signing in again is the remedy.
+
+    Raised only where a session was actually wanted and could not be built. It
+    is a `RuntimeError` rather than a `BadRequestError` because nothing the host
+    sent caused it, and reporting it as a bad request would blame the caller for
+    credentials it does not hold.
     """
 
 
@@ -149,3 +162,62 @@ def auth_begin(provider: str) -> dict[str, str]:
     else:
         raise BadRequestError(f"unknown auth provider: {provider!r}")
     return {"provider": provider}
+
+
+def _track_wire(track: SourceTrack) -> dict[str, object]:
+    """One track as the eleven keys `contracts/favorites_list.json` records.
+
+    A copy rather than `dataclasses.asdict`, because the wire shape is a
+    decision — `album_year` and `version` are the two nullable ones — and a
+    reflection over the dataclass would publish whatever the dataclass happens to
+    hold, including a field the contract does not name.
+    """
+    return {
+        "tidal_id": track.tidal_id,
+        "title": track.title,
+        "artist": track.artist,
+        "artists": track.artists,
+        "album": track.album,
+        "album_id": track.album_id,
+        "album_year": track.album_year,
+        "duration_sec": track.duration_sec,
+        "track_num": track.track_num,
+        "disc_num": track.disc_num,
+        "version": track.version,
+    }
+
+
+def favorites_list(offset: int, limit: int) -> dict[str, object]:
+    """One page of Tidal favourites, as Tidal reports them.
+
+    Raw source tracks and nothing derived: no score, no key, no status, no count
+    and no ordering. Every one of those is the host's, computed in Rust, and a
+    value produced here would be a second implementation of a rule that must
+    exist in exactly one place.
+
+    The host owns the loop and the page is the unit of work, so exactly one
+    request is issued — never a walk to the end of the favourites behind the
+    host's back, which would make the offset it asked for meaningless.
+    """
+    if offset < 0:
+        raise BadRequestError(f"`favorites.list` needs a non-negative offset, got {offset}")
+    if limit < 1:
+        # A limit of zero is not an empty page, it is an unbounded fetch loop in
+        # the caller's `while not page_complete`, and one page of zero tracks
+        # reports itself as complete, so it would end it having fetched nothing.
+        raise BadRequestError(f"`favorites.list` needs a positive limit, got {limit}")
+    try:
+        session = refresh.load_session(auth.paths.TIDAL_TOKEN_FILE)
+    except refresh.RefreshFailedError as exc:
+        # The one thing the host can act on is "sign in again", so the failure is
+        # reported as the kind that offers a sign-in rather than as a generic one.
+        raise AuthExpiredError("Tidal credentials could not be refreshed; sign in again.") from exc
+    tracks = tidal_source.fetch_favorite_page(session, offset, limit)
+    return {
+        "tracks": [_track_wire(track) for track in tracks],
+        # The raw page length, which is the mapped length only because nothing was
+        # de-duplicated on the way here. If de-duplication ever moves into this
+        # op, a full page that lost a repeat reads as short, the host stops a page
+        # early, and the rest of someone's favourites is silently never fetched.
+        "page_complete": len(tracks) < limit,
+    }
