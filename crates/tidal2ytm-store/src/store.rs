@@ -296,6 +296,66 @@ impl Store {
         Self::track_id(&conn, row.tidal_id)
     }
 
+    /// Insert the track from its Tidal metadata alone, or refresh only that
+    /// metadata, and return its id.
+    ///
+    /// Same table as [`Store::upsert_track`], disjoint column sets, disjoint
+    /// callers — the split is the design, not duplication.
+    /// [`Store::upsert_track`] is the matcher's write and owns the `yt_*`
+    /// columns, `match_method`, `confidence_overall` and `review_reason`; the
+    /// sync that pages in favourite tracks knows only Tidal metadata, so its
+    /// write — this one — names only the eight Tidal columns in its
+    /// `ON CONFLICT` `SET`. Folding the two into one statement would put both
+    /// column lists into every caller's hands: a sync running the merged
+    /// statement would null every match and review note on the row, because a
+    /// source row carries no match, and a matcher running it could not express
+    /// an unexamined source-only track at all.
+    ///
+    /// `WHERE track.status <> 'transferred'` is [`Store::upsert_track`]'s
+    /// guard, kept verbatim for the reason the clause exists there: a
+    /// transferred row is a frozen record of what was transferred, so a
+    /// metadata refresh must not rewrite the Tidal facts it was built from
+    /// either.
+    ///
+    /// On insert the row needs the `NOT NULL` columns Tidal metadata cannot
+    /// supply: `status` is the literal `'pending'` (a track that has never
+    /// been examined cannot be anything else) and `match_method` the literal
+    /// `'none'` (nothing has matched it yet). `confidence_overall` is left to
+    /// its column default. What this write never updates has no room in the
+    /// statement at all, so "cannot blank a match" holds by construction
+    /// rather than by every caller passing the right things.
+    pub fn upsert_track_source(&self, row: &TrackRow) -> Result<i64, StoreError> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO track (
+                   album_id, tidal_id, title, artist, duration_sec, track_num, disc_num,
+                   version, status, match_method
+                 ) VALUES (
+                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', 'none'
+                 )
+                 ON CONFLICT(tidal_id) DO UPDATE SET
+                   album_id = excluded.album_id,
+                   title = excluded.title,
+                   artist = excluded.artist,
+                   duration_sec = excluded.duration_sec,
+                   track_num = excluded.track_num,
+                   disc_num = excluded.disc_num,
+                   version = excluded.version
+                 WHERE track.status <> 'transferred'",
+            rusqlite::params![
+                row.album_id,
+                row.tidal_id,
+                row.title.as_str(),
+                row.artist.as_str(),
+                row.duration_sec,
+                row.track_num,
+                row.disc_num,
+                row.version.as_deref(),
+            ],
+        )?;
+        Self::track_id(&conn, row.tidal_id)
+    }
+
     /// Write the track's status, and return.
     ///
     /// This is the only function in the project that assigns the status of a row
@@ -901,6 +961,98 @@ mod tests {
         assert_eq!(row.status, "pending");
         assert_eq!(row.title, "Renamed Song");
         assert_eq!(row.review_reason.as_deref(), Some("Needs a second look"));
+    }
+
+    #[test]
+    fn a_resync_leaves_a_match_and_a_transferred_row_untouched() {
+        // The source write and the matcher's write must stay out of each
+        // other's columns. A re-sync over a matched library arrives with a
+        // freshly recomputed match row it must not apply, and over a
+        // transferred row it must touch nothing at all: erasing either is the
+        // bug this separate function exists so no caller can commit.
+        let store = migrated();
+        let album = one_album(&store);
+
+        let mut matched = track(album, 1_234_567);
+        matched.review_reason = Some("Checked against the vinyl".to_string());
+        let matched_id = store.upsert_track(&matched).expect("track");
+
+        let transferred_id = store.upsert_track(&track(album, 7_654_321)).expect("track");
+        store
+            .write_status(transferred_id, TrackStatus::Transferred, None)
+            .expect("transferred");
+
+        let matched_before = whole_row(&store, matched_id);
+        let transferred_before = whole_row(&store, transferred_id);
+
+        // The sync's row: new Tidal metadata plus a whole recomputed match —
+        // every field the source write has no authority over.
+        let mut resynced = track(album, 1_234_567);
+        resynced.title = "Renamed Song".to_string();
+        resynced.yt_video_id = Some("AAAAAAAAAAA".to_string());
+        resynced.match_method = MatchMethod::Fuzzy;
+        resynced.confidence_overall = 0.1;
+        resynced.review_reason = None;
+        assert_eq!(
+            store.upsert_track_source(&resynced).expect("re-sync"),
+            matched_id
+        );
+
+        let mut moved = track(album, 7_654_321);
+        moved.title = "Renamed Song".to_string();
+        moved.duration_sec = 195;
+        assert_eq!(
+            store.upsert_track_source(&moved).expect("re-sync"),
+            transferred_id
+        );
+
+        // The optional columns and the status are exactly as the matcher and
+        // the human left them; the title is refreshed, since Tidal metadata is
+        // what this write owns.
+        let matched_after = whole_row(&store, matched_id);
+        assert_eq!(matched_after.title, "Renamed Song");
+        assert_eq!(matched_after.yt_video_id, matched_before.yt_video_id);
+        assert_eq!(matched_after.match_method, matched_before.match_method);
+        assert_eq!(
+            matched_after.confidence_overall,
+            matched_before.confidence_overall
+        );
+        assert_eq!(matched_after.review_reason, matched_before.review_reason);
+        assert_eq!(matched_after.status, matched_before.status);
+
+        // A transferred row is skipped whole: its Tidal columns are a frozen
+        // record of what was transferred too.
+        assert_eq!(whole_row(&store, transferred_id), transferred_before);
+    }
+
+    #[test]
+    fn a_resync_updates_the_tidal_columns() {
+        // The other half of the split, the way `upserting_a_merely_pending_
+        // track_does_update_it` guards against a guard that skips everything:
+        // a source write that changed nothing would read as "safe" while the
+        // library quietly drifts away from what Tidal says.
+        let store = migrated();
+        let album = one_album(&store);
+        let mut first = track(album, FIRST_TIDAL_ID);
+        first.version = Some("Remastered 2011".to_string());
+        let id = store.upsert_track_source(&first).expect("insert");
+
+        let mut resync = track(album, FIRST_TIDAL_ID);
+        resync.title = "Renamed Song".to_string();
+        resync.duration_sec = 195;
+        resync.version = Some("Remastered 2024".to_string());
+        store.upsert_track_source(&resync).expect("re-sync");
+
+        let row = whole_row(&store, id);
+        assert_eq!(row.title, "Renamed Song");
+        assert_eq!(row.duration_sec, 195);
+        assert_eq!(row.version.as_deref(), Some("Remastered 2024"));
+        // What no source row can carry stays at its fresh-insert state: an
+        // unexamined track is pending, unmatched, unscored and unmapped.
+        assert_eq!(row.status, "pending");
+        assert_eq!(row.yt_video_id, None);
+        assert_eq!(row.match_method, "none");
+        assert_eq!(row.confidence_overall, 0.0);
     }
 
     #[test]
