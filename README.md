@@ -106,7 +106,9 @@ What to expect:
 
 ## Usage
 
-The workflow consists of three steps: planning what to match, reviewing/resolving low-confidence matches, and executing the transfer.
+The desktop app is the product now: sign in from the Diagnostics screen (Tidal via device authorisation, YouTube Music via the imported Google Cloud client secret), then sync your liked tracks from Home. The sync is grow-only and resumable - Home reports interrupted after a crash and offers a re-run.
+
+The command-line workflow remains available for scripting:
 
 ```pwsh
 # 1. Interactively plan: search liked tracks, select, and match to YTM
