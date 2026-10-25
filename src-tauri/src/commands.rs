@@ -132,6 +132,12 @@ pub async fn set_log_level(state: State<'_, AppState>, level: String) -> Result<
     Ok(())
 }
 
+/// Read one `meta` value by key.
+#[tauri::command]
+pub async fn get_meta(state: State<'_, AppState>, key: String) -> Result<Option<String>, String> {
+    state.store().get_meta(&key).map_err(|e| e.to_string())
+}
+
 /// Import a Google Cloud OAuth client secret file into the data directory.
 ///
 /// The frontend picks the path with the dialog plugin; the host does the copy,

@@ -10,7 +10,14 @@
 </script>
 
 <div class="job" role="status" data-state={progress.state}>
-	<span class="state">{progress.state}</span>
+	<span
+		class="state"
+		style:color={progress.state === "running" || progress.state === "done"
+			? "var(--ok)"
+			: progress.state === "cancelling"
+				? "var(--warn)"
+				: "var(--bad)"}>{progress.state}</span
+	>
 	<span class="count"
 		>{progress.done}{#if progress.total !== null}
 			/ {progress.total}{/if}</span
@@ -27,17 +34,5 @@
 		display: flex;
 		align-items: baseline;
 		gap: var(--space-2);
-	}
-	.state[data-state="running"] {
-		color: var(--ok);
-	}
-	.state[data-state="cancelling"] {
-		color: var(--warn);
-	}
-	.state[data-state="cancelled"] {
-		color: var(--bad);
-	}
-	.state[data-state="failed"] {
-		color: var(--bad);
 	}
 </style>

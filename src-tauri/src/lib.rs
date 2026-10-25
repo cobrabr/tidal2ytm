@@ -185,7 +185,8 @@ pub fn run() {
             commands::cancel_job,
             commands::get_log_paths,
             commands::set_log_level,
-            commands::import_client_secret
+            commands::import_client_secret,
+            commands::get_meta
         ])
         .build(tauri::generate_context!())
         .expect("the Tauri application builds");
