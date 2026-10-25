@@ -87,6 +87,30 @@ export async function importClientSecret(sourcePath: string): Promise<void> {
 	}
 }
 
+export async function startSync(): Promise<number> {
+	try {
+		return await invoke<number>("start_sync");
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+export async function cancelJob(jid: number): Promise<void> {
+	try {
+		await invoke("cancel_job", { jid });
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+export async function getMeta(key: string): Promise<string | null> {
+	try {
+		return await invoke<string | null>("get_meta", { key });
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
 /** The text a rejection carries, or the generic line. */
 function message(reason: unknown): string {
 	return typeof reason === "string" && reason !== "" ? reason : UNREADABLE_STATUS;
