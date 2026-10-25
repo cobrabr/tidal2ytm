@@ -127,7 +127,34 @@ impl AppState {
         if !Arc::ptr_eq(&slot, dead) {
             return Ok(Arc::clone(&slot));
         }
-        let fresh = spawn(&self.config).await?;
+        // The frozen config keeps the program and arguments, but the level is
+        // re-read from meta on every spawn so a changed level takes effect
+        // without restarting the app.
+        let level = self
+            .store
+            .get_meta("log_level")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "INFO".to_string());
+        let level_value = tidal2ytm_ipc::log_level_env(&level)
+            .map(|(_, value)| value)
+            .unwrap_or_else(|_| "INFO".to_string());
+
+        let mut config = self.config.clone();
+        let mut found = false;
+        for (name, value) in &mut config.env {
+            if name == "TIDAL2YTM_LOG_LEVEL" {
+                *value = level_value.clone();
+                found = true;
+            }
+        }
+        if !found {
+            config
+                .env
+                .push(("TIDAL2YTM_LOG_LEVEL".to_string(), level_value));
+        }
+
+        let fresh = spawn(&config).await?;
         *slot = Arc::new(fresh);
         Ok(Arc::clone(&slot))
     }

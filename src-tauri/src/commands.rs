@@ -13,6 +13,7 @@ use tidal2ytm_core::model::TrackStatus;
 use tidal2ytm_ipc::IpcError;
 
 use crate::jobs::{JobManager, Progress};
+use crate::logging::{self, LogPaths};
 use crate::state::{AppState, AuthStatus};
 
 /// `auth.status` is a local file read behind a pipe, so the bound is tight: a
@@ -110,6 +111,25 @@ fn counts_by_name(counts: BTreeMap<TrackStatus, i64>) -> BTreeMap<String, i64> {
 #[tauri::command]
 pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, String> {
     state.store().schema_version().map_err(|e| e.to_string())
+}
+
+/// The three log files the diagnostics screen can open.
+#[tauri::command]
+pub fn get_log_paths() -> Result<LogPaths, String> {
+    logging::paths()
+}
+
+/// Persist a new log level and apply it to the running sink.
+#[tauri::command]
+pub async fn set_log_level(state: State<'_, AppState>, level: String) -> Result<(), String> {
+    logging::parse_level(&level)?;
+    tidal2ytm_ipc::log_level_env(&level).map_err(|e| e.to_string())?;
+    state
+        .store()
+        .set_meta("log_level", &level)
+        .map_err(|e| e.to_string())?;
+    logging::set_level(&level)?;
+    Ok(())
 }
 
 /// The Tauri event name the sync job's progress streams on.

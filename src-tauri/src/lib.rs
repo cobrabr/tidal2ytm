@@ -69,13 +69,17 @@ const DATA_DIR_NAME: &str = "data";
 /// `tauri::App` that nothing in this crate can build, and this is the wiring
 /// whose absence is invisible: the sidecar starts, reports signed out, and
 /// nothing says the data directory was never named to it.
-fn sidecar_config(launch: &Launch, cwd: &Path, data_dir: &Path) -> SidecarConfig {
+fn sidecar_config(launch: &Launch, cwd: &Path, data_dir: &Path, level: &str) -> SidecarConfig {
     // The level is resolved here, rather than left to the sidecar, so it applies
-    // even if the sidecar dies before its handshake. It is a literal for now and
-    // `INFO` is one of `LOG_LEVELS`, so the call cannot fail.
-    let level = log_level_env("INFO")
-        .expect("INFO is a level the sidecar accepts")
-        .1;
+    // even if the sidecar dies before its handshake. Fall back to INFO if the
+    // stored value is not a level the sidecar accepts.
+    let level_value = match log_level_env(level) {
+        Ok((_, value)) => value,
+        Err(_) => log_level_env("INFO")
+            .map(|(_, value)| value)
+            .unwrap_or_else(|_| "INFO".to_string()),
+    };
+    let level = level_value;
     SidecarConfig {
         program: launch.program.clone(),
         args: launch.args.clone(),
@@ -97,11 +101,6 @@ fn sidecar_config(launch: &Launch, cwd: &Path, data_dir: &Path) -> SidecarConfig
 
 /// Start the sidecar, supervise it, and expose the commands.
 pub fn run() {
-    // Before anything can emit. `AppState::start` drains the sidecar's stderr
-    // into the `log` facade, and a facade with no sink is a no-op call, so a
-    // record from the process most likely to be complaining arrives nowhere.
-    logging::install_debug_logger();
-
     let app = tauri::Builder::default()
         .setup(|app| {
             let launch = sidecar_path::resolve(app.handle())?;
@@ -154,7 +153,16 @@ pub fn run() {
             // `install_debug_logger` here rather than in `main()`.
             let store =
                 open_database(&cwd).inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
-            let config = sidecar_config(&launch, &cwd, &data_dir);
+            // Read the level before the sink opens, so the earliest records use
+            // the configured level rather than a misconfigured default.
+            let level = store
+                .get_meta("log_level")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "INFO".to_string());
+            logging::install(&level, &cwd)
+                .map_err(|error| format!("could not install the log sink: {error}"))?;
+            let config = sidecar_config(&launch, &cwd, &data_dir, &level);
             let state = tauri::async_runtime::block_on(AppState::start(config, store))
                 .inspect_err(|error| log::error!("tidal2ytm: {error}"))?;
             app.manage(state);
@@ -171,7 +179,9 @@ pub fn run() {
             commands::get_status_counts,
             commands::get_schema_version,
             commands::start_sync,
-            commands::cancel_job
+            commands::cancel_job,
+            commands::get_log_paths,
+            commands::set_log_level
         ])
         .build(tauri::generate_context!())
         .expect("the Tauri application builds");
@@ -273,7 +283,7 @@ mod tests {
             cwd: Some(cwd.clone()),
         };
 
-        let config = sidecar_config(&launch, &cwd, &data_dir);
+        let config = sidecar_config(&launch, &cwd, &data_dir, "INFO");
 
         let value = config
             .env
