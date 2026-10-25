@@ -102,6 +102,9 @@ fn sidecar_config(launch: &Launch, cwd: &Path, data_dir: &Path, level: &str) -> 
 /// Start the sidecar, supervise it, and expose the commands.
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let launch = sidecar_path::resolve(app.handle())?;
             let cwd = launch.cwd.clone().unwrap_or(app.path().app_data_dir()?);

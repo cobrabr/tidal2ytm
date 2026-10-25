@@ -18,6 +18,12 @@ tauri-build = { version = "2.7.1", features = [] }
 # Pinned to the `@tauri-apps/cli` version in package.json. The two are released
 # in lockstep and a caret on either lets a routine `cargo update` drift them.
 tauri = { version = "2.12.1", features = [] }
+# File dialog: the Diagnostics screen imports a client secret file.
+tauri-plugin-dialog = "=2.7.3"
+# App-data read/write: the Diagnostics screen writes the frontend log and reads logs.
+tauri-plugin-fs = "=2.5.2"
+# Opener: the Diagnostics screen opens log files and directories.
+tauri-plugin-opener = "=2.5.5"
 # The host's log facade. Phase 4 replaces the sink with the per-run log file;
 # the facade is what makes "log this at DEBUG" expressible in the meantime.
 log = "0.4"

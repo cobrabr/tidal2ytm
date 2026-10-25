@@ -1,7 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Base capability. tidal2ytm grants no plugin permissions: the sidecar is spawned from Rust, and every command the frontend calls is a custom #[tauri::command] that needs no permission.",
+  "description": "Base capability. tidal2ytm grants three narrow plugin permissions: dialog:allow-open for importing a client secret file, fs:allow-appdata-read-recursive and fs:allow-appdata-write-recursive for reading and writing log files under app data, and opener:allow-open-path scoped to $APPDATA/** for opening log files and directories. The sidecar is spawned from Rust, and every other command the frontend calls is a custom #[tauri::command] that needs no permission.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$APPDATA/**" }]
+    }
+  ]
 }
