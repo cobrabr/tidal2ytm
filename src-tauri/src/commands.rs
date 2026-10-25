@@ -132,6 +132,55 @@ pub async fn set_log_level(state: State<'_, AppState>, level: String) -> Result<
     Ok(())
 }
 
+/// Import a Google Cloud OAuth client secret file into the data directory.
+///
+/// The frontend picks the path with the dialog plugin; the host does the copy,
+/// because the credential's meaning stays in `auth.py` and only its bytes need
+/// to move. The chosen file must parse as a JSON object; every existing
+/// `client_secret_*.json` is removed first, so a second import cannot leave
+/// two files behind (which would make `read_client_secret` refuse to choose).
+#[tauri::command]
+pub async fn import_client_secret(
+    state: State<'_, AppState>,
+    source_path: String,
+) -> Result<(), String> {
+    let source = std::path::Path::new(&source_path);
+    let bytes = std::fs::read(source).map_err(|e| format!("could not read {source_path}: {e}"))?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("the chosen file is not valid JSON: {e}"))?;
+    if !value.is_object() {
+        return Err("the chosen file is not a JSON object".to_string());
+    }
+
+    let data_dir = state.data_dir();
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("could not create {}: {e}", data_dir.display()))?;
+
+    // Resolve the destination name before touching anything, so a path with no
+    // file name fails without having removed a thing.
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| "the chosen path has no file name".to_string())?;
+
+    // Remove every existing client secret first, so a second import cannot
+    // leave two files behind.
+    if let Ok(entries) = std::fs::read_dir(&data_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("client_secret_") && name.ends_with(".json") {
+                std::fs::remove_file(entry.path())
+                    .map_err(|e| format!("could not remove {}: {e}", entry.path().display()))?;
+            }
+        }
+    }
+
+    let dest = data_dir.join(file_name);
+    std::fs::write(&dest, &bytes)
+        .map_err(|e| format!("could not write {}: {e}", dest.display()))?;
+    Ok(())
+}
+
 /// The Tauri event name the sync job's progress streams on.
 ///
 /// Exactly this literal is the contract Task 11's Home screen subscribes to;

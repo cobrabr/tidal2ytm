@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Home from "./routes/Home.svelte";
+	import Diagnostics from "./routes/Diagnostics.svelte";
 	import { ROUTES, currentRoute, navigate, type RouteId } from "./lib/router";
 
 	const titles: Record<RouteId, string> = {
@@ -31,12 +32,13 @@
 	</nav>
 	<main>
 		<!--
-			Only Home exists in Phase 2. The other five are placeholders on purpose:
-			a stub screen that looks finished is worse than an obvious gap, and their
+			Home and Diagnostics are built; the other four are placeholders whose
 			real content lands in Phase 4.
 		-->
 		{#if $currentRoute === "home"}
 			<Home />
+		{:else if $currentRoute === "diagnostics"}
+			<Diagnostics />
 		{:else}
 			<section>
 				<h1>{titles[$currentRoute]}</h1>

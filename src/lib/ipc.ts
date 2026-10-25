@@ -33,6 +33,60 @@ export async function getAuthStatus(): Promise<AuthStatus> {
 	}
 }
 
+export async function beginAuth(provider: string): Promise<void> {
+	try {
+		await invoke("begin_auth", { provider });
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+export async function getStatusCounts(): Promise<Record<string, number>> {
+	try {
+		return await invoke<Record<string, number>>("get_status_counts");
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+export async function getSchemaVersion(): Promise<number> {
+	try {
+		return await invoke<number>("get_schema_version");
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+export type LogPaths = {
+	host_log: string;
+	history: string;
+	frontend_log: string;
+};
+
+export async function getLogPaths(): Promise<LogPaths> {
+	try {
+		return await invoke<LogPaths>("get_log_paths");
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+export async function setLogLevel(level: string): Promise<void> {
+	try {
+		await invoke("set_log_level", { level });
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+export async function importClientSecret(sourcePath: string): Promise<void> {
+	try {
+		await invoke("import_client_secret", { sourcePath });
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
 /** The text a rejection carries, or the generic line. */
 function message(reason: unknown): string {
 	return typeof reason === "string" && reason !== "" ? reason : UNREADABLE_STATUS;

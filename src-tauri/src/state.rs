@@ -112,6 +112,12 @@ impl AppState {
         Arc::clone(&self.store)
     }
 
+    /// Where the sidecar's token caches and client secrets live.
+    #[must_use]
+    pub fn data_dir(&self) -> std::path::PathBuf {
+        self.config.cwd.join("data")
+    }
+
     /// Replace a sidecar the caller has already been told is gone.
     ///
     /// Identity, not a liveness flag, decides. The caller arrives here only
