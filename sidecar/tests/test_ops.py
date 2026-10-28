@@ -334,6 +334,7 @@ def test_auth_begin_refuses_an_unknown_provider(
     isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(auth, "run_tidal_auth", _never_started)
+    monkeypatch.setattr(auth, "sign_in_tidal", _never_started)
     monkeypatch.setattr(auth, "sign_in_ytm", _never_started)
 
     response = protocol.dispatch("auth.begin", {"provider": "deezer"}, rid=5)

@@ -152,7 +152,7 @@ def auth_begin(provider: str) -> dict[str, str]:
     down, is left to propagate as the `upstream` failure it is.
     """
     if provider == "tidal":
-        auth.run_tidal_auth()
+        auth.sign_in_tidal()
     elif provider == "ytm":
         try:
             auth.require_client_secret(auth.paths.DATA_DIR)

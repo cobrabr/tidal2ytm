@@ -593,6 +593,59 @@ def _try_cached_tidal_token(
     return False
 
 
+def sign_in_tidal(*, force: bool = False) -> Path:
+    """Sign in to Tidal, or raise on failure.
+
+    Sidecar-friendly counterpart of ``run_tidal_auth``: nothing is printed to
+    stdout (stdout is the IPC channel), failures raise instead of calling
+    ``sys.exit`` (which would kill the whole sidecar), and the authorization
+    URL is logged so a person whose browser did not open can copy it.
+    """
+    data_dir = paths.DATA_DIR
+    token_file = paths.TIDAL_TOKEN_FILE
+    data_dir.mkdir(parents=True, exist_ok=True)
+    session = tidalapi.Session()  # pyright: ignore[reportPrivateImportUsage]
+    if not force and token_file.exists() and _try_cached_tidal_token(session, token_file):
+        _LOG.info("tidal auth: cached token valid")
+        return token_file
+
+    link_login, login_future = session.login_oauth()
+    url = f"https://{link_login.verification_uri_complete}"
+    _LOG.info("Opening Tidal authorization URL in your browser: %s", url)
+    try:
+        webbrowser.open(url)
+    except Exception as exc:
+        _LOG.warning("webbrowser.open failed: %s", exc)
+
+    try:
+        login_future.result()
+    except _AUTH_ERRORS as exc:
+        _log_auth_failure(exc)
+        raise
+    _LOG.info("tidal auth: login ok")
+
+    user = session.user
+    user_id = user.id if user is not None and isinstance(user.id, int) else None
+    country_raw = session.country_code
+    country_code = country_raw if isinstance(country_raw, str) else None
+    token_expiry = session.expiry_time
+    token_file.write_text(
+        json.dumps(
+            {
+                "token_type": session.token_type,
+                "access_token": session.access_token,
+                "refresh_token": session.refresh_token,
+                "expiry_time": render_tidal_expiry(token_expiry),
+                "user_id": user_id,
+                "country_code": country_code,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return token_file
+
+
 def run_tidal_auth(*, force: bool = False) -> Path:
     data_dir = paths.DATA_DIR
     token_file = paths.TIDAL_TOKEN_FILE
