@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Diagnostics from "./Diagnostics.svelte";
 import { getAuthStatus, getLogPaths, getStatusCounts, getSchemaVersion } from "../lib/ipc";
+import { startSignIn } from "../lib/auth-actions";
 
 vi.mock("../lib/ipc");
+vi.mock("../lib/auth-actions");
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openPath: vi.fn() }));
 
@@ -22,6 +24,7 @@ beforeEach(() => {
 	getPaths.mockReset();
 	getCounts.mockReset();
 	getSchema.mockReset();
+	vi.mocked(startSignIn).mockReset();
 
 	getAuth.mockResolvedValue(STATUS);
 	getPaths.mockResolvedValue({ host_log: "/h.log", history: "/hist", frontend_log: "/f.log" });
@@ -65,5 +68,20 @@ describe("Diagnostics", () => {
 		});
 		render(Diagnostics);
 		expect(screen.queryByRole("button", { name: /import client secret/i })).toBeNull();
+	});
+
+	// This is the screen a failure gets investigated from, so losing the level
+	// selector and the log paths to the error message removes the controls that
+	// explain it, on the one screen built to keep them reachable.
+	it("keeps the log controls when a sign-in fails", async () => {
+		vi.mocked(startSignIn).mockRejectedValue(new Error("the flow was refused"));
+
+		render(Diagnostics);
+
+		await fireEvent.click(await screen.findByRole("button", { name: /sign in to tidal/i }));
+
+		expect((await screen.findByRole("alert")).textContent).toContain("the flow was refused");
+		expect(screen.getByRole("combobox")).toBeTruthy();
+		expect(screen.getByText("/h.log")).toBeTruthy();
 	});
 });

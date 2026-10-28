@@ -2,22 +2,14 @@
 	import { onMount, onDestroy } from "svelte";
 	import ProviderRow from "../lib/components/ProviderRow.svelte";
 	import JobProgress from "../lib/components/JobProgress.svelte";
-	import {
-		UNREADABLE_STATUS,
-		getAuthStatus,
-		beginAuth,
-		getStatusCounts,
-		getMeta,
-		startSync,
-		cancelJob,
-		importClientSecret,
-	} from "../lib/ipc";
-	import { open } from "@tauri-apps/plugin-dialog";
+	import { UNREADABLE_STATUS, getAuthStatus, getStatusCounts, getMeta, startSync, cancelJob } from "../lib/ipc";
+	import { importClientSecretFile, startSignIn } from "../lib/auth-actions";
 	import { subscribeJobs, type Progress } from "../lib/jobs";
 	import type { AuthStatus as AuthStatusData } from "../lib/types";
 
 	let status = $state<AuthStatusData | null>(null);
-	let failure = $state<string | null>(null);
+	let loadFailure = $state<string | null>(null);
+	let actionError = $state<string | null>(null);
 	let loading = $state(true);
 
 	let statusCounts = $state<Record<string, number> | null>(null);
@@ -39,7 +31,7 @@
 		try {
 			status = await getAuthStatus();
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			loadFailure = e instanceof Error ? e.message : UNREADABLE_STATUS;
 		} finally {
 			loading = false;
 		}
@@ -75,28 +67,32 @@
 		});
 	});
 
+	/** Show an action's failure beside the action, keeping the screen usable. */
+	function reportAction(e: unknown) {
+		actionError = e instanceof Error ? e.message : UNREADABLE_STATUS;
+	}
+
 	async function signIn(provider: string) {
 		signingIn = provider;
 		try {
-			await beginAuth(provider);
-			status = await getAuthStatus();
+			status = await startSignIn(provider);
+			actionError = null;
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			reportAction(e);
 		} finally {
 			signingIn = null;
 		}
-		// Poll while in flight is not needed here since beginAuth awaits.
 	}
 
 	async function importSecret() {
 		try {
-			const chosen = await open({ filters: [{ name: "JSON", extensions: ["json"] }] });
-			if (typeof chosen === "string") {
-				await importClientSecret(chosen);
-				status = await getAuthStatus();
+			const next = await importClientSecretFile();
+			if (next !== null) {
+				status = next;
+				actionError = null;
 			}
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			reportAction(e);
 		}
 	}
 
@@ -105,8 +101,9 @@
 		jobProgress = null;
 		try {
 			await startSync();
+			actionError = null;
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			reportAction(e);
 			syncing = false;
 		}
 	}
@@ -116,23 +113,10 @@
 			try {
 				await cancelJob(jobProgress.jid);
 			} catch (e) {
-				failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+				reportAction(e);
 			}
 		}
 	}
-
-	// Poll auth status while signing in.
-	$effect(() => {
-		if (signingIn === null) return;
-		const interval = setInterval(async () => {
-			try {
-				status = await getAuthStatus();
-			} catch {
-				// ignore
-			}
-		}, 2000);
-		return () => clearInterval(interval);
-	});
 
 	let syncState = $derived.by(() => {
 		if (jobProgress && (jobProgress.state === "running" || jobProgress.state === "cancelling")) {
@@ -154,19 +138,17 @@
 
 	{#if loading}
 		<p class="placeholder">Checking provider sign-in…</p>
-	{:else if failure !== null}
-		<p class="failure" role="alert">{failure}</p>
+	{:else if loadFailure !== null}
+		<p class="failure" role="alert">{loadFailure}</p>
 	{:else if status !== null}
+		{#if actionError !== null}
+			<p class="failure" role="alert">{actionError}</p>
+		{/if}
 		<div class="providers">
-			<ProviderRow label="Tidal" state={status.tidal} onSignIn={() => signIn("tidal")} />
-			<ProviderRow
-				label="YouTube Music"
-				state={status.ytm}
-				hasClientSecret={status.ytm.has_client_secret}
-				onSignIn={() => signIn("ytm")}
-			/>
+			<ProviderRow label="Tidal" state={status.tidal} busy={signingIn !== null} onSignIn={() => signIn("tidal")} />
+			<ProviderRow label="YouTube Music" state={status.ytm} busy={signingIn !== null} onSignIn={() => signIn("ytm")} />
 			{#if !status.ytm.has_client_secret}
-				<button type="button" onclick={importSecret}>Import client secret</button>
+				<button type="button" disabled={signingIn !== null} onclick={importSecret}> Import client secret </button>
 			{/if}
 		</div>
 

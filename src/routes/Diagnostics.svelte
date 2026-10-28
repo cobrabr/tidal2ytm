@@ -4,20 +4,20 @@
 	import {
 		UNREADABLE_STATUS,
 		getAuthStatus,
-		beginAuth,
 		getLogPaths,
 		setLogLevel,
-		importClientSecret,
 		getStatusCounts,
 		getSchemaVersion,
 	} from "../lib/ipc";
-	import { open } from "@tauri-apps/plugin-dialog";
+	import { importClientSecretFile, startSignIn } from "../lib/auth-actions";
 	import { openPath } from "@tauri-apps/plugin-opener";
 	import type { AuthStatus as AuthStatusData } from "../lib/types";
 
 	let status = $state<AuthStatusData | null>(null);
-	let failure = $state<string | null>(null);
+	let loadFailure = $state<string | null>(null);
+	let actionError = $state<string | null>(null);
 	let loading = $state(true);
+	let signingIn = $state<string | null>(null);
 
 	let logPaths = $state<{ host_log: string; history: string; frontend_log: string } | null>(null);
 	let logLevel = $state("INFO");
@@ -28,7 +28,7 @@
 		try {
 			status = await getAuthStatus();
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			loadFailure = e instanceof Error ? e.message : UNREADABLE_STATUS;
 		} finally {
 			loading = false;
 		}
@@ -52,24 +52,32 @@
 		}
 	});
 
+	/** Show an action's failure beside the action, keeping the screen usable. */
+	function reportAction(e: unknown) {
+		actionError = e instanceof Error ? e.message : UNREADABLE_STATUS;
+	}
+
 	async function signIn(provider: string) {
+		signingIn = provider;
 		try {
-			await beginAuth(provider);
-			status = await getAuthStatus();
+			status = await startSignIn(provider);
+			actionError = null;
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			reportAction(e);
+		} finally {
+			signingIn = null;
 		}
 	}
 
 	async function importSecret() {
 		try {
-			const chosen = await open({ filters: [{ name: "JSON", extensions: ["json"] }] });
-			if (typeof chosen === "string") {
-				await importClientSecret(chosen);
-				status = await getAuthStatus();
+			const next = await importClientSecretFile();
+			if (next !== null) {
+				status = next;
+				actionError = null;
 			}
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			reportAction(e);
 		}
 	}
 
@@ -77,8 +85,9 @@
 		logLevel = level;
 		try {
 			await setLogLevel(level);
+			actionError = null;
 		} catch (e) {
-			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+			reportAction(e);
 		}
 	}
 
@@ -98,21 +107,28 @@
 
 	{#if loading}
 		<p class="placeholder">Loading…</p>
-	{:else if failure !== null}
-		<p class="failure" role="alert">{failure}</p>
+	{:else if loadFailure !== null}
+		<p class="failure" role="alert">{loadFailure}</p>
 	{:else if status !== null}
+		{#if actionError !== null}
+			<p class="failure" role="alert">{actionError}</p>
+		{/if}
 		<!-- 1. Sign-in and client secret -->
 		<section class="block">
 			<h2>Sign-in</h2>
 			<div class="providers">
 				<AuthStatus label="Tidal" state={status.tidal} />
-				<button type="button" onclick={() => signIn("tidal")}>Sign in to Tidal</button>
+				<button type="button" disabled={signingIn !== null} onclick={() => signIn("tidal")}> Sign in to Tidal </button>
 				<AuthStatus label="YouTube Music" state={status.ytm} />
-				<button type="button" disabled={!status.ytm.has_client_secret} onclick={() => signIn("ytm")}>
+				<button
+					type="button"
+					disabled={!status.ytm.has_client_secret || signingIn !== null}
+					onclick={() => signIn("ytm")}
+				>
 					Sign in to YouTube Music
 				</button>
 				{#if !status.ytm.has_client_secret}
-					<button type="button" onclick={importSecret}>Import client secret</button>
+					<button type="button" disabled={signingIn !== null} onclick={importSecret}> Import client secret </button>
 				{/if}
 			</div>
 		</section>

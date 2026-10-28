@@ -5,13 +5,13 @@
 		label: string;
 		state: ProviderState;
 		onSignIn?: () => void;
-		// YouTube Music needs a Google Cloud client secret before it can sign in.
-		// When it is missing, the sign-in button stays visible but disabled so the
-		// user is pointed at the import action instead of hitting a bad_request.
-		hasClientSecret?: boolean;
+		// A sign-in is already in flight: every row waits for the one that is
+		// running, because the flow it starts is a browser and a person, and two
+		// of them at once race over one token file.
+		busy?: boolean;
 	}
 
-	let { label, state, onSignIn, hasClientSecret = true }: Props = $props();
+	let { label, state, onSignIn, busy = false }: Props = $props();
 </script>
 
 <div class="row" role="group" aria-label={label}>
@@ -27,7 +27,10 @@
 		<time class="expiry" datetime={state.expires_at}>{state.expires_at}</time>
 	{/if}
 	{#if state.status === "signed_out"}
-		<button type="button" disabled={!hasClientSecret} onclick={() => onSignIn?.()}> Sign in </button>
+		<!-- Read off the state the row was handed: a provider with no client
+		     secret cannot sign in, and a caller must not be able to offer one
+		     that would only come back as a bad_request. -->
+		<button type="button" disabled={!state.has_client_secret || busy} onclick={() => onSignIn?.()}> Sign in </button>
 	{/if}
 </div>
 

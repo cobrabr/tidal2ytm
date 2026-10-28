@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "./Home.svelte";
 import { getAuthStatus } from "../lib/ipc";
+import { startSignIn } from "../lib/auth-actions";
 import type { AuthStatus } from "../lib/types";
 
 // Mocked at the screen's own boundary, the command it asks. Stubbing `invoke`
@@ -10,6 +11,7 @@ import type { AuthStatus } from "../lib/types";
 // directly — what `AuthStatus.test.ts` does — cannot see a screen that stopped
 // rendering it at all, which is the defect this file exists for.
 vi.mock("../lib/ipc");
+vi.mock("../lib/auth-actions");
 
 const answer = vi.mocked(getAuthStatus);
 
@@ -30,6 +32,7 @@ const statesOf = async () =>
 describe("Home", () => {
 	beforeEach(() => {
 		answer.mockReset();
+		vi.mocked(startSignIn).mockReset();
 	});
 
 	// Two cards side by side is the first time a provider's label means anything:
@@ -84,5 +87,23 @@ describe("Home", () => {
 
 		expect(await screen.findByRole("alert")).toBeTruthy();
 		expect(screen.queryAllByRole("status")).toHaveLength(0);
+	});
+
+	// A failed sign-in is not a failed screen. Replacing the whole view with the
+	// message is how the import action disappeared exactly when the credential it
+	// imports was the thing that had gone wrong, leaving a restart as the only way
+	// back and no way to retry what had just failed.
+	it("keeps the providers and their actions when a sign-in fails", async () => {
+		answer.mockResolvedValue(BOTH_SIGNED_OUT);
+		vi.mocked(startSignIn).mockRejectedValue(new Error("the flow was refused"));
+
+		render(Home);
+
+		const tidal = (await screen.findAllByRole("group"))[0];
+		await fireEvent.click(within(tidal).getByRole("button", { name: /sign in/i }));
+
+		expect((await screen.findByRole("alert")).textContent).toContain("the flow was refused");
+		expect(screen.getAllByRole("status")).toHaveLength(2);
+		expect(screen.getByRole("button", { name: /import client secret/i })).toBeTruthy();
 	});
 });
