@@ -192,6 +192,9 @@ marimo/_lsp/
 # `src/lib/data/`, which is frontend source a fetch/cache layer will want.
 /data/
 
+# Local library mirror written by whatever last ran the desktop host
+/tidal2ytm.db*
+
 # Agent execution scratch (ledgers, briefs, review packages)
 /.superpowers/
 
