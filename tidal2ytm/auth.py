@@ -20,7 +20,7 @@ from ytmusicapi.setup import setup_oauth
 from . import paths
 
 if TYPE_CHECKING:
-    from collections.abc import MutableMapping
+    from collections.abc import Callable, MutableMapping
     from typing import Any
 
 # A cached token this far from expiry is trusted without a network round-trip.
@@ -49,6 +49,23 @@ def _log_auth_failure(exc: BaseException) -> None:
         _LOG.critical("auth connection failure: %s", exc)
     else:
         _LOG.error("auth failure: %s", exc)
+
+
+def _open_browser(url: str) -> bool:
+    """Open `url` in the platform's browser, reporting failure rather than raising.
+
+    A machine with no browser to hand the link to is not an authentication dead
+    end, because the caller logs the URL first and a person can type it: failing
+    the whole sign-in there would throw away the one thing that still works.
+    """
+    try:
+        opened = webbrowser.open(url)
+    except (OSError, webbrowser.Error) as exc:
+        _LOG.warning("could not open a browser for %s: %s", url, exc)
+        return False
+    if not opened:
+        _LOG.warning("no browser opened for %s; open it by hand", url)
+    return opened
 
 
 def parse_token_expiry(raw: object) -> datetime.datetime | None:
@@ -326,21 +343,27 @@ def _save_ytm_token(creds: OAuthCredentials, auth_file: Path, raw_token: dict[st
 
 
 def _complete_ytm_device_flow(creds: OAuthCredentials, auth_file: Path) -> None:
-    import time
+    """Complete the device flow without reading stdin.
 
-    code = creds.get_code()
-    code_map: dict[str, object] = dict(code)
+    `ytmusicapi.setup.setup_oauth` waits for a person to press Enter, and the
+    sidecar's stdin is the IPC channel, so that call can never return there.
+    Polling the token endpoint is the same flow with the waiting done here. The
+    code is logged before the browser is asked for, so a window that opened no
+    browser still leaves a person the link and the code to type.
+    """
+    code_map: dict[str, object] = dict(creds.get_code())
     verification_url = code_map.get("verification_url")
     user_code = code_map.get("user_code")
     device_code = code_map.get("device_code")
-    if not isinstance(verification_url, str):
-        raise YtmAuthError("YouTube Music did not return a usable device code.")
-    if not isinstance(user_code, str):
-        raise YtmAuthError("YouTube Music did not return a usable device code.")
-    if not isinstance(device_code, str):
+    if (
+        not isinstance(verification_url, str)
+        or not isinstance(user_code, str)
+        or not isinstance(device_code, str)
+    ):
         raise YtmAuthError("YouTube Music did not return a usable device code.")
 
-    webbrowser.open(f"{verification_url}?user_code={user_code}")
+    _LOG.info("YouTube Music device sign-in: %s?user_code=%s", verification_url, user_code)
+    _open_browser(f"{verification_url}?user_code={user_code}")
     interval_raw = code_map.get("interval")
     interval = interval_raw if isinstance(interval_raw, int) else 5
     expires_raw = code_map.get("expires_in")
@@ -593,13 +616,11 @@ def _try_cached_tidal_token(
     return False
 
 
-def sign_in_tidal(*, force: bool = False) -> Path:
-    """Sign in to Tidal, or raise on failure.
+def _tidal_login(*, force: bool, announce: Callable[[str], None]) -> Path:
+    """Run the Tidal login flow and write the token file.
 
-    Sidecar-friendly counterpart of ``run_tidal_auth``: nothing is printed to
-    stdout (stdout is the IPC channel), failures raise instead of calling
-    ``sys.exit`` (which would kill the whole sidecar), and the authorization
-    URL is logged so a person whose browser did not open can copy it.
+    `announce` receives the authorization URL: the CLI prints it, while the
+    sidecar logs it, because stdout is the IPC channel there.
     """
     data_dir = paths.DATA_DIR
     token_file = paths.TIDAL_TOKEN_FILE
@@ -611,53 +632,9 @@ def sign_in_tidal(*, force: bool = False) -> Path:
 
     link_login, login_future = session.login_oauth()
     url = f"https://{link_login.verification_uri_complete}"
-    _LOG.info("Opening Tidal authorization URL in your browser: %s", url)
-    try:
-        webbrowser.open(url)
-    except Exception as exc:
-        _LOG.warning("webbrowser.open failed: %s", exc)
+    announce(url)
+    _open_browser(url)
 
-    try:
-        login_future.result()
-    except _AUTH_ERRORS as exc:
-        _log_auth_failure(exc)
-        raise
-    _LOG.info("tidal auth: login ok")
-
-    user = session.user
-    user_id = user.id if user is not None and isinstance(user.id, int) else None
-    country_raw = session.country_code
-    country_code = country_raw if isinstance(country_raw, str) else None
-    token_expiry = session.expiry_time
-    token_file.write_text(
-        json.dumps(
-            {
-                "token_type": session.token_type,
-                "access_token": session.access_token,
-                "refresh_token": session.refresh_token,
-                "expiry_time": render_tidal_expiry(token_expiry),
-                "user_id": user_id,
-                "country_code": country_code,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    return token_file
-
-
-def run_tidal_auth(*, force: bool = False) -> Path:
-    data_dir = paths.DATA_DIR
-    token_file = paths.TIDAL_TOKEN_FILE
-    data_dir.mkdir(parents=True, exist_ok=True)
-    session = tidalapi.Session()  # pyright: ignore[reportPrivateImportUsage]
-    if not force and token_file.exists() and _try_cached_tidal_token(session, token_file):
-        return token_file
-
-    link_login, login_future = session.login_oauth()
-    url = f"https://{link_login.verification_uri_complete}"
-    print(f"Opening Tidal authorization URL in your browser: {url}")
-    webbrowser.open(url)
     try:
         login_future.result()
     except _AUTH_ERRORS as exc:
@@ -687,3 +664,24 @@ def run_tidal_auth(*, force: bool = False) -> Path:
         encoding="utf-8",
     )
     return token_file
+
+
+def sign_in_tidal(*, force: bool = False) -> Path:
+    """Sign in to Tidal, or raise on failure.
+
+    Sidecar-friendly counterpart of ``run_tidal_auth``: nothing is printed to
+    stdout (stdout is the IPC channel), failures raise instead of calling
+    ``sys.exit`` (which would kill the whole sidecar), and the authorization
+    URL is logged so a person whose browser did not open can copy it.
+    """
+    return _tidal_login(
+        force=force,
+        announce=lambda url: _LOG.info("Opening Tidal authorization URL in your browser: %s", url),
+    )
+
+
+def run_tidal_auth(*, force: bool = False) -> Path:
+    return _tidal_login(
+        force=force,
+        announce=lambda url: print(f"Opening Tidal authorization URL in your browser: {url}"),
+    )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import webbrowser
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -120,7 +121,211 @@ def test_tidal_cache_valid_checks_expiry_offline(isolated_data_dir: Path) -> Non
     token_file.write_text(json.dumps({"expiry_time": _utc_in(-1).isoformat()}))
     assert auth.tidal_cache_valid(token_file) is False  # expired
     token_file.write_text(json.dumps({"expiry_time": _utc_in(4).isoformat()}))
-    assert auth.tidal_cache_valid(token_file) is True  # fresh
+    assert auth.tidal_cache_valid(token_file) is True
+
+
+def _mock_tidal_session(monkeypatch: Any, opened: list[str]) -> MagicMock:
+    """A Tidal session whose login already finished, recording browser opens."""
+    session = MagicMock()
+    session.token_type = "Bearer"  # noqa: S105
+    session.access_token = "at"  # noqa: S105
+    session.refresh_token = "rt"  # noqa: S105
+    session.expiry_time = datetime.datetime(2026, 8, 29)
+    session.country_code = "US"
+    session.user.id = 4242
+    session.login_oauth.return_value = (
+        MagicMock(verification_uri_complete="example.com/verify"),
+        MagicMock(**{"result.return_value": None}),
+    )
+    monkeypatch.setattr(auth.tidalapi, "Session", MagicMock(return_value=session))
+
+    def _record(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(auth.webbrowser, "open", _record)
+    return session
+
+
+# The sidecar's stdout is the IPC channel, so a single `print` in the sign-in
+# path corrupts every reply on the wire and the host reports a malformed
+# response instead of a finished sign-in. `run_tidal_auth` is the CLI's, and
+# still prints; this one must not grow the habit back.
+def test_sign_in_tidal_writes_nothing_to_stdout(
+    isolated_data_dir: Path, monkeypatch: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    opened: list[str] = []
+    _mock_tidal_session(monkeypatch, opened)
+
+    assert auth.sign_in_tidal(force=True) == isolated_data_dir / "tidal_token.json"
+    assert capsys.readouterr().out == ""
+    assert opened == ["https://example.com/verify"]
+
+
+# A machine with no browser to hand the link to is not a failed sign-in: the URL
+# is logged first, so the flow is finished by hand instead of thrown away.
+# Narrowing this to `webbrowser.Error` is what keeps a real bug from hiding in a
+# blanket `except Exception`.
+def test_sign_in_tidal_survives_a_browser_that_will_not_open(
+    isolated_data_dir: Path, monkeypatch: Any
+) -> None:
+    opened: list[str] = []
+    _mock_tidal_session(monkeypatch, opened)
+
+    def _refuse(_url: str) -> bool:
+        raise webbrowser.Error("no browser found")
+
+    monkeypatch.setattr(auth.webbrowser, "open", _refuse)
+
+    assert auth.sign_in_tidal(force=True) == isolated_data_dir / "tidal_token.json"
+
+
+def test_run_tidal_auth_still_prints_the_url(
+    isolated_data_dir: Path, monkeypatch: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    opened: list[str] = []
+    _mock_tidal_session(monkeypatch, opened)
+
+    auth.run_tidal_auth(force=True)
+    assert "https://example.com/verify" in capsys.readouterr().out
+
+
+def _device_credentials(polls: list[dict[str, object]], *, expires_in: object = 300) -> Any:
+    """The device-flow slice of `ytmusicapi`'s OAuthCredentials, with scripted polls."""
+
+    class _Credentials:
+        def __init__(self) -> None:
+            self.polls = list(polls)
+
+        def get_code(self) -> dict[str, object]:
+            return {
+                "verification_url": "https://example.com/device",
+                "user_code": "ABCD-EFGH",
+                "device_code": "device-1",
+                "interval": 5,
+                "expires_in": expires_in,
+            }
+
+        def token_from_code(self, device_code: str) -> dict[str, object]:
+            assert device_code == "device-1"
+            return self.polls.pop(0) if self.polls else {"error": "authorization_pending"}
+
+    return _Credentials()
+
+
+def _no_browser(monkeypatch: Any) -> list[str]:
+    """Record what the flow would have opened, without starting a real browser."""
+    opened: list[str] = []
+
+    def _record(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(auth.webbrowser, "open", _record)
+    return opened
+
+
+def _no_sleep(calls: list[float]) -> Any:
+    def _record(seconds: float) -> None:
+        calls.append(seconds)
+
+    return _record
+
+
+# The GUI has no terminal to press Enter in - `setup_oauth` waits on stdin,
+# which is the IPC channel - so the wait is done by polling. `slow_down` means
+# Google has seen too many requests, and ignoring it gets the device flow
+# rate-limited out of existence; the interval must grow, not stay put.
+def test_the_device_flow_polls_until_a_token_arrives(
+    isolated_data_dir: Path, monkeypatch: Any
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(auth.time, "sleep", _no_sleep(sleeps))
+    opened = _no_browser(monkeypatch)
+    creds = _device_credentials(
+        [
+            {"error": "authorization_pending"},
+            {"error": "slow_down"},
+            {
+                "access_token": "at",
+                "refresh_token": "rt",
+                "scope": "scope",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            },
+        ]
+    )
+    auth_file = isolated_data_dir / "ytm_auth.json"
+
+    auth._complete_ytm_device_flow(creds, auth_file)  # pyright: ignore[reportPrivateUsage]
+
+    assert sleeps == [5, 10]
+    assert json.loads(auth_file.read_text(encoding="utf-8"))["access_token"] == "at"  # noqa: S105
+    assert opened == ["https://example.com/device?user_code=ABCD-EFGH"]
+
+
+def test_the_device_flow_raises_on_an_error_it_cannot_wait_out(
+    isolated_data_dir: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(auth.time, "sleep", _no_sleep([]))
+    _no_browser(monkeypatch)
+    creds = _device_credentials(
+        [{"error": "access_denied", "error_description": "the user refused"}]
+    )
+
+    with pytest.raises(auth.YtmAuthError, match="the user refused"):
+        auth._complete_ytm_device_flow(  # pyright: ignore[reportPrivateUsage]
+            creds, isolated_data_dir / "ytm_auth.json"
+        )
+
+
+def test_the_device_flow_gives_up_when_its_deadline_has_passed(
+    isolated_data_dir: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(auth.time, "sleep", _no_sleep([]))
+    _no_browser(monkeypatch)
+    creds = _device_credentials([], expires_in=0)
+
+    with pytest.raises(auth.YtmAuthError, match="timed out"):
+        auth._complete_ytm_device_flow(  # pyright: ignore[reportPrivateUsage]
+            creds, isolated_data_dir / "ytm_auth.json"
+        )
+
+
+def test_a_token_without_a_refresh_token_is_refused(
+    isolated_data_dir: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(auth.time, "sleep", _no_sleep([]))
+    _no_browser(monkeypatch)
+    creds = _device_credentials([{"access_token": "at", "expires_in": 3600}])
+
+    with pytest.raises(auth.YtmAuthError, match="usable token"):
+        auth._complete_ytm_device_flow(  # pyright: ignore[reportPrivateUsage]
+            creds, isolated_data_dir / "ytm_auth.json"
+        )
+
+
+# The sign-in the sidecar starts must never reach `setup_oauth`, which blocks on
+# `input()` and therefore never returns where stdin is the IPC channel: the whole
+# sign-in silently hung there while the screen kept waiting.
+def test_the_non_interactive_sign_in_uses_the_device_flow(
+    isolated_data_dir: Path, monkeypatch: Any
+) -> None:
+    reached: list[Path] = []
+
+    def _flow(_creds: object, path: Path) -> None:
+        reached.append(path)
+
+    monkeypatch.setattr(auth, "_complete_ytm_device_flow", _flow)
+
+    def _unexpected(**kwargs: object) -> None:
+        pytest.fail(f"setup_oauth reached: {kwargs}")
+
+    monkeypatch.setattr(auth, "setup_oauth", _unexpected)
+    monkeypatch.setattr(auth, "YTMusic", MagicMock())
+
+    assert auth.sign_in_ytm(interactive=False) == isolated_data_dir / "ytm_auth.json"
+    assert reached == [isolated_data_dir / "ytm_auth.json"]  # fresh
 
 
 def test_ytm_cache_valid_checks_expiry_offline(isolated_data_dir: Path) -> None:
