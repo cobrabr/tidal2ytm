@@ -302,7 +302,9 @@ mod tests {
             .expect("the contract's data is a favorites.list answer");
 
         assert_eq!(page.tracks.len(), 2);
-        assert!(page.page_complete);
+        // A page carrying tracks is never the end of the walk: only an empty
+        // answer is. The contract's sample holds two, so it says `false`.
+        assert!(!page.page_complete);
         assert_eq!(page.tracks[0].album, "Lantern Season");
         assert_eq!(page.tracks[0].tidal_id, 174_839_201);
     }

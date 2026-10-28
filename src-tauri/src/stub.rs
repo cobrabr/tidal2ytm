@@ -41,8 +41,14 @@ fn hello() -> String {
 /// the stub rewrites to each caller's id.
 const PAGE_ONE_ANSWER: &str = r##"{"id":0,"ok":true,"data":{"tracks":[{"tidal_id":174839201,"title":"Paper Tide","artist":"Ilse Vandermeer","artists":["Ilse Vandermeer","Bram Oduya"],"album":"Lantern Season","album_id":91247733,"album_year":2014,"duration_sec":217,"track_num":4,"disc_num":1,"version":null},{"tidal_id":174839202,"title":"Salt Bell (Reprise)","artist":"Bram Oduya","artists":["Bram Oduya"],"album":"Fen Hymns","album_id":91247734,"album_year":null,"duration_sec":141,"track_num":11,"disc_num":2,"version":"Reprise"}],"page_complete":false}}"##;
 
-/// A second, final page: shorter than `PAGE_LIMIT`, so `page_complete` is true.
-const PAGE_TWO_ANSWER: &str = r##"{"id":0,"ok":true,"data":{"tracks":[{"tidal_id":174839203,"title":"Winterlawn","artist":"Ilse Vandermeer","artists":["Ilse Vandermeer"],"album":"Lantern Season","album_id":91247733,"album_year":2014,"duration_sec":184,"track_num":5,"disc_num":1,"version":null}],"page_complete":true}}"##;
+/// A second page carrying tracks, and not the end of the walk: a page is only
+/// short when Tidal dropped unplayable favourites out of the answer, so the
+/// flag stays false and the loop must ask again.
+const PAGE_TWO_ANSWER: &str = r##"{"id":0,"ok":true,"data":{"tracks":[{"tidal_id":174839203,"title":"Winterlawn","artist":"Ilse Vandermeer","artists":["Ilse Vandermeer"],"album":"Lantern Season","album_id":91247733,"album_year":2014,"duration_sec":184,"track_num":5,"disc_num":1,"version":null}],"page_complete":false}}"##;
+
+/// The walk's end: an offset past the last favourite answers with no tracks,
+/// and only that empty answer says the list is finished.
+const PAGE_FINAL_ANSWER: &str = r##"{"id":0,"ok":true,"data":{"tracks":[],"page_complete":true}}"##;
 
 /// What the second request gets instead of a second page, shaped as
 /// `contracts/error_auth_expired.json` records the kind. The message is
@@ -83,19 +89,20 @@ fn favorites_config(second: &SecondPage, pause_ms: u64) -> SidecarConfig {
             format!(
                 "import json,sys,time\n\
              print('{hello}', flush=True)\n\
-             FIRST, SECOND = '{first}', '{second_answer}'\n\
+             FIRST, SECOND, THIRD = '{first}', '{second_answer}', '{final_answer}'\n\
              n = 0\n\
              for line in sys.stdin:\n\
              \x20   n += 1\n\
              \x20   req = json.loads(line)\n\
              \x20   if n > 1:\n\
              \x20       time.sleep({pause_ms} / 1000)\n\
-             \x20   envelope = json.loads(FIRST if n == 1 else SECOND)\n\
+             \x20   envelope = json.loads(FIRST if n == 1 else (SECOND if n == 2 else THIRD))\n\
              \x20   envelope['id'] = req['id']\n\
              \x20   print(json.dumps(envelope), flush=True)\n",
                 hello = escape(&hello()),
                 first = escape(PAGE_ONE_ANSWER),
                 second_answer = escape(answer),
+                final_answer = escape(PAGE_FINAL_ANSWER),
             ),
         ],
         cwd: std::env::temp_dir(),

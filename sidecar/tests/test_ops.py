@@ -210,13 +210,24 @@ def test_a_full_page_is_reported_as_incomplete_and_paging_is_passed_through(
     assert result["page_complete"] is False
 
 
-def test_a_short_page_is_reported_as_complete(
+# Tidal's favourites include tracks that are no longer playable, and the parser
+# drops them, so a short page part-way through a long list is ordinary rather
+# than the end of it. Reporting that page as the last one is what stopped the
+# sync after its first response.
+def test_a_short_page_is_not_reported_as_complete(
     isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _one_page(monkeypatch, [_track(1)])
 
-    # The host breaks its loop on this flag rather than asking for a page it
-    # already knows is the last one.
+    assert ops.favorites_list(0, 2)["page_complete"] is False
+
+
+# The one answer that proves the list ended: the request that came back empty.
+def test_an_empty_page_is_reported_as_complete(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _one_page(monkeypatch, [])
+
     assert ops.favorites_list(0, 2)["page_complete"] is True
 
 

@@ -220,9 +220,11 @@ def favorites_list(offset: int, limit: int) -> dict[str, object]:
     tracks = tidal_source.fetch_favorite_page(session, offset, limit)
     return {
         "tracks": [_track_wire(track) for track in tracks],
-        # The raw page length, which is the mapped length only because nothing was
-        # de-duplicated on the way here. If de-duplication ever moves into this
-        # op, a full page that lost a repeat reads as short, the host stops a page
-        # early, and the rest of someone's favourites is silently never fetched.
-        "page_complete": len(tracks) < limit,
+        # Only a request that came back empty ends the walk. A page shorter than
+        # `limit` is not evidence of the end: Tidal's favourites include tracks
+        # that are no longer playable, and `parse_track` drops them, so a full
+        # request comes back short part-way through a long list. Reading a short
+        # page as the last one stopped the sync after its first response — a
+        # library of thousands landed as 85 rows.
+        "page_complete": not tracks,
     }

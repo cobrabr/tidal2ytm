@@ -349,6 +349,7 @@ mod tests {
             events.iter().map(reported).collect::<Vec<_>>(),
             vec![
                 (JobState::Running, PAGE_ONE_ROWS, None),
+                (JobState::Running, EVERY_ROW, None),
                 (JobState::Running, EVERY_ROW, Some(EVERY_ROW)),
                 (JobState::Done, EVERY_ROW, Some(EVERY_ROW)),
             ],
@@ -359,7 +360,7 @@ mod tests {
         // accumulate-then-commit loop would still be holding.
         assert_eq!(
             *counts_at_emit.lock().expect("the counts are not contested"),
-            vec![PAGE_ONE_ROWS, EVERY_ROW, EVERY_ROW],
+            vec![PAGE_ONE_ROWS, EVERY_ROW, EVERY_ROW, EVERY_ROW],
             "the rows for each page must be committed by the time their own event is sent"
         );
         assert_eq!(
