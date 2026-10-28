@@ -11,6 +11,8 @@
 
 from pathlib import Path
 
+import ytmusicapi
+
 # `SPECPATH` is this spec's own directory (`sidecar/`), not the repository root,
 # and it is what makes the script path below relative to `sidecar/`. Only that
 # path resolution is spec-relative: `build_main.py` joins a relative script onto
@@ -31,7 +33,12 @@ analysis = Analysis(  # noqa: F821 - injected by PyInstaller
     ["tidal2ytm_sidecar_entry.py"],
     pathex=[str(Path(SPECPATH).resolve())],
     binaries=[],
-    datas=[],
+    datas=[
+        (
+            str(Path(ytmusicapi.__file__).resolve().parent / "locales"),
+            "ytmusicapi/locales",
+        ),
+    ],
     hiddenimports=[
         "tidal2ytm.auth",
         "tidal2ytm.logging_setup",
