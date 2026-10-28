@@ -158,7 +158,7 @@ def auth_begin(provider: str) -> dict[str, str]:
             auth.require_client_secret(auth.paths.DATA_DIR)
         except ValueError as exc:
             raise BadRequestError(str(exc)) from exc
-        auth.sign_in_ytm()
+        auth.sign_in_ytm(interactive=False)
     else:
         raise BadRequestError(f"unknown auth provider: {provider!r}")
     return {"provider": provider}

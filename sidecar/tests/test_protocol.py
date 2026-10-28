@@ -51,7 +51,10 @@ def test_the_sidecar_auth_status_payload_matches_the_shared_contract(
 def test_the_auth_begin_envelope_matches_the_shared_contract(
     isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(auth, "sign_in_ytm", lambda: isolated_data_dir / "ytm_auth.json")
+    def _fake(*_args: object, **_kwargs: object) -> Path:
+        return isolated_data_dir / "ytm_auth.json"
+
+    monkeypatch.setattr(auth, "sign_in_ytm", _fake)
 
     assert protocol.dispatch("auth.begin", {"provider": "ytm"}, rid=1) == _contract(
         "auth_begin.json"

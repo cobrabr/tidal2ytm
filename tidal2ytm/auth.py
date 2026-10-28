@@ -14,6 +14,7 @@ import requests
 import tidalapi
 from tidalapi.exceptions import TidalAPIError
 from ytmusicapi import OAuthCredentials, YTMusic
+from ytmusicapi.auth.oauth import RefreshingToken
 from ytmusicapi.setup import setup_oauth
 
 from . import paths
@@ -294,8 +295,85 @@ class YtmAuthError(RuntimeError):
     """
 
 
+def _save_ytm_token(creds: OAuthCredentials, auth_file: Path, raw_token: dict[str, object]) -> None:
+    access_token = raw_token.get("access_token")
+    refresh_token = raw_token.get("refresh_token")
+    scope = raw_token.get("scope")
+    token_type = raw_token.get("token_type")
+    expires_in_raw = raw_token.get("expires_in")
+    refresh_expires_raw = raw_token.get("refresh_token_expires_in")
+    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
+        raise YtmAuthError("YouTube Music did not return a usable token.")
+    if not isinstance(scope, str):
+        scope = ""
+    if not isinstance(token_type, str):
+        token_type = "Bearer"  # noqa: S105
+    if not isinstance(expires_in_raw, int):
+        expires_in_raw = 300
+    if not isinstance(refresh_expires_raw, int):
+        refresh_expires_raw = expires_in_raw
+
+    ref_token = RefreshingToken(
+        credentials=creds,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        scope=scope,
+        token_type=token_type,
+        expires_in=refresh_expires_raw,
+    )
+    ref_token.update({"access_token": access_token, "expires_in": expires_in_raw})
+    ref_token.local_cache = auth_file
+
+
+def _complete_ytm_device_flow(creds: OAuthCredentials, auth_file: Path) -> None:
+    import time
+
+    code = creds.get_code()
+    code_map: dict[str, object] = dict(code)
+    verification_url = code_map.get("verification_url")
+    user_code = code_map.get("user_code")
+    device_code = code_map.get("device_code")
+    if not isinstance(verification_url, str):
+        raise YtmAuthError("YouTube Music did not return a usable device code.")
+    if not isinstance(user_code, str):
+        raise YtmAuthError("YouTube Music did not return a usable device code.")
+    if not isinstance(device_code, str):
+        raise YtmAuthError("YouTube Music did not return a usable device code.")
+
+    webbrowser.open(f"{verification_url}?user_code={user_code}")
+    interval_raw = code_map.get("interval")
+    interval = interval_raw if isinstance(interval_raw, int) else 5
+    expires_raw = code_map.get("expires_in")
+    expires_in = expires_raw if isinstance(expires_raw, int) else 300
+    deadline = time.time() + expires_in
+
+    raw_token: dict[str, object] | None = None
+    while time.time() < deadline:
+        result = creds.token_from_code(device_code)
+        result_map: dict[str, object] = dict(result)
+        if "access_token" in result_map:
+            raw_token = result_map
+            break
+        err = result_map.get("error")
+        if err == "slow_down":
+            interval += 5
+        elif err not in (None, "authorization_pending", "slow_down"):
+            desc = result_map.get("error_description", err)
+            raise YtmAuthError("YouTube Music authentication failed: " + str(desc))
+        time.sleep(interval)
+
+    if raw_token is None:
+        raise YtmAuthError("YouTube Music authentication timed out waiting for browser sign-in.")
+
+    _save_ytm_token(creds, auth_file, raw_token)
+
+
 def sign_in_ytm(
-    *, client_id: str | None = None, client_secret: str | None = None, force: bool = False
+    *,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    force: bool = False,
+    interactive: bool = True,
 ) -> Path:
     """Sign in to YouTube Music, or raise `YtmAuthError` saying why not.
 
@@ -333,14 +411,18 @@ def sign_in_ytm(
         except ValueError as exc:
             raise YtmAuthError(str(exc)) from exc
 
-    setup_oauth(
-        open_browser=True,
-        filepath=str(auth_file),
-        client_id=client_id,
-        client_secret=client_secret,
-    )
+    creds = OAuthCredentials(client_id, client_secret)  # pyright: ignore[reportUnknownArgumentType]
 
-    creds = OAuthCredentials(client_id, client_secret)
+    if interactive:
+        setup_oauth(
+            open_browser=True,
+            filepath=str(auth_file),
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+    else:
+        _complete_ytm_device_flow(creds, auth_file)
+
     yt = YTMusic(str(auth_file), oauth_credentials=creds)
     try:
         _ = yt._token.access_token  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType]
