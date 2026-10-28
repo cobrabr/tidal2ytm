@@ -11,6 +11,13 @@
 
 <div class="job" role="status" data-state={progress.state}>
 	<div class="line">
+		{#if progress.state === "running" || progress.state === "cancelling"}
+			<!-- No denominator exists before the walk ends: Tidal's favourites
+			     endpoint reports no count, and the count it can report includes
+			     tracks it will not hand back. The count beside this is the
+			     honest measure, so the spinner claims nothing it cannot know. -->
+			<span class="spinner" aria-hidden="true"></span>
+		{/if}
 		<span
 			class="state"
 			style:color={progress.state === "running" || progress.state === "done"
@@ -29,17 +36,8 @@
 			<button type="button" disabled>stopping</button>
 		{/if}
 	</div>
-	{#if progress.state === "running" || progress.state === "cancelling" || progress.state === "done"}
-		{#if progress.total === null}
-			<!-- No denominator exists before the walk ends: Tidal's favourites
-			     endpoint reports no count, and the count it can report includes
-			     tracks it will not hand back. A native indeterminate progress
-			     element animates a segment forwards and then backwards, which
-			     reads as the sync losing ground, so this pulses in place. -->
-			<div class="working" aria-label="job in progress"></div>
-		{:else}
-			<progress aria-label="job progress" value={progress.done} max={progress.total}></progress>
-		{/if}
+	{#if progress.total !== null && (progress.state === "running" || progress.state === "cancelling" || progress.state === "done")}
+		<progress aria-label="job progress" value={progress.done} max={progress.total}></progress>
 	{/if}
 </div>
 
@@ -58,26 +56,23 @@
 		width: 100%;
 		height: 6px;
 	}
-	.working {
-		width: 100%;
-		height: 6px;
-		border-radius: 3px;
-		background: var(--ok);
-		animation: breathe 1.4s ease-in-out infinite;
+	.spinner {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 2px solid var(--ok);
+		border-right-color: transparent;
+		animation: spin 0.8s linear infinite;
 	}
-	@keyframes breathe {
-		0%,
-		100% {
-			opacity: 0.25;
-		}
-		50% {
-			opacity: 1;
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.working {
+		.spinner {
 			animation: none;
-			opacity: 0.6;
+			border-right-color: var(--ok);
 		}
 	}
 </style>
