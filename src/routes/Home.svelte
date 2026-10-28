@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import ProviderRow from "../lib/components/ProviderRow.svelte";
 	import JobProgress from "../lib/components/JobProgress.svelte";
+	import StatusBreakdown from "../lib/components/StatusBreakdown.svelte";
 	import { UNREADABLE_STATUS, getAuthStatus, getStatusCounts, getMeta, startSync, cancelJob } from "../lib/ipc";
 	import { importClientSecretFile, startSignIn } from "../lib/auth-actions";
 	import { subscribeJobs, type Progress } from "../lib/jobs";
@@ -152,6 +153,13 @@
 			{/if}
 		</div>
 
+		<section class="plan">
+			<h2>Plan</h2>
+			{#if statusCounts}
+				<StatusBreakdown counts={statusCounts} />
+			{/if}
+		</section>
+
 		<section class="sync">
 			{#if syncState === "never"}
 				<p>Never synced.</p>
@@ -163,7 +171,7 @@
 				<p>Synced (empty library).</p>
 			{/if}
 
-			{#if jobProgress && (jobProgress.state === "running" || jobProgress.state === "cancelling")}
+			{#if jobProgress !== null}
 				<JobProgress progress={jobProgress} onCancel={cancel} />
 			{/if}
 
@@ -190,6 +198,14 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+	}
+	h2 {
+		font-size: 14px;
+		font-weight: 600;
+		margin: 0 0 var(--space-2);
+	}
+	.plan {
+		margin-top: var(--space-4);
 	}
 	.sync {
 		margin-top: var(--space-4);

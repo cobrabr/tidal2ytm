@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "./Home.svelte";
-import { getAuthStatus } from "../lib/ipc";
+import { getAuthStatus, getMeta, getStatusCounts } from "../lib/ipc";
 import { startSignIn } from "../lib/auth-actions";
+import { subscribeJobs } from "../lib/jobs";
+import type { Progress } from "../lib/jobs";
 import type { AuthStatus } from "../lib/types";
 
 // Mocked at the screen's own boundary, the command it asks. Stubbing `invoke`
@@ -12,8 +14,14 @@ import type { AuthStatus } from "../lib/types";
 // rendering it at all, which is the defect this file exists for.
 vi.mock("../lib/ipc");
 vi.mock("../lib/auth-actions");
+vi.mock("../lib/jobs");
 
 const answer = vi.mocked(getAuthStatus);
+const counts = vi.mocked(getStatusCounts);
+const jobs = vi.mocked(subscribeJobs);
+
+/** The handler the screen registered, so a test can deliver a job event. */
+let push: ((progress: Progress) => void) | null = null;
 
 /** Asymmetric on purpose: one signed-in provider makes a swap visible. */
 const BOTH_SIGNED_OUT: AuthStatus = {
@@ -33,6 +41,16 @@ describe("Home", () => {
 	beforeEach(() => {
 		answer.mockReset();
 		vi.mocked(startSignIn).mockReset();
+		counts.mockReset();
+		counts.mockResolvedValue({});
+		vi.mocked(getMeta).mockReset();
+		vi.mocked(getMeta).mockResolvedValue(null);
+		push = null;
+		jobs.mockReset();
+		jobs.mockImplementation((handler) => {
+			push = handler;
+			return () => {};
+		});
 	});
 
 	// Two cards side by side is the first time a provider's label means anything:
@@ -105,5 +123,52 @@ describe("Home", () => {
 		expect((await screen.findByRole("alert")).textContent).toContain("the flow was refused");
 		expect(screen.getAllByRole("status")).toHaveLength(2);
 		expect(screen.getByRole("button", { name: /import client secret/i })).toBeTruthy();
+	});
+
+	// The plan's numbers are the only thing on Home that says what a sync did,
+	// and a sync of a small library finishes before a progress line can be read.
+	// Only statuses the store actually holds are listed, so the total cannot
+	// disagree with the database by counting rows that are not there.
+	it("shows a breakdown of the statuses the plan holds", async () => {
+		answer.mockResolvedValue(BOTH_SIGNED_OUT);
+		counts.mockResolvedValue({ pending: 12, transferred: 3, failed: 1 });
+
+		render(Home);
+
+		expect(await screen.findByText("12")).toBeTruthy();
+		// Three present statuses plus the total row; a zero-count status rendered
+		// as a row would make this seven, and would tell a person their plan holds
+		// rows it does not.
+		expect(screen.getAllByRole("term")).toHaveLength(4);
+		expect(screen.getByText("16")).toBeTruthy();
+	});
+
+	// An empty mirror and a mirror that was never fetched are different facts, so
+	// the empty one has to say so rather than render as a section with no rows.
+	it("says the plan is empty rather than listing nothing", async () => {
+		answer.mockResolvedValue(BOTH_SIGNED_OUT);
+
+		render(Home);
+
+		expect(await screen.findByText(/no tracks yet/i)).toBeTruthy();
+		expect(screen.queryAllByRole("term")).toHaveLength(0);
+	});
+
+	// A job that has finished is the state a person actually looks for: showing
+	// it only while running is how a sub-second sync left nothing on screen at
+	// all, and the count it reached went with it.
+	it("keeps a finished job visible with the count it reached", async () => {
+		answer.mockResolvedValue(BOTH_SIGNED_OUT);
+		counts.mockResolvedValue({ pending: 100 });
+
+		render(Home);
+
+		await screen.findAllByRole("group");
+		await vi.waitFor(() => expect(push).not.toBeNull());
+		push?.({ jid: 1, kind: "sync", state: "done", done: 100, total: 100 });
+
+		const bar = (await screen.findByLabelText("job progress")) as HTMLProgressElement;
+		expect(bar.max).toBe(100);
+		expect(bar.value).toBe(100);
 	});
 });
