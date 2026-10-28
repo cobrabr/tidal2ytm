@@ -10,7 +10,9 @@
 		getMeta,
 		startSync,
 		cancelJob,
+		importClientSecret,
 	} from "../lib/ipc";
+	import { open } from "@tauri-apps/plugin-dialog";
 	import { subscribeJobs, type Progress } from "../lib/jobs";
 	import type { AuthStatus as AuthStatusData } from "../lib/types";
 
@@ -86,6 +88,18 @@
 		// Poll while in flight is not needed here since beginAuth awaits.
 	}
 
+	async function importSecret() {
+		try {
+			const chosen = await open({ filters: [{ name: "JSON", extensions: ["json"] }] });
+			if (typeof chosen === "string") {
+				await importClientSecret(chosen);
+				status = await getAuthStatus();
+			}
+		} catch (e) {
+			failure = e instanceof Error ? e.message : UNREADABLE_STATUS;
+		}
+	}
+
 	async function runSync() {
 		syncing = true;
 		jobProgress = null;
@@ -145,7 +159,15 @@
 	{:else if status !== null}
 		<div class="providers">
 			<ProviderRow label="Tidal" state={status.tidal} onSignIn={() => signIn("tidal")} />
-			<ProviderRow label="YouTube Music" state={status.ytm} onSignIn={() => signIn("ytm")} />
+			<ProviderRow
+				label="YouTube Music"
+				state={status.ytm}
+				hasClientSecret={status.ytm.has_client_secret}
+				onSignIn={() => signIn("ytm")}
+			/>
+			{#if !status.ytm.has_client_secret}
+				<button type="button" onclick={importSecret}>Import client secret</button>
+			{/if}
 		</div>
 
 		<section class="sync">

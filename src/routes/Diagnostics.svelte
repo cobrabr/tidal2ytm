@@ -108,7 +108,9 @@
 				<AuthStatus label="Tidal" state={status.tidal} />
 				<button type="button" onclick={() => signIn("tidal")}>Sign in to Tidal</button>
 				<AuthStatus label="YouTube Music" state={status.ytm} />
-				<button type="button" onclick={() => signIn("ytm")}>Sign in to YouTube Music</button>
+				<button type="button" disabled={!status.ytm.has_client_secret} onclick={() => signIn("ytm")}>
+					Sign in to YouTube Music
+				</button>
 				{#if !status.ytm.has_client_secret}
 					<button type="button" onclick={importSecret}>Import client secret</button>
 				{/if}
