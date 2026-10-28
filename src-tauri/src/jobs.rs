@@ -377,6 +377,44 @@ mod tests {
     /// first page survives it, and `sync_started_at` survives it — a key dealt
     /// with on every exit would make Home read a partial mirror as one that
     /// was never begun, so the stamp is cleared by success alone.
+    /// The defect this catches: `done` counted fetches rather than tracks. A
+    /// page is addressed by offset into Tidal's raw list and the parser drops
+    /// the favourites that are no longer playable, so consecutive pages
+    /// overlap; counting every row that crossed the wire reported a library
+    /// larger than the one Tidal holds.
+    #[tokio::test]
+    async fn a_page_that_repeats_earlier_tracks_does_not_inflate_the_count() {
+        let (store, _dir) = stub::temp_store("repeating");
+        let store = Arc::new(store);
+        let client = stub::page_stub(stub::SecondPage::Repeat, 0).await;
+        let manager = JobManager::new();
+        let (tx, rx) = mpsc::channel::<Progress>();
+
+        let jid = manager
+            .start_sync(Arc::clone(&client), Arc::clone(&store), move |progress| {
+                let _ = tx.send(progress);
+            })
+            .expect("the sync starts");
+
+        let events = drain(rx).await;
+
+        assert_eq!(
+            events.iter().map(reported).collect::<Vec<_>>(),
+            vec![
+                (JobState::Running, PAGE_ONE_ROWS, None),
+                (JobState::Running, PAGE_ONE_ROWS, None),
+                (JobState::Running, PAGE_ONE_ROWS, Some(PAGE_ONE_ROWS)),
+                (JobState::Done, PAGE_ONE_ROWS, Some(PAGE_ONE_ROWS)),
+            ],
+            "the second answer repeats the first, so the count must not move"
+        );
+        assert_eq!(track_rows(&store), PAGE_ONE_ROWS);
+        assert_eq!(
+            manager.state(jid).expect("the job is known"),
+            JobState::Done
+        );
+    }
+
     #[tokio::test]
     async fn a_tidal_lapse_mid_sync_fails_the_job_and_keeps_its_first_page() {
         let (store, dir) = stub::temp_store("lapse");

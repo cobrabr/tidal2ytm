@@ -30,14 +30,16 @@
 		{/if}
 	</div>
 	{#if progress.state === "running" || progress.state === "cancelling" || progress.state === "done"}
-		<!-- No value until the fetch has finished: Tidal's favourites endpoint
-		     reports no count, and a bar that guessed one would be measuring the
-		     guess rather than the sync. -->
-		<progress
-			aria-label="job progress"
-			value={progress.total === null ? undefined : progress.done}
-			max={progress.total ?? undefined}
-		></progress>
+		{#if progress.total === null}
+			<!-- No denominator exists before the walk ends: Tidal's favourites
+			     endpoint reports no count, and the count it can report includes
+			     tracks it will not hand back. A native indeterminate progress
+			     element animates a segment forwards and then backwards, which
+			     reads as the sync losing ground, so this pulses in place. -->
+			<div class="working" aria-label="job in progress"></div>
+		{:else}
+			<progress aria-label="job progress" value={progress.done} max={progress.total}></progress>
+		{/if}
 	{/if}
 </div>
 
@@ -55,5 +57,27 @@
 	progress {
 		width: 100%;
 		height: 6px;
+	}
+	.working {
+		width: 100%;
+		height: 6px;
+		border-radius: 3px;
+		background: var(--ok);
+		animation: breathe 1.4s ease-in-out infinite;
+	}
+	@keyframes breathe {
+		0%,
+		100% {
+			opacity: 0.25;
+		}
+		50% {
+			opacity: 1;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.working {
+			animation: none;
+			opacity: 0.6;
+		}
 	}
 </style>

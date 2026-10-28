@@ -63,6 +63,8 @@ const AUTH_EXPIRED_ANSWER: &str = r##"{"id":0,"ok":false,"error":{"kind":"auth_e
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecondPage {
     More,
+    /// `Repeat` re-sends the first page: the case a count of fetches inflates.
+    Repeat,
     AuthExpired,
 }
 
@@ -75,6 +77,7 @@ pub enum SecondPage {
 fn favorites_config(second: &SecondPage, pause_ms: u64) -> SidecarConfig {
     let answer = match second {
         SecondPage::More => PAGE_TWO_ANSWER,
+        SecondPage::Repeat => PAGE_ONE_ANSWER,
         SecondPage::AuthExpired => AUTH_EXPIRED_ANSWER,
     };
     // Each envelope travels as a single-quoted Python string and `json.loads`

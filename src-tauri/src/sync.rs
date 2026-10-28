@@ -15,6 +15,7 @@
 //! deliberately no delete superseded by `upsert_track_source`'s write in this
 //! file at all.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -91,6 +92,12 @@ pub async fn run(
 
     let mut offset = 0_i64;
     let mut done = 0_i64;
+    // Every track this walk has already counted. Consecutive pages overlap —
+    // a page is addressed by offset into Tidal's raw list and the parser drops
+    // the favourites that are no longer playable, so the next offset re-reads
+    // the tail of the last one — and counting fetches reported a library larger
+    // than the one Tidal holds.
+    let mut seen: HashSet<i64> = HashSet::new();
     loop {
         // The boundary before the request.
         if cancel.load(Ordering::Relaxed) {
@@ -133,7 +140,8 @@ pub async fn run(
             ));
         }
 
-        done += rows.len() as i64;
+        // The count is of tracks, and a repeat is the same track.
+        done += rows.iter().filter(|row| seen.insert(row.tidal_id)).count() as i64;
         offset += rows.len() as i64;
         emit(Progress {
             jid,
