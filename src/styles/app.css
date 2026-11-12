@@ -1,9 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-/* shadcn's own variants. The vendored select animates through `data-open:`
-   and `data-closed:`, which are defined here and match the `data-state`
-   attribute bits-ui sets; Tailwind's bare `data-*` variants would not. */
 @import "shadcn-svelte/tailwind.css";
+/* The import above brings shadcn's own variants. The vendored select
+   animates through `data-open:` and `data-closed:`, which match the
+   `data-state` attribute bits-ui sets; without it the same classes compile
+   to the bare `[data-open]` selector, which never matches. */
 
 @custom-variant dark (&:is(.dark *));
 
@@ -33,7 +34,9 @@
 	--state-warn: #d9a84e;
 	--state-bad: #d96a5a;
 	--state-bad-surface: #3a1d18;
+	--state-bad-line: #5a2a20;
 	--state-bad-text: #e89a8b;
+	--state-bad-ink: #1c0d0a;
 
 	/* shadcn's names, valued from ours. */
 	--background: var(--surface-shell);
@@ -50,17 +53,17 @@
 	--muted-foreground: var(--text-muted);
 	--accent: var(--surface-subtle);
 	--accent-foreground: var(--text-primary);
-	--destructive: var(--state-bad-surface);
-	--destructive-foreground: var(--state-bad-text);
+	--destructive: var(--state-bad-text);
+	--destructive-foreground: var(--state-bad-ink);
 	--border: var(--line);
 	--input: var(--line);
 	--ring: var(--brand);
 	--radius: 0.625rem;
 
-	/* The screens that have not been restyled yet still read these names.
-	   Each group goes when its last consumer does: the shell in Task 5, Home
-	   in Task 7, Diagnostics in Task 8. */
-	--surface-0: var(--surface-shell);
+	/* The screens that have not been restyled yet still read these names, and
+	   so do the components they render. The readers are the shell (Task 5),
+	   the job row (Task 6), Home and the provider rows (Task 7), and
+	   Diagnostics (Task 8). Each name goes when its last reader is restyled. */
 	--surface-1: var(--surface-panel);
 	--surface-2: var(--surface-subtle);
 	--text-0: var(--text-primary);
@@ -69,7 +72,6 @@
 	--ok: var(--state-ok);
 	--warn: var(--state-warn);
 	--bad: var(--state-bad);
-	--font-ui: var(--font-sans);
 	--space-1: 4px;
 	--space-2: 8px;
 	--space-3: 16px;
@@ -113,6 +115,9 @@
 	--color-state-ok: var(--state-ok);
 	--color-state-warn: var(--state-warn);
 	--color-state-bad: var(--state-bad);
+	--color-state-bad-surface: var(--state-bad-surface);
+	--color-state-bad-line: var(--state-bad-line);
+	--color-state-bad-text: var(--state-bad-text);
 
 	--font-sans: sans-serif;
 	--font-mono: monospace;
@@ -132,6 +137,7 @@
 body {
 	background: var(--surface-shell);
 	color: var(--text-primary);
+	font-size: 0.875rem;
 }
 
 /* The vendored components draw borders without naming a border colour; this
