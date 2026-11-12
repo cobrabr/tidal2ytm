@@ -419,7 +419,6 @@ mod tests {
     async fn the_database_path_is_the_file_the_store_was_opened_at() {
         let dir = scratch_dir("database-path");
         let path = dir.join(DATABASE_FILE);
-        Store::open(&path).expect("open the database the host will report");
         let state = started_over_with_cwd(Store::open(&path).expect("open"), dir.clone()).await;
 
         assert_eq!(state.database_path(), path);

@@ -11,8 +11,12 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 	BaseDirectory: { AppData: 1 },
 }));
 
+// The real `join` normalises the result to the platform's separator; the mock
+// joins the parts with a slash, so the expected path below reads the same on
+// every platform the suite runs on.
 vi.mock("@tauri-apps/api/path", () => ({
 	appDataDir: vi.fn(),
+	join: vi.fn(async (...parts: string[]) => parts.join("/")),
 }));
 
 import * as fs from "@tauri-apps/plugin-fs";

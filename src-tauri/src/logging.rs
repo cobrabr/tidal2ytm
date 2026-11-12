@@ -137,17 +137,33 @@ pub fn files() -> Result<Vec<LogFile>, String> {
     Ok(files_in(&dir))
 }
 
+/// The rotated file for one slot of the host log's history.
+///
+/// The stem and the extension both come from `HOST_LOG`, so the history
+/// follows the live file: a live file renamed to `agent.log` rotates to
+/// `agent.1.log` rather than to a `host.*` name the directory never had.
+fn rotated(dir: &Path, index: usize) -> PathBuf {
+    let live = Path::new(HOST_LOG);
+    let stem = live
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(HOST_LOG);
+    let name = match live.extension().and_then(|s| s.to_str()) {
+        Some(extension) => format!("{stem}.{index}.{extension}"),
+        None => format!("{stem}.{index}"),
+    };
+    dir.join(name)
+}
+
 fn rotate(dir: &Path) {
     // Drop the oldest rotated file.
-    let _ = std::fs::remove_file(dir.join(format!("host.{}.log", KEEP)));
+    let _ = std::fs::remove_file(rotated(dir, KEEP));
     // Shift the remaining ones up.
     for i in (1..KEEP).rev() {
-        let from = dir.join(format!("host.{}.log", i));
-        let to = dir.join(format!("host.{}.log", i + 1));
-        let _ = std::fs::rename(&from, &to);
+        let _ = std::fs::rename(rotated(dir, i), rotated(dir, i + 1));
     }
     // Rename the current file to the first rotated slot.
-    let _ = std::fs::rename(dir.join(HOST_LOG), dir.join("host.1.log"));
+    let _ = std::fs::rename(dir.join(HOST_LOG), rotated(dir, 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +271,9 @@ mod tests {
             log::debug!("{}", line);
         }
 
-        // At most KEEP history files.
+        // At most KEEP history files. The names are spelled out rather than
+        // taken from `HOST_LOG`: a test that used the constant would stay green
+        // through the rename it is meant to catch.
         let mut history_count = 0;
         for i in 1..=KEEP {
             if dir.join(format!("host.{}.log", i)).exists() {
@@ -297,6 +315,9 @@ mod tests {
 
         let files = files_in(&dir);
 
+        // The file name is spelled out rather than taken from `HOST_LOG`: a test
+        // that used the constant would stay green through the rename it is
+        // meant to catch.
         let host = files
             .iter()
             .find(|f| f.path == dir.join("host.log"))

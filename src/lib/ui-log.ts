@@ -1,6 +1,6 @@
 import { writeTextFile, stat, remove, rename, mkdir } from "@tauri-apps/plugin-fs";
 import { BaseDirectory } from "@tauri-apps/plugin-fs";
-import { appDataDir } from "@tauri-apps/api/path";
+import { appDataDir, join } from "@tauri-apps/api/path";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const KEEP = 3;
@@ -11,12 +11,18 @@ export const UI_LOG_PATH = LOG_PATH;
 /**
  * The frontend's own log file and its size, for the diagnostics screen.
  *
+ * The path is built from `LOG_PATH` and the application data directory by the
+ * platform's own `join`, so the relative part has one owner and the result
+ * carries the separators the platform uses — a hand-written `${dir}/logs/ui.log`
+ * restates the path and mixes separators on Windows, and the file the panel
+ * opens is then not the file it reports.
+ *
  * A file that does not exist yet reports zero bytes rather than failing: the
  * panel must keep its row, and a first run has written nothing to report.
  */
 export async function uiLogFile(): Promise<{ path: string; bytes: number }> {
 	const dir = await appDataDir();
-	const path = `${dir}/logs/ui.log`;
+	const path = await join(dir, LOG_PATH);
 	try {
 		const info = await stat(LOG_PATH, { baseDir: BaseDirectory.AppData });
 		return { path, bytes: info.size };

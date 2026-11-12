@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use tidal2ytm_ipc::{SidecarClient, SidecarConfig, sidecar_python};
 use tidal2ytm_store::Store;
+
+use crate::state::DATABASE_FILE;
 /// The repository root, derived from this crate's manifest so the tests do not
 /// depend on the working directory cargo happened to choose.
 #[must_use]
@@ -146,7 +148,7 @@ pub fn temp_store(label: &str) -> (Store, PathBuf) {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the scratch directory is creatable");
-    let store = Store::open(&dir.join("tidal2ytm.db")).expect("the store opens");
+    let store = Store::open(&dir.join(DATABASE_FILE)).expect("the store opens");
     store.migrate().expect("the store migrates");
     (store, dir)
 }
