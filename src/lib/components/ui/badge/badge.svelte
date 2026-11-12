@@ -12,6 +12,11 @@
 				outline: "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
 				ghost: "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
 				link: "text-primary underline-offset-4 hover:underline",
+				// The project's own states. The ink is the meaning and the fill
+				// only repeats it, so a state is never a colour on its own.
+				success: "border-transparent bg-state-ok/15 text-state-ok",
+				warning: "border-transparent bg-state-warn/15 text-state-warn",
+				danger: "border border-state-bad-line bg-state-bad-surface text-state-bad-text",
 			},
 		},
 		defaultVariants: {

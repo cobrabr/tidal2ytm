@@ -17,6 +17,10 @@
 				destructive:
 					"bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30",
 				link: "text-primary underline-offset-4 hover:underline",
+				// The tonal red: a quiet filled surface, a light red ink and a
+				// hairline border. A solid red fill would shout louder than the
+				// one accent the identity allows.
+				danger: "border border-state-bad-line bg-state-bad-surface text-state-bad-text hover:bg-state-bad-surface/80",
 			},
 			size: {
 				default: "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
