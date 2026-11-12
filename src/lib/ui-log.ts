@@ -1,11 +1,29 @@
 import { writeTextFile, stat, remove, rename, mkdir } from "@tauri-apps/plugin-fs";
 import { BaseDirectory } from "@tauri-apps/plugin-fs";
+import { appDataDir } from "@tauri-apps/api/path";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const KEEP = 3;
 const LOG_PATH = "logs/ui.log";
 
 export const UI_LOG_PATH = LOG_PATH;
+
+/**
+ * The frontend's own log file and its size, for the diagnostics screen.
+ *
+ * A file that does not exist yet reports zero bytes rather than failing: the
+ * panel must keep its row, and a first run has written nothing to report.
+ */
+export async function uiLogFile(): Promise<{ path: string; bytes: number }> {
+	const dir = await appDataDir();
+	const path = `${dir}/logs/ui.log`;
+	try {
+		const info = await stat(LOG_PATH, { baseDir: BaseDirectory.AppData });
+		return { path, bytes: info.size };
+	} catch {
+		return { path, bytes: 0 };
+	}
+}
 
 export function uiLog(level: "info" | "error", message: string): void {
 	const line = `${new Date().toISOString()} ${level} ${message}\n`;

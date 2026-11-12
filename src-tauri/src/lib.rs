@@ -22,16 +22,13 @@ use tidal2ytm_ipc::{SidecarConfig, log_level_env};
 use tidal2ytm_store::Store;
 
 use sidecar_path::Launch;
-use state::AppState;
+use state::{AppState, DATABASE_FILE};
 
 /// How long the sidecar has to handshake before the host calls it a failure.
 /// The handshake is what turns a stale or broken sidecar into a startup error
 /// instead of a window that opens and then quietly fails every request, so this
 /// is not something to shorten or skip.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
-
-/// The database's file name inside the directory the sidecar runs in.
-const DATABASE_FILE: &str = "tidal2ytm.db";
 
 /// Open the database and bring its schema up to date, or say where it is.
 ///
@@ -184,6 +181,8 @@ pub fn run() {
             commands::start_sync,
             commands::cancel_job,
             commands::get_log_paths,
+            commands::get_log_files,
+            commands::get_app_info,
             commands::set_log_level,
             commands::import_client_secret,
             commands::get_meta

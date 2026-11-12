@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { describe, expect, it, vi } from "vitest";
-import { UNREADABLE_STATUS, getAuthStatus } from "./ipc";
+import { UNREADABLE_STATUS, getAppInfo, getAuthStatus, getLogFiles } from "./ipc";
 import type { AuthStatus } from "./types";
 
 // The host, not this module, is what `invoke` talks to. Stubbing the Tauri API
@@ -46,5 +46,30 @@ describe("getAuthStatus", () => {
 
 		await expect(getAuthStatus()).rejects.toBeInstanceOf(Error);
 		await expect(getAuthStatus()).rejects.toThrowError(UNREADABLE_STATUS);
+	});
+});
+
+describe("getAppInfo", () => {
+	it("returns the host's payload without reshaping it", async () => {
+		const payload = { version: "0.7.0", database_path: "/data/tidal2ytm.db" };
+		call.mockResolvedValue(payload);
+
+		expect(await getAppInfo()).toBe(payload);
+	});
+
+	it("turns a failure into an Error carrying the host's message", async () => {
+		call.mockRejectedValue("the store is locked");
+
+		await expect(getAppInfo()).rejects.toBeInstanceOf(Error);
+		await expect(getAppInfo()).rejects.toThrowError("the store is locked");
+	});
+});
+
+describe("getLogFiles", () => {
+	it("returns the host's payload without reshaping it", async () => {
+		const payload = [{ path: "/logs/host.log", bytes: 42, is_dir: false }];
+		call.mockResolvedValue(payload);
+
+		expect(await getLogFiles()).toBe(payload);
 	});
 });

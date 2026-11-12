@@ -5,6 +5,7 @@
 //! lives here — that is what the domain core is for.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -13,7 +14,7 @@ use tidal2ytm_core::model::TrackStatus;
 use tidal2ytm_ipc::IpcError;
 
 use crate::jobs::{JobManager, Progress};
-use crate::logging::{self, LogPaths};
+use crate::logging::{self, LogFile, LogPaths};
 use crate::state::{AppState, AuthStatus};
 
 /// `auth.status` is a local file read behind a pipe, so the bound is tight: a
@@ -113,10 +114,37 @@ pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, Strin
     state.store().schema_version().map_err(|e| e.to_string())
 }
 
+/// What the app is and where its data lives.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppInfo {
+    pub version: String,
+    pub database_path: PathBuf,
+}
+
+/// The version this build is, and the database file it opened.
+///
+/// The version comes from the crate's own manifest, so it cannot drift from
+/// the build that is answering, and the path comes from the state rather than
+/// from the frontend, so it is the file the rows are in and not a name the
+/// screen made up.
+#[tauri::command]
+pub fn get_app_info(state: State<'_, AppState>) -> Result<AppInfo, String> {
+    Ok(AppInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        database_path: state.database_path(),
+    })
+}
+
 /// The three log files the diagnostics screen can open.
 #[tauri::command]
 pub fn get_log_paths() -> Result<LogPaths, String> {
     logging::paths()
+}
+
+/// The log files the diagnostics screen can open, with the size each has now.
+#[tauri::command]
+pub fn get_log_files() -> Result<Vec<LogFile>, String> {
+    logging::files()
 }
 
 /// Persist a new log level and apply it to the running sink.

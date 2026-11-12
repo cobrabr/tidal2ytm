@@ -7,6 +7,13 @@ use tidal2ytm_ipc::{IpcError, SidecarClient, SidecarConfig};
 use tidal2ytm_store::Store;
 use tokio::sync::Mutex;
 
+/// The database's file name inside the directory the app runs in.
+///
+/// Owned here rather than in `lib.rs` because the host reports the path the
+/// database was opened at, and the file name and the path are one fact: two
+/// owners would let the reported path and the opened file drift apart.
+pub const DATABASE_FILE: &str = "tidal2ytm.db";
+
 /// How one provider's cached credentials stand.
 ///
 /// Three states, not a boolean: an access token that has expired is not the
@@ -116,6 +123,15 @@ impl AppState {
     #[must_use]
     pub fn data_dir(&self) -> std::path::PathBuf {
         self.config.cwd.join("data")
+    }
+
+    /// The database file the host opened.
+    ///
+    /// The same `cwd` the sidecar was handed, so the path reported here is the
+    /// file the rows are actually in.
+    #[must_use]
+    pub fn database_path(&self) -> std::path::PathBuf {
+        self.config.cwd.join(DATABASE_FILE)
     }
 
     /// Replace a sidecar the caller has already been told is gone.
@@ -360,6 +376,56 @@ mod tests {
         AppState::start(stub_config(), store)
             .await
             .unwrap_or_else(|e| panic!("the stub sidecar starts: {e}"))
+    }
+
+    /// The stub sidecar, told to run from the given directory.
+    ///
+    /// `stub_config` answers the handshake; this changes only where the child
+    /// is told to run, because the database path the host reports is derived
+    /// from that directory and from nothing else.
+    fn stub_config_in(cwd: std::path::PathBuf) -> SidecarConfig {
+        SidecarConfig {
+            cwd,
+            ..stub_config()
+        }
+    }
+
+    /// A state whose sidecar runs from the given directory.
+    async fn started_over_with_cwd(store: Store, cwd: std::path::PathBuf) -> AppState {
+        AppState::start(stub_config_in(cwd), store)
+            .await
+            .unwrap_or_else(|e| panic!("the stub sidecar starts: {e}"))
+    }
+
+    /// A directory of this one test's own, empty and gone afterwards.
+    ///
+    /// The name carries the process id and this test's own label, because
+    /// libtest runs the tests on parallel threads under one process id: a name
+    /// built from the id alone hands two of them the same directory, and one
+    /// test's trailing `remove_dir_all` then deletes the other's database
+    /// mid-flight. The same hazard `lib.rs`'s `scratch_dir` answers.
+    fn scratch_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tidal2ytm-host-database-path-{}-{label}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the scratch directory is creatable");
+        dir
+    }
+
+    /// The path the host reports is the file it opened the database at.
+    #[tokio::test]
+    async fn the_database_path_is_the_file_the_store_was_opened_at() {
+        let dir = scratch_dir("database-path");
+        let path = dir.join(DATABASE_FILE);
+        Store::open(&path).expect("open the database the host will report");
+        let state = started_over_with_cwd(Store::open(&path).expect("open"), dir.clone()).await;
+
+        assert_eq!(state.database_path(), path);
+        assert!(state.database_path().is_file());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The store `AppState` was handed is the one its commands read.

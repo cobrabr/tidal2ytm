@@ -13,6 +13,13 @@ use std::sync::Mutex;
 /// The size at which the current log file is rotated.
 pub const MAX_BYTES: u64 = 5 * 1024 * 1024;
 
+/// The host log's file name inside the log directory.
+///
+/// One owner for the name: the sink opens it, the old path list named it, and
+/// the diagnostics listing shows it, and a second copy of the literal is a
+/// file the panel would report under a name it does not have.
+const HOST_LOG: &str = "host.log";
+
 /// How many rotated files are kept. The oldest is dropped on each rotation.
 pub const KEEP: usize = 3;
 
@@ -51,7 +58,7 @@ pub fn install(level: &str, dir: &Path) -> Result<(), String> {
     let filter = parse_level(level)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("could not create log dir: {e}"))?;
 
-    let host_log = dir.join("host.log");
+    let host_log = dir.join(HOST_LOG);
     if let Ok(meta) = std::fs::metadata(&host_log) {
         if meta.len() >= MAX_BYTES {
             rotate(dir);
@@ -85,10 +92,49 @@ pub fn paths() -> Result<LogPaths, String> {
         .clone()
         .ok_or_else(|| "logging not installed".to_string())?;
     Ok(LogPaths {
-        host_log: dir.join("host.log"),
+        host_log: dir.join(HOST_LOG),
         history: dir.clone(),
         frontend_log: dir.join("frontend.log"),
     })
+}
+
+/// One file the diagnostics screen can open, with the size it has now.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LogFile {
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub is_dir: bool,
+}
+
+/// The log directory and the host log inside it.
+///
+/// A free function taking the directory, so it can be tested without touching
+/// the global sink state.
+pub fn files_in(dir: &Path) -> Vec<LogFile> {
+    let host_log = dir.join(HOST_LOG);
+    let bytes = std::fs::metadata(&host_log).map(|m| m.len()).unwrap_or(0);
+    vec![
+        LogFile {
+            path: host_log,
+            bytes,
+            is_dir: false,
+        },
+        LogFile {
+            path: dir.to_path_buf(),
+            bytes: 0,
+            is_dir: true,
+        },
+    ]
+}
+
+/// The same listing for the directory the installed sink writes to.
+pub fn files() -> Result<Vec<LogFile>, String> {
+    let state = STATE.lock().map_err(|e| e.to_string())?;
+    let dir = state
+        .dir
+        .clone()
+        .ok_or_else(|| "logging not installed".to_string())?;
+    Ok(files_in(&dir))
 }
 
 fn rotate(dir: &Path) {
@@ -101,7 +147,7 @@ fn rotate(dir: &Path) {
         let _ = std::fs::rename(&from, &to);
     }
     // Rename the current file to the first rotated slot.
-    let _ = std::fs::rename(dir.join("host.log"), dir.join("host.1.log"));
+    let _ = std::fs::rename(dir.join(HOST_LOG), dir.join("host.1.log"));
 }
 
 // ---------------------------------------------------------------------------
@@ -156,14 +202,14 @@ impl log::Log for GlobalLogger {
             state.file = OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(dir.join("host.log"))
+                .open(dir.join(HOST_LOG))
                 .ok();
         }
         if state.file.is_none() {
             state.file = OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(dir.join("host.log"))
+                .open(dir.join(HOST_LOG))
                 .ok();
         }
         if let Some(ref mut f) = state.file {
@@ -239,5 +285,32 @@ mod tests {
     fn parse_level_rejects_unknown() {
         assert!(parse_level("NOPE").is_err());
         assert!(parse_level("INFO").is_ok());
+    }
+
+    /// A file that does not exist yet is still listed: the panel that shows the
+    /// logs must not lose a row because the first run has not written one.
+    #[test]
+    fn a_file_that_does_not_exist_is_listed_without_a_size() {
+        let dir = std::env::temp_dir().join(format!("tidal2ytm-log-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+
+        let files = files_in(&dir);
+
+        let host = files
+            .iter()
+            .find(|f| f.path == dir.join("host.log"))
+            .expect("host log listed");
+        assert_eq!(
+            host.bytes, 0,
+            "a log file that does not exist has no size to report"
+        );
+        assert!(!host.is_dir);
+        assert!(
+            files.iter().any(|f| f.path == dir && f.is_dir),
+            "the log directory is listed"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

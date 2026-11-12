@@ -28,3 +28,9 @@ export type AuthStatus = {
 
 /** What every provider in the payload has in common. */
 export type ProviderState = AuthStatus[keyof AuthStatus];
+
+/** What the host is and where its data lives. */
+export type AppInfo = { version: string; database_path: string };
+
+/** One log file the diagnostics screen can open. */
+export type LogFile = { path: string; bytes: number; is_dir: boolean };

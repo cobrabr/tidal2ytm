@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AuthStatus } from "./types";
+import type { AppInfo, AuthStatus, LogFile } from "./types";
 
 /**
  * Shown when a failure carries nothing a person can act on.
@@ -66,6 +66,30 @@ export type LogPaths = {
 export async function getLogPaths(): Promise<LogPaths> {
 	try {
 		return await invoke<LogPaths>("get_log_paths");
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+/**
+ * What this build is, and the database file it opened.
+ *
+ * The version comes from the host's own manifest and the path from the host's
+ * own state, so neither is something the screen assembles — the panel a person
+ * reads when reporting a problem needs the answer the running build gives.
+ */
+export async function getAppInfo(): Promise<AppInfo> {
+	try {
+		return await invoke<AppInfo>("get_app_info");
+	} catch (reason) {
+		throw reason instanceof Error ? reason : new Error(message(reason));
+	}
+}
+
+/** The log files the diagnostics screen can open. */
+export async function getLogFiles(): Promise<LogFile[]> {
+	try {
+		return await invoke<LogFile[]>("get_log_files");
 	} catch (reason) {
 		throw reason instanceof Error ? reason : new Error(message(reason));
 	}
