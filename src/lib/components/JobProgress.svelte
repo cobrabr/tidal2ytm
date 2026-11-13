@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Spinner } from "$lib/components/ui/spinner";
 	import type { Progress } from "../jobs";
 
 	interface Props {
@@ -16,7 +17,7 @@
 			     endpoint reports no count, and the count it can report includes
 			     tracks it will not hand back. The count beside this is the
 			     honest measure, so the spinner claims nothing it cannot know. -->
-			<span class="spinner" aria-hidden="true"></span>
+			<Spinner aria-hidden="true" />
 		{/if}
 		<span
 			class="state"
@@ -55,24 +56,5 @@
 	progress {
 		width: 100%;
 		height: 6px;
-	}
-	.spinner {
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
-		border: 2px solid var(--ok);
-		border-right-color: transparent;
-		animation: spin 0.8s linear infinite;
-	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.spinner {
-			animation: none;
-			border-right-color: var(--ok);
-		}
 	}
 </style>
