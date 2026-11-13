@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.svelte";
 import { getAppInfo, getAuthStatus, getLogPaths, getMeta, getSchemaVersion, getStatusCounts } from "./lib/ipc";
+import type { AppInfo } from "./lib/types";
 
 // The shell is the frame the screens render inside, so the screens' own calls
 // to the host have to be answered here or the test fails for a reason that has
@@ -11,6 +12,11 @@ import { getAppInfo, getAuthStatus, getLogPaths, getMeta, getSchemaVersion, getS
 // screen that awaits `undefined` and then reads a field of it throws — a
 // failure that looks like a broken shell and is not one.
 vi.mock("./lib/ipc");
+
+// Home subscribes to the host's job events, and that subscription reaches the
+// Tauri event API. Mocked at the screen's own boundary, the shell test does
+// not depend on a third-party module failing quietly to stay green.
+vi.mock("./lib/jobs");
 
 beforeEach(() => {
 	vi.mocked(getAuthStatus).mockReset();
@@ -50,6 +56,28 @@ describe("the shell", () => {
 		expect(within(nav).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
 	});
 
+	// The marker belongs to one section and no other. A rail that marked every
+	// row would say to a screen reader that it is on all six at once, and the
+	// marker would carry no information at all.
+	it("marks only the section being shown", async () => {
+		render(App);
+
+		const nav = await screen.findByRole("navigation");
+		expect(within(nav).getByRole("button", { name: "Library" }).hasAttribute("aria-current")).toBe(false);
+	});
+
+	// The shell is two halves and both have to be there: the rail a person
+	// navigates with, and the panel the screen renders inside. A shell with no
+	// content panel still answers every other test, and ships an app with
+	// nothing in it.
+	it("renders the routed screen inside the content panel", async () => {
+		render(App);
+
+		const panel = await screen.findByRole("main");
+		// The default route is Home, whose two provider rows are the groups.
+		expect(await within(panel).findAllByRole("group")).toHaveLength(2);
+	});
+
 	// The version comes from the host, which is the only place that knows it.
 	it("shows the version in the rail foot", async () => {
 		render(App);
@@ -67,5 +95,17 @@ describe("the shell", () => {
 		const nav = await screen.findByRole("navigation");
 		expect(within(nav).getAllByRole("button")).toHaveLength(6);
 		expect(screen.queryByText(/^v\d/)).toBeNull();
+	});
+
+	// The host's answer is not validated at the boundary, so a payload that has
+	// drifted can arrive carrying no version at all. The foot must then carry
+	// none: the text "vundefined" tells a person nothing and looks broken.
+	it("leaves the rail without a version when the host answers without one", async () => {
+		vi.mocked(getAppInfo).mockResolvedValue({ database_path: "/data/tidal2ytm.db" } as AppInfo);
+
+		render(App);
+
+		const nav = await screen.findByRole("navigation");
+		expect(within(nav).queryByText(/^v/)).toBeNull();
 	});
 });

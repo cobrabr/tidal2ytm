@@ -60,7 +60,7 @@
 				</li>
 			{/each}
 		</ul>
-		{#if version !== null}
+		{#if version}
 			<span class="mt-auto text-text-faint text-xs font-mono tabular-nums">v{version}</span>
 		{/if}
 	</nav>
