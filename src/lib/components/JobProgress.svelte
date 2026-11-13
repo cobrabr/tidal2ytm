@@ -13,10 +13,8 @@
 <div class="job" role="status" data-state={progress.state}>
 	<div class="line">
 		{#if progress.state === "running" || progress.state === "cancelling"}
-			<!-- No denominator exists before the walk ends: Tidal's favourites
-			     endpoint reports no count, and the count it can report includes
-			     tracks it will not hand back. The count beside this is the
-			     honest measure, so the spinner claims nothing it cannot know. -->
+			<!-- Decoration: the row is already a live region, so the icon stays
+			     out of the accessibility tree. -->
 			<Spinner aria-hidden="true" />
 		{/if}
 		<span
@@ -38,6 +36,10 @@
 		{/if}
 	</div>
 	{#if progress.total !== null && (progress.state === "running" || progress.state === "cancelling" || progress.state === "done")}
+		<!-- No denominator exists before the walk ends: Tidal's favourites
+		     endpoint reports no count, and the count it can report includes
+		     tracks it will not hand back. The count in the row is the
+		     honest measure. -->
 		<progress aria-label="job progress" value={progress.done} max={progress.total}></progress>
 	{/if}
 </div>

@@ -31,10 +31,18 @@ describe("JobProgress", () => {
 
 	// The row is already a live region, so the spinner beside the state text is
 	// decoration: a second announced region would say the same thing twice.
+	// The vendored spinner always renders role="status"; a hand-rolled icon
+	// would not, so this pins the row onto the shared component.
 	it("draws the shared spinner as decoration", () => {
 		const { container } = render(JobProgress, { props: { progress: base } });
 		const icons = [...container.querySelectorAll("svg")];
 		expect(icons.length).toBeGreaterThan(0);
+		expect(icons.every((icon) => icon.getAttribute("role") === "status")).toBe(true);
 		expect(icons.every((icon) => icon.getAttribute("aria-hidden") === "true")).toBe(true);
+	});
+
+	it("draws no spinner once the job is finished", () => {
+		const { container } = render(JobProgress, { props: { progress: { ...base, state: "done" } } });
+		expect(container.querySelectorAll("svg").length).toBe(0);
 	});
 });
