@@ -1,6 +1,12 @@
 import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import SegmentBar from "./SegmentBar.svelte";
+import { PLAN_STATUS_ORDER } from "../plan-status";
+
+/** The statuses of the rendered bar, in the order they appear. */
+function renderedOrder(): (string | null)[] {
+	return screen.getAllByTestId("segment").map((segment) => segment.getAttribute("data-status"));
+}
 
 describe("SegmentBar", () => {
 	// A status this build does not know is still a status of the plan: a bar
@@ -23,12 +29,34 @@ describe("SegmentBar", () => {
 	});
 
 	// The order is fixed rather than sorted by count, so the eye can find the
-	// same status in the same place while a transfer runs.
+	// same status in the same place while a transfer runs. The expected order
+	// is read from the vocabulary rather than spelled out, so the test fails
+	// when the order changes instead of repeating it. The counts are out of
+	// order on purpose, so a bar sorted by count comes out differently.
 	it("keeps the statuses in their fixed order", () => {
-		render(SegmentBar, { props: { counts: { skip: 1, transferred: 2, pending: 3 } } });
+		const counts: Record<string, number> = Object.fromEntries(
+			PLAN_STATUS_ORDER.map((key, index) => [key, [3, 1, 4, 2, 5][index] ?? 1]),
+		);
+		render(SegmentBar, { props: { counts } });
 
-		const order = screen.getAllByTestId("segment").map((segment) => segment.getAttribute("data-status"));
-		expect(order).toEqual(["pending", "transferred", "skip"]);
+		expect(renderedOrder()).toEqual([...PLAN_STATUS_ORDER]);
+	});
+
+	// A status this build does not know comes after the ones it knows: the
+	// known statuses keep the places the eye already knows them by.
+	it("puts a status this build does not know after the ones it knows", () => {
+		const [first, second] = PLAN_STATUS_ORDER;
+		render(SegmentBar, { props: { counts: { something_new: 2, [first]: 3, [second]: 1 } } });
+
+		expect(renderedOrder()).toEqual([first, second, "something_new"]);
+	});
+
+	// Two statuses this build does not know have no order of their own, so
+	// they sort by key: the same plan always draws the same bar.
+	it("sorts two statuses this build does not know by key", () => {
+		render(SegmentBar, { props: { counts: { zebra: 1, apple: 2 } } });
+
+		expect(renderedOrder()).toEqual(["apple", "zebra"]);
 	});
 
 	// A status the plan holds no tracks in takes no room in the bar.
@@ -36,5 +64,14 @@ describe("SegmentBar", () => {
 		render(SegmentBar, { props: { counts: { pending: 3, transferred: 0 } } });
 
 		expect(screen.getAllByTestId("segment")).toHaveLength(1);
+	});
+
+	// The bar is a shape, not information: the counts beside it are the
+	// readable form, and a row of coloured blocks tells a screen reader
+	// nothing it can use. That is behaviour, not styling.
+	it("hides the segments from assistive technology", () => {
+		render(SegmentBar, { props: { counts: { pending: 3 } } });
+
+		expect(screen.getByTestId("segment").getAttribute("aria-hidden")).toBe("true");
 	});
 });
