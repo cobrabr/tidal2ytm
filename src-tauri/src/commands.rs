@@ -14,7 +14,7 @@ use tidal2ytm_core::model::TrackStatus;
 use tidal2ytm_ipc::IpcError;
 
 use crate::jobs::{JobManager, Progress};
-use crate::logging::{self, LogFile, LogPaths};
+use crate::logging::{self, LogFile};
 use crate::state::{AppState, AuthStatus};
 
 /// `auth.status` is a local file read behind a pipe, so the bound is tight: a
@@ -133,12 +133,6 @@ pub fn get_app_info(state: State<'_, AppState>) -> Result<AppInfo, String> {
         version: env!("CARGO_PKG_VERSION").to_string(),
         database_path: state.database_path(),
     })
-}
-
-/// The three log files the diagnostics screen can open.
-#[tauri::command]
-pub fn get_log_paths() -> Result<LogPaths, String> {
-    logging::paths()
 }
 
 /// The log files the diagnostics screen can open, with the size each has now.

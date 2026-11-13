@@ -180,7 +180,6 @@ pub fn run() {
             commands::get_schema_version,
             commands::start_sync,
             commands::cancel_job,
-            commands::get_log_paths,
             commands::get_log_files,
             commands::get_app_info,
             commands::set_log_level,

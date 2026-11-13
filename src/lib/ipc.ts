@@ -57,20 +57,6 @@ export async function getSchemaVersion(): Promise<number> {
 	}
 }
 
-export type LogPaths = {
-	host_log: string;
-	history: string;
-	frontend_log: string;
-};
-
-export async function getLogPaths(): Promise<LogPaths> {
-	try {
-		return await invoke<LogPaths>("get_log_paths");
-	} catch (reason) {
-		throw reason instanceof Error ? reason : new Error(message(reason));
-	}
-}
-
 /**
  * What this build is, and the database file it opened.
  *

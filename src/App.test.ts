@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.svelte";
-import { getAppInfo, getAuthStatus, getLogPaths, getMeta, getSchemaVersion, getStatusCounts } from "./lib/ipc";
+import { getAppInfo, getAuthStatus, getMeta, getSchemaVersion, getStatusCounts } from "./lib/ipc";
 import type { AppInfo } from "./lib/types";
 
 // The shell is the frame the screens render inside, so the screens' own calls
@@ -22,7 +22,6 @@ beforeEach(() => {
 	vi.mocked(getAuthStatus).mockReset();
 	vi.mocked(getStatusCounts).mockReset();
 	vi.mocked(getMeta).mockReset();
-	vi.mocked(getLogPaths).mockReset();
 	vi.mocked(getSchemaVersion).mockReset();
 	vi.mocked(getAppInfo).mockReset();
 
@@ -32,7 +31,6 @@ beforeEach(() => {
 	});
 	vi.mocked(getStatusCounts).mockResolvedValue({});
 	vi.mocked(getMeta).mockResolvedValue(null);
-	vi.mocked(getLogPaths).mockResolvedValue({ host_log: "/h.log", history: "/hist", frontend_log: "/f.log" });
 	vi.mocked(getSchemaVersion).mockResolvedValue(1);
 	vi.mocked(getAppInfo).mockResolvedValue({ version: "0.7.0", database_path: "/data/tidal2ytm.db" });
 });

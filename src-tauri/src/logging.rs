@@ -15,21 +15,13 @@ pub const MAX_BYTES: u64 = 5 * 1024 * 1024;
 
 /// The host log's file name inside the log directory.
 ///
-/// One owner for the name: the sink opens it, the old path list named it, and
-/// the diagnostics listing shows it, and a second copy of the literal is a
-/// file the panel would report under a name it does not have.
+/// One owner for the name: the sink opens it and the diagnostics listing
+/// shows it, and a second copy of the literal is a file the panel would
+/// report under a name it does not have.
 const HOST_LOG: &str = "host.log";
 
 /// How many rotated files are kept. The oldest is dropped on each rotation.
 pub const KEEP: usize = 3;
-
-/// The three log files a diagnostics screen can open.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct LogPaths {
-    pub host_log: PathBuf,
-    pub history: PathBuf,
-    pub frontend_log: PathBuf,
-}
 
 /// Validate a level name and return the matching filter.
 pub fn parse_level(level: &str) -> Result<log::LevelFilter, String> {
@@ -81,21 +73,6 @@ pub fn install(level: &str, dir: &Path) -> Result<(), String> {
     let _ = log::set_logger(&GLOBAL_LOGGER);
     log::set_max_level(filter);
     Ok(())
-}
-
-/// The paths the installed sink is writing to, or an error if it was never
-/// installed.
-pub fn paths() -> Result<LogPaths, String> {
-    let state = STATE.lock().map_err(|e| e.to_string())?;
-    let dir = state
-        .dir
-        .clone()
-        .ok_or_else(|| "logging not installed".to_string())?;
-    Ok(LogPaths {
-        host_log: dir.join(HOST_LOG),
-        history: dir.clone(),
-        frontend_log: dir.join("frontend.log"),
-    })
 }
 
 /// One file the diagnostics screen can open, with the size it has now.
