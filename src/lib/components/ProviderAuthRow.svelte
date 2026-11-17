@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from "$lib/components/ui/button";
 	import StatePill from "./StatePill.svelte";
-	import { providerDotClass, providerStatus } from "../provider-state";
+	import { providerDotClass, providerStateAttribute, providerStatus } from "../provider-state";
 	import type { ProviderState } from "../types";
 
 	interface Props {
@@ -30,7 +30,12 @@
 <div class="flex items-center gap-2.5 py-1.5" role="group" aria-label={label}>
 	<span class={`size-1.75 shrink-0 rounded-full ${providerDotClass(state)}`} aria-hidden="true"></span>
 	<span class="text-text-primary">{label}</span>
-	<StatePill {state} />
+	<!--
+		The live region the async sign-in updates; the group's label says which
+		provider it was. The attribute carries the outcome without depending on
+		the pill's wording, which can be reworded without breaking a reader.
+	-->
+	<span role="status" data-state={providerStateAttribute(state)}><StatePill {state} /></span>
 	<span class="text-text-muted text-xs">{detail}</span>
 	<span class="ml-auto">
 		<Button

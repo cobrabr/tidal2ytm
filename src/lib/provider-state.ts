@@ -11,12 +11,16 @@ export type KnownProviderStatus = "valid" | "refreshable" | "signed_out";
 /** The badge variant that repeats a state. */
 export type ProviderVariant = "success" | "warning" | "danger";
 
+/** The outcome as an attribute, stable while the wording around it may change. */
+export type ProviderStateAttribute = "valid" | "refreshable" | "signed-out";
+
 /** What one state says and wears. */
-type ProviderAppearance = {
+export type ProviderAppearance = {
 	label: string;
 	detail: string;
 	dot: string;
 	variant: ProviderVariant;
+	attribute: ProviderStateAttribute;
 };
 
 /**
@@ -25,18 +29,26 @@ type ProviderAppearance = {
  * colour cannot drift apart, and a fourth state is one edit rather than two.
  */
 export const PROVIDER_STATES: Record<KnownProviderStatus, ProviderAppearance> = {
-	valid: { label: "Signed in", detail: "token refreshes itself", dot: "bg-state-ok", variant: "success" },
+	valid: {
+		label: "Signed in",
+		detail: "token refreshes itself",
+		dot: "bg-state-ok",
+		variant: "success",
+		attribute: "valid",
+	},
 	refreshable: {
 		label: "Signed in, will refresh",
 		detail: "token expires soon",
 		dot: "bg-state-warn",
 		variant: "warning",
+		attribute: "refreshable",
 	},
 	signed_out: {
 		label: "Not signed in",
 		detail: "not signed in — run auth to fix",
 		dot: "bg-state-bad",
 		variant: "danger",
+		attribute: "signed-out",
 	},
 };
 
@@ -50,6 +62,15 @@ export function providerStatus(state: ProviderState): KnownProviderStatus {
 	if (state.status === "valid") return "valid";
 	if (state.status === "refreshable") return "refreshable";
 	return "signed_out";
+}
+
+/**
+ * The state's outcome as an attribute. The pill's wording can be reworded
+ * without breaking a reader that needs to know which provider is in which
+ * state: this cannot.
+ */
+export function providerStateAttribute(state: ProviderState): ProviderStateAttribute {
+	return PROVIDER_STATES[providerStatus(state)].attribute;
 }
 
 /** The badge variant that repeats a provider's state. */

@@ -62,6 +62,18 @@ describe("Diagnostics", () => {
 		}
 	});
 
+	// The async sign-in result is announced, and the group's name says which
+	// provider it was. The attribute carries the outcome without depending on
+	// the pill's wording, which is free to change.
+	it("announces each provider's state with a stable attribute", async () => {
+		render(Diagnostics);
+
+		const tidal = await screen.findByRole("group", { name: "Tidal" });
+		expect(within(tidal).getByRole("status").getAttribute("data-state")).toBe("valid");
+		const ytm = await screen.findByRole("group", { name: "YouTube Music" });
+		expect(within(ytm).getByRole("status").getAttribute("data-state")).toBe("signed-out");
+	});
+
 	it("renders the level selector", async () => {
 		render(Diagnostics);
 		expect(await screen.findByRole("combobox")).toBeTruthy();
