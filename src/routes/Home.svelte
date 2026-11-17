@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
+	import { Button } from "$lib/components/ui/button";
+	import Panel from "../lib/components/Panel.svelte";
 	import ProviderRow from "../lib/components/ProviderRow.svelte";
 	import JobProgress from "../lib/components/JobProgress.svelte";
-	import StatusBreakdown from "../lib/components/StatusBreakdown.svelte";
+	import SegmentBar from "../lib/components/SegmentBar.svelte";
+	import CountTiles from "../lib/components/CountTiles.svelte";
 	import { UNREADABLE_STATUS, getAuthStatus, getStatusCounts, getMeta, startSync, cancelJob } from "../lib/ipc";
-	import { importClientSecretFile, startSignIn } from "../lib/auth-actions";
 	import { subscribeJobs, type Progress } from "../lib/jobs";
+	import { planTotal } from "../lib/plan-status";
 	import type { AuthStatus as AuthStatusData } from "../lib/types";
 
 	let status = $state<AuthStatusData | null>(null);
@@ -20,9 +23,10 @@
 	let jobProgress = $state<Progress | null>(null);
 	let syncing = $state(false);
 
-	let signingIn = $state<string | null>(null);
-
 	let unlistenJobs: (() => void) | null = null;
+
+	/** One reading of the library, shared by the page head and the sync state. */
+	let libraryCount = $derived(statusCounts === null ? 0 : planTotal(statusCounts));
 
 	onDestroy(() => {
 		if (unlistenJobs) unlistenJobs();
@@ -73,30 +77,6 @@
 		actionError = e instanceof Error ? e.message : UNREADABLE_STATUS;
 	}
 
-	async function signIn(provider: string) {
-		signingIn = provider;
-		try {
-			status = await startSignIn(provider);
-			actionError = null;
-		} catch (e) {
-			reportAction(e);
-		} finally {
-			signingIn = null;
-		}
-	}
-
-	async function importSecret() {
-		try {
-			const next = await importClientSecretFile();
-			if (next !== null) {
-				status = next;
-				actionError = null;
-			}
-		} catch (e) {
-			reportAction(e);
-		}
-	}
-
 	async function runSync() {
 		syncing = true;
 		jobProgress = null;
@@ -124,8 +104,7 @@
 			return "in-progress";
 		}
 		if (syncLastCompletedAt) {
-			const total = statusCounts ? Object.values(statusCounts).reduce((a, b) => a + b, 0) : 0;
-			return total > 0 ? "synced" : "synced-empty";
+			return libraryCount > 0 ? "synced" : "synced-empty";
 		}
 		if (syncStartedAt) {
 			return "interrupted";
@@ -134,80 +113,63 @@
 	});
 </script>
 
-<section>
-	<h1>Home</h1>
+<section class="flex flex-col gap-5">
+	<header class="flex items-baseline justify-between gap-4">
+		<h1 class="text-lg font-semibold">Home</h1>
+		{#if statusCounts !== null}
+			<p class="text-text-muted text-xs">
+				<span class="tabular-nums font-semibold text-text-primary">{libraryCount.toLocaleString()}</span> tracks in library
+			</p>
+		{/if}
+	</header>
 
 	{#if loading}
-		<p class="placeholder">Checking provider sign-in…</p>
+		<p class="text-text-faint">Checking provider sign-in…</p>
 	{:else if loadFailure !== null}
-		<p class="failure" role="alert">{loadFailure}</p>
+		<p class="text-state-bad" role="alert">{loadFailure}</p>
 	{:else if status !== null}
 		{#if actionError !== null}
-			<p class="failure" role="alert">{actionError}</p>
+			<p class="text-state-bad" role="alert">{actionError}</p>
 		{/if}
-		<div class="providers">
-			<ProviderRow label="Tidal" state={status.tidal} busy={signingIn !== null} onSignIn={() => signIn("tidal")} />
-			<ProviderRow label="YouTube Music" state={status.ytm} busy={signingIn !== null} onSignIn={() => signIn("ytm")} />
-			{#if !status.ytm.has_client_secret}
-				<button type="button" disabled={signingIn !== null} onclick={importSecret}> Import client secret </button>
-			{/if}
-		</div>
 
-		<section class="plan">
-			<h2>Plan</h2>
-			{#if statusCounts}
-				<StatusBreakdown counts={statusCounts} />
-			{/if}
-		</section>
-
-		<section class="sync">
-			{#if syncState === "never"}
-				<p>Never synced.</p>
-			{:else if syncState === "interrupted"}
-				<p>Interrupted. Run sync again?</p>
-			{:else if syncState === "synced"}
-				<p>Synced.</p>
-			{:else if syncState === "synced-empty"}
-				<p>Synced (empty library).</p>
-			{/if}
-
-			{#if jobProgress !== null}
-				<JobProgress progress={jobProgress} onCancel={cancel} />
-			{/if}
-
+		<Panel label="Sync">
 			{#if !syncing}
-				<button type="button" onclick={runSync}>Sync</button>
+				<Button onclick={runSync}>Sync now</Button>
 			{/if}
-		</section>
+			{#if syncState === "never"}
+				<p class="text-text-muted text-xs mt-2">Never synced</p>
+			{:else if syncState === "interrupted"}
+				<p class="text-text-muted text-xs mt-2">Last sync did not finish</p>
+			{:else if syncState === "synced"}
+				<p class="text-text-muted text-xs mt-2">Synced</p>
+			{:else if syncState === "synced-empty"}
+				<p class="text-text-muted text-xs mt-2">Synced (empty library)</p>
+			{/if}
+			{#if jobProgress !== null}
+				<div class="border-line mt-3 border-t pt-3">
+					<JobProgress progress={jobProgress} onCancel={cancel} />
+				</div>
+			{/if}
+		</Panel>
+
+		<Panel label="Transfer plan">
+			{#if statusCounts}
+				<SegmentBar counts={statusCounts} />
+				{#if libraryCount > 0}
+					<div class="mt-3">
+						<CountTiles counts={statusCounts} />
+					</div>
+				{:else}
+					<p class="text-text-muted text-xs">No tracks yet.</p>
+				{/if}
+			{/if}
+		</Panel>
+
+		<Panel label="Providers">
+			<div class="flex flex-col divide-y divide-surface-subtle">
+				<ProviderRow label="Tidal" state={status.tidal} />
+				<ProviderRow label="YouTube Music" state={status.ytm} />
+			</div>
+		</Panel>
 	{/if}
 </section>
-
-<style>
-	h1 {
-		font-size: 18px;
-		font-weight: 600;
-		margin: 0 0 var(--space-3);
-	}
-	.placeholder {
-		color: var(--text-2);
-	}
-	.failure {
-		color: var(--bad);
-	}
-	.providers {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-	h2 {
-		font-size: 14px;
-		font-weight: 600;
-		margin: 0 0 var(--space-2);
-	}
-	.plan {
-		margin-top: var(--space-4);
-	}
-	.sync {
-		margin-top: var(--space-4);
-	}
-</style>

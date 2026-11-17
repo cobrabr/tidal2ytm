@@ -1,8 +1,7 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "./Home.svelte";
 import { getAuthStatus, getMeta, getStatusCounts } from "../lib/ipc";
-import { startSignIn } from "../lib/auth-actions";
 import { subscribeJobs } from "../lib/jobs";
 import type { Progress } from "../lib/jobs";
 import type { AuthStatus } from "../lib/types";
@@ -13,7 +12,6 @@ import type { AuthStatus } from "../lib/types";
 // directly — what `AuthStatus.test.ts` does — cannot see a screen that stopped
 // rendering it at all, which is the defect this file exists for.
 vi.mock("../lib/ipc");
-vi.mock("../lib/auth-actions");
 vi.mock("../lib/jobs");
 
 const answer = vi.mocked(getAuthStatus);
@@ -40,7 +38,6 @@ const statesOf = async () =>
 describe("Home", () => {
 	beforeEach(() => {
 		answer.mockReset();
-		vi.mocked(startSignIn).mockReset();
 		counts.mockReset();
 		counts.mockResolvedValue({});
 		vi.mocked(getMeta).mockReset();
@@ -107,40 +104,24 @@ describe("Home", () => {
 		expect(screen.queryAllByRole("status")).toHaveLength(0);
 	});
 
-	// A failed sign-in is not a failed screen. Replacing the whole view with the
-	// message is how the import action disappeared exactly when the credential it
-	// imports was the thing that had gone wrong, leaving a restart as the only way
-	// back and no way to retry what had just failed.
-	it("keeps the providers and their actions when a sign-in fails", async () => {
-		answer.mockResolvedValue(BOTH_SIGNED_OUT);
-		vi.mocked(startSignIn).mockRejectedValue(new Error("the flow was refused"));
-
-		render(Home);
-
-		const tidal = (await screen.findAllByRole("group"))[0];
-		await fireEvent.click(within(tidal).getByRole("button", { name: /sign in/i }));
-
-		expect((await screen.findByRole("alert")).textContent).toContain("the flow was refused");
-		expect(screen.getAllByRole("status")).toHaveLength(2);
-		expect(screen.getByRole("button", { name: /import client secret/i })).toBeTruthy();
-	});
-
-	// The plan's numbers are the only thing on Home that says what a sync did,
-	// and a sync of a small library finishes before a progress line can be read.
-	// Only statuses the store actually holds are listed, so the total cannot
-	// disagree with the database by counting rows that are not there.
-	it("shows a breakdown of the statuses the plan holds", async () => {
+	// Two numbers about the same library, one screen: a heading that says 2,287
+	// above tiles that add up to something else is the sort of disagreement that
+	// makes a person distrust the whole screen. Only statuses the store actually
+	// holds get a tile, so the tiles add up to what the heading says.
+	it("agrees with itself about how many tracks the library holds", async () => {
 		answer.mockResolvedValue(BOTH_SIGNED_OUT);
 		counts.mockResolvedValue({ pending: 12, transferred: 3, failed: 1 });
 
 		render(Home);
 
+		expect(await screen.findByText("16")).toBeTruthy();
 		expect(await screen.findByText("12")).toBeTruthy();
-		// Three present statuses plus the total row; a zero-count status rendered
-		// as a row would make this seven, and would tell a person their plan holds
-		// rows it does not.
-		expect(screen.getAllByRole("term")).toHaveLength(4);
-		expect(screen.getByText("16")).toBeTruthy();
+		// One tile per status the plan holds: no total tile, and no tile for a
+		// status with no tracks. The total belongs to the page head, so the
+		// tiles' counts must add up to the number the head says.
+		const tiles = screen.getAllByRole("definition").map((tile) => Number(tile.textContent));
+		expect(tiles).toHaveLength(3);
+		expect(tiles.reduce((sum, value) => sum + value, 0)).toBe(16);
 	});
 
 	// An empty mirror and a mirror that was never fetched are different facts, so
