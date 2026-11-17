@@ -60,22 +60,13 @@
 	--ring: var(--brand);
 	--radius: 0.625rem;
 
-	/* The screens that have not been restyled yet still read these names, and
-	   so do the components they render. The readers are the shell (Task 5),
-	   the job row (Task 6), Home and the provider rows (Task 7), and
-	   Diagnostics (Task 8). Each name goes when its last reader is restyled. */
-	--surface-1: var(--surface-panel);
-	--surface-2: var(--surface-subtle);
-	--text-0: var(--text-primary);
-	--text-1: var(--text-muted);
-	--text-2: var(--text-faint);
+	/* The job row (Task 6) has not been restyled yet and still reads these five
+	   names. Each one goes when that row is restyled. */
 	--ok: var(--state-ok);
 	--warn: var(--state-warn);
 	--bad: var(--state-bad);
 	--space-1: 4px;
 	--space-2: 8px;
-	--space-3: 16px;
-	--space-4: 24px;
 }
 
 @theme inline {
